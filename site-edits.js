@@ -306,7 +306,13 @@
         var key = null;
         for (var k in byKey) if (byKey[k] === el && (k.indexOf('sec.') === 0 || k.indexOf('item.') === 0 || added[k] === el)) { key = k; break; }
         var hide = !!(key && x[key]);
-        el.style.display = hide && !EDIT ? 'none' : ((orig.get(el) || {}).display || '');
+        /* only what an edit hid is shown again: setting every repeating
+           block back to how it was written undid the page's own choices,
+           and the quiz's thank you showed all three of its boxes when the
+           edits arrived after it opened (5 Nov 2026) */
+        var was = el.hasAttribute('data-lha-hidden');
+        if (hide && !EDIT) el.style.display = 'none';
+        else if (was) el.style.display = (orig.get(el) || {}).display || '';
         el.toggleAttribute('data-lha-hidden', hide);
       });
     /* sections in their chosen order: into the slots they were written in */

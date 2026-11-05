@@ -1909,6 +1909,55 @@ function setAppStatus(id,status){
 }
 const newApps = () => apps.filter(a=>a.status==='new');
 
+/* ── answering an application (5 Nov 2026) ────────────────────────
+   Apply, then a call. The clips that came with it play here, and the
+   reply is a drafted email: Reply with a call link sends a Book the call
+   button, Not a fit yet sends the free app. The draft carries a [CHECK]
+   where what you saw goes, and the server will not send it until that is
+   gone, because what you saw is the whole reply. */
+let appReply=null, appPlaying={};
+const appClips = A => String((A||{}).clips||'').split(',').filter(x=>/^[a-f0-9]{32}$/.test(x));
+function appDraft(a, kind){
+  const A=a.answers||{}, first=String(a.name||'').split(' ')[0]||'there', n=appClips(A).length;
+  const saw = n ? `I have watched your clip${n>1?'s':''}. [CHECK: what you saw, and the one thing you would fix first]`
+                : `[CHECK: what stood out in what you sent, and the one thing you would fix first]`;
+  return kind==='notfit'
+    ? `Hi ${first},\n\nThanks for applying. [CHECK: why not yet]\n\nThe first stage of the app is free, and it is the work I would start you on anyway. Send me a clip in a month and we will look again.`
+    : `Hi ${first},\n\nThanks for applying. ${saw}\n\nThat is something I can help with, and I can see the way through it. Book a call and we will go through it together, then decide on the plan.`;
+}
+function appClipsHTML(a){
+  const A=a.answers||{}, c=appClips(A), due=Number(A.clipsDue)||0;
+  if(!c.length && !due) return '';
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">${c.map(u=>appPlaying[u]
+    ?`<iframe src="${streamEmbed(u)}" style="width:180px;max-width:100%;aspect-ratio:9/16;border:0;border-radius:12px;background:#000" allow="autoplay;fullscreen" allowfullscreen></iframe>`
+    :`<button type="button" onclick="appPlaying[${jsq(u)}]=1;draw()" title="Play" style="width:96px;aspect-ratio:9/16;border:0;border-radius:12px;cursor:pointer;
+       background:#00403d url(${streamStill(u)}) center/cover;position:relative"><span style="position:absolute;inset:auto 0 8px;font:600 11px/1 var(--sans);color:#fff">Play</span></button>`).join('')}
+    ${c.length<due?`<span class="muted" style="font-size:12.5px;align-self:center">${due-c.length} of ${due} clip${due>1?'s':''} did not arrive</span>`:''}</div>`;
+}
+function appActHTML(a){
+  const open=appReply&&appReply.id===a.id;
+  return `${open?`<div style="margin-top:12px">
+      <textarea id="ar-${esc(a.id)}" class="input" style="width:100%;min-height:180px;font:400 14px/1.55 var(--sans);padding:12px">${esc(appDraft(a,appReply.kind))}</textarea>
+      <div class="muted" style="font-size:12px;margin:6px 0 10px">${appReply.kind==='notfit'?'Goes by email with a button to the free app.':'Goes by email with a Book the call button.'} Write what you saw over the [CHECK] first.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="appReplySend(${jsq(a.id)})" ${appReply.busy?'disabled':''}>${appReply.busy?'Sending…':'Send'}</button>
+        <button class="btn btn-ghost" onclick="appReply=null;draw()">Cancel</button></div></div>`
+    :`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn btn-primary" style="font-size:12.5px" onclick="appReply={id:${jsq(a.id)},kind:'fit'};draw()">Reply with a call link</button>
+      <button class="btn btn-secondary" style="font-size:12.5px" onclick="appReply={id:${jsq(a.id)},kind:'notfit'};draw()">Not a fit yet</button></div>`}`;
+}
+function appReplySend(id){
+  const el=document.getElementById('ar-'+id), text=el?el.value.trim():'';
+  if(!text) return;
+  if(/\[CHECK/i.test(text)){ alert('Write what you saw over the [CHECK] first.'); return; }
+  const kind=appReply&&appReply.kind; appReply={...appReply,busy:1}; draw();
+  fetch(API+'/application/reply',{method:'POST',headers:hdr(),body:JSON.stringify({id,kind,text})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error)))
+    .then(d=>{ apps=apps.map(a=>a.id===id?{...a,status:d.status}:a); appReply=null; draw();
+      if(!d.sent) alert('Saved, but the email did not go. Check the email settings.'); })
+    .catch(e=>{ appReply={id,kind}; draw(); alert(e||'Could not send that.'); });
+}
+
 /* An application used to be an email and an alert. It is the single most
    valuable thing anyone does here, so it gets a queue like everything
    else that needs answering. */
@@ -1940,6 +1989,7 @@ function appsHTML(){
         </div>
         <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:4px">${esc(a.email)}</div>
         <div style="margin-top:11px">${rows||'<span style="color:var(--grey2)">No answers.</span>'}</div>
+        ${appClipsHTML(a)}${a.status==='new'?appActHTML(a):''}
         <div style="display:flex;gap:7px;margin-top:13px;flex-wrap:wrap">
           <button class="send" style="width:auto;padding:0 13px;font-size:12.5px;
             background:var(--mist);color:var(--ink)"
@@ -9036,7 +9086,8 @@ function inboxItems(){
     out.push({id:'A:'+a.id, type:'application', email:a.email,
       name:a.name||String(a.email||'').split('@')[0], at:a.at,
       action:'Review the application', app:a,
-      detail:'Applied for 1:1 coaching'+(A.level?' · '+A.level:'')
+      detail:'Applied for coaching'+(A.goal?' · '+A.goal:'')+(A.level?' · '+A.level:'')
+        +(appClips(A).length?' · '+appClips(A).length+' clip'+(appClips(A).length>1?'s':''):'')
         +(A.days||A.commitment?' · '+(A.days||A.commitment):'')+(A.injuries?' · '+clip(A.injuries,40):'')});
   });
   return out.filter(x=>!(todayClr[x.id] && (x.at||0)<=todayClr[x.id]))
@@ -9165,7 +9216,8 @@ function inboxBodyHTML(r){
         font:400 14px/1.6 var(--sans);padding:3px 0">
         <span class="muted">${k}</span><span>${esc(v)}</span></div>`).join('')
       ||'<span class="muted">No answers.</span>'}</div>
-    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
+    ${appClipsHTML(a)}${appActHTML(a)}
+    <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;margin-top:var(--space-3)">
       <button class="btn btn-secondary" onclick="openClient(${jsq(a.email)})">Open their thread</button>
       ${['replied','accepted','declined'].map(s2=>`<button class="btn ${
         a.status===s2?'btn-primary':'btn-secondary'}" style="font-size:12.5px"

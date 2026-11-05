@@ -12117,7 +12117,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       stops: pick('stops'), plan: pick('plan', 120), source: pick('source', 60),
       injuries: pick('injuries', 1200),
       notes: pick('notes', 1200), location: pick('location'),
+      /* how many clips the page is about to send (Apply, 5 Nov 2026):
+         they come after the row, one at a time, on /application/clip */
+      clipsDue: String(Math.max(0, Math.min(3, Math.floor(Number((body.answers || {}).clipsDue) || 0))) || ''),
     };
+    if (answers.clipsDue === '0') answers.clipsDue = '';
     const name = String(body.name || '').slice(0, 60);
 
     /* a stranger can send this for any address, so it never renames an
@@ -12125,6 +12129,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     await ensureAcct(e, name);
     if (name && !((await getAcct(e)) || {}).name) await saveAcct({ email: e, name });
     const [row] = await supa.insert('applications', { email: e, name, answers });
+    /* the clips go up after the row exists, so a failed upload never loses
+       the application; this key lets a page with no account send them, and
+       only to this one application */
+    const clipKey = row && row.id ? await hmac('appclip:' + row.id) : '';
 
     const lines = Object.entries(answers).filter(([, v]) => v)
       .map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>');
@@ -12157,12 +12165,61 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         greeting: (name || '').split(' ')[0] || '',
         paras: ['Your application is with me. I read every one myself and '
           + 'come back within 48 hours with whether I think it is a fit, '
-          + 'and what I would start you on.',
-          'If anything changes in the meantime, just reply to this.'],
+          + (/apply/i.test(answers.source) ? 'and if it is, a link to book a call so we can talk it through.' : 'and what I would start you on.'),
+          answers.clipsDue ? 'Your clips are with it. If any of them did not go, reply to this with them attached.' : '',
+          'If anything changes in the meantime, just reply to this.'].filter(Boolean),
         signoff: { name: coachName(coachOf(e)) },
       }));
 
-    return json({ ok: true, id: row.id });
+    return json({ ok: true, id: row.id, key: clipKey });
+  }
+
+  /* ── the clips that come with an application (5 Nov 2026) ─────────
+     Somebody applying has no account, so /upload will not have them.
+     The key from /application opens up to three films for that one
+     application and nothing else, three minutes each like a form check. */
+  if ((path === '/application/upload' || path === '/application/clip') && request.method === 'POST') {
+    const id = String(body.id || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 64);
+    const key = String(body.key || '');
+    const want = id ? await hmac('appclip:' + id) : '';
+    if (!id || !key || key.length !== want.length || key !== want) return json({ error: 'That application could not be found' }, 403);
+    const app = await supa.row('applications', `id=eq.${enc(id)}&select=id,email,answers`).catch(() => null);
+    if (!app) return json({ error: 'That application could not be found' }, 404);
+    const A = app.answers || {};
+    const have = String(A.clips || '').split(',').filter(Boolean);
+    if (path === '/application/clip') {
+      const uid = String(body.uid || '').toLowerCase();
+      if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That is not a clip' }, 400);
+      if (!have.includes(uid)) {
+        if (have.length >= 3) return json({ error: 'Three clips is the most' }, 400);
+        have.push(uid);
+        await supa.update('applications', `id=eq.${enc(id)}`, { answers: { ...A, clips: have.join(',') } });
+      }
+      return json({ ok: true, clips: have.length });
+    }
+    if (have.length >= 3 || (await rateHit(`appupl:${id}`, 7 * 86400000)) > 6) return json({ error: 'That is all the clips this one takes' }, 429);
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`appuplip:${ip}`, 86400000)) > 12) return json({ error: 'That is a lot of films for one day. Try again tomorrow.' }, 429); }
+    if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return json({ error: 'Video upload is not switched on yet' }, 503);
+    const who = norm(app.email);
+    const name = `application · ${who} · ${new Date().toISOString().slice(0, 10)}`;
+    const size = Math.floor(Number(body.size) || 0);
+    if (!(size > 0)) return json({ error: 'Which film?' }, 400);
+    const b64 = v => Buffer.from(String(v)).toString('base64');
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream?direct_user=true`,
+        { method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
+                     'Tus-Resumable': '1.0.0', 'Upload-Length': String(size),
+                     'Upload-Creator': who,
+                     'Upload-Metadata': `maxDurationSeconds ${b64(180)},name ${b64(name)}` } });
+      const loc = res.headers.get('location'), uid = res.headers.get('stream-media-id');
+      if (!res.ok || !loc || !uid) return json({ error: `Stream would not open the upload (${res.status})` }, 502);
+      return json({ tusURL: loc, uid });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
   }
 
   /* ── a photo ─────────────────────────────────────────────────────
@@ -14915,6 +14972,29 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         }
       }
       return json({ ok: true, id, status });
+    }
+
+    /* ── answering an application (5 Nov 2026) ────────────────────────
+       Apply, then a call: the reply is Elliott's words from the drafted
+       box, sent from here with a button to book the call, or, when it is
+       not a fit yet, with the free app. */
+    if (path === '/coach/application/reply' && request.method === 'POST') {
+      const id = String(body.id || '').trim();
+      const fit = body.kind !== 'notfit';
+      const text = String(body.text || '').trim().slice(0, 4000);
+      if (!id || !text) return json({ error: 'Which application, and what to say?' }, 400);
+      if (/\[CHECK/i.test(text)) return json({ error: 'There is still a [CHECK] in it. Write what you saw first.' }, 400);
+      const app = await supa.row('applications', `id=eq.${enc(id)}&select=email,name`);
+      if (!app || !app.email) return json({ error: 'That application could not be found' }, 404);
+      const paras = text.split(/\n\s*\n/).map(p => esc(p.trim()).replace(/\n/g, '<br>')).filter(Boolean);
+      const went = await email(norm(app.email), fit ? 'Your application: let us talk' : 'Your application',
+        mail({ title: fit ? 'Let us talk.' : 'Not yet.',
+          paras,
+          cta: fit ? { href: `${SITE}/call.html?from=apply`, label: 'Book the call' }
+                   : { href: `${SITE}/lha-app.html`, label: 'Open the free app' },
+          signoff: { name: coachName(asking || primaryCoach()) } }));
+      await supa.update('applications', `id=eq.${enc(id)}`, { status: fit ? 'replied' : 'declined' });
+      return json({ ok: true, sent: !!went, status: fit ? 'replied' : 'declined' });
     }
 
     if (path === '/coach/queue') {
