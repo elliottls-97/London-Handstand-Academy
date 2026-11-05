@@ -1836,7 +1836,7 @@ function feedbackHTML(){
 function loadApps(){
   fetch(API+'/applications',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
-    .then(d=>{ if(d){ apps=d.applications||[]; draw(); } })
+    .then(d=>{ if(d){ apps=d.applications||[]; appsStarted=d.started||[]; draw(); } })
     .catch(()=>{}).finally(homeStep);
   wlLoad();
 }
@@ -1915,7 +1915,25 @@ const newApps = () => apps.filter(a=>a.status==='new');
    button, Not a fit yet sends the free app. The draft carries a [CHECK]
    where what you saw goes, and the server will not send it until that is
    gone, because what you saw is the whole reply. */
-let appReply=null, appPlaying={};
+let appReply=null, appPlaying={}, appsStarted=[];
+/* started and not sent (5 Nov 2026): the email is asked first, and the
+   daily job sends one reminder a day after the last answer */
+function appsStartedHTML(){
+  if(!appsStarted.length) return '';
+  return `<div class="card" style="margin-top:var(--space-4)"><div class="kick">STARTED, NOT SENT · ${appsStarted.length}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:6px">They gave their email and stopped. One reminder goes a day after their last answer.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+    ${appsStarted.map(x=>{ const A=x.answers||{};
+      const bits=[A.goal,A.level,A.format,A.days].filter(Boolean).join(' · ');
+      return `<div data-k="st-${esc(x.email)}" style="border:1px solid var(--line);border-radius:14px;padding:12px 14px">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+          <b style="font:600 14.5px/1.3 var(--sans)">${esc(x.name||x.email.split('@')[0])}</b>
+          <span class="muted" style="font-size:12.5px">stopped at ${esc(String(x.step||'the start').toLowerCase())} · ${since(x.last||x.at)}</span>
+          <span style="font:600 9.5px/1 var(--sans);letter-spacing:.1em;padding:4px 7px;border-radius:5px;background:${x.reminded?'rgba(0,102,99,.12)':'var(--mist)'};color:var(--deep)">${x.reminded?'REMINDER SENT':'REMINDER DUE'}</span></div>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(x.email)}${bits?' · '+esc(bits):''}</div>
+        <a class="send" href="mailto:${esc(x.email)}?subject=${encodeURIComponent('Your coaching application')}" style="display:inline-flex;align-items:center;width:auto;padding:0 13px;font-size:12.5px;margin-top:9px;background:var(--mist);color:var(--ink);text-decoration:none">Email them</a>
+      </div>`; }).join('')}</div></div>`;
+}
 const appClips = A => String((A||{}).clips||'').split(',').filter(x=>/^[a-f0-9]{32}$/.test(x));
 function appDraft(a, kind){
   const A=a.answers||{}, first=String(a.name||'').split(' ')[0]||'there', n=appClips(A).length;
@@ -1967,7 +1985,7 @@ function appReplySend(id){
 function appsHTML(){
   if(!apps.length) return `<div class="card"><div class="kick">APPLICATIONS</div>
     <div style="font:400 14.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
-      Nobody has applied yet.</div></div>`;
+      Nobody has applied yet.</div></div>${appsStartedHTML()}`;
   const badge={new:'var(--terra)',replied:'#f3a949',accepted:'var(--forest)',declined:'var(--grey2)'};
   return `<div class="card"><div class="kick">APPLICATIONS · ${apps.length}</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
@@ -2004,7 +2022,7 @@ function appsHTML(){
             onclick="setAppStatus(${jsq(a.id)},'${st2}')">${st2[0].toUpperCase()+st2.slice(1)}</button>`).join('')}
         </div></div>`;
     }).join('')}
-    </div></div>`;
+    </div></div>${appsStartedHTML()}`;
 }
 
 /* the inbox: one-off form checks and two-week tests, oldest first, because

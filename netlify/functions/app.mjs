@@ -12104,6 +12104,35 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      Formspree email and an alert: no record, no status, no way to see it
      again. It is a row now, and it shows up in the dashboard like
      anything else that needs answering. */
+  /* ── an application started and not sent (5 Nov 2026) ─────────────
+     The email is the first thing asked, so somebody who stops part way
+     can be sent one reminder with a link back to where they were. Kept in
+     settings under appstart:<id> (the applications table only holds sent
+     ones), updated as each step is answered, and dropped when it is sent.
+     The daily job (cycle.mjs) sends the reminder. */
+  if ((path === '/application/start' || path === '/application/started') && request.method === 'POST') {
+    let id = String(body.id || '').replace(/[^a-z0-9]/g, '').slice(0, 40);
+    const okKey = id && body.key && String(body.key) === await hmac('appstart:' + id);
+    if (path === '/application/started') {
+      if (!okKey) return json({ error: 'That application could not be found' }, 403);
+      const v = await getSetting('appstart:' + id);
+      if (!v) return json({ error: 'That application has been sent, or has gone' }, 404);
+      return json({ name: v.name || '', email: v.email, answers: v.answers || {} });
+    }
+    const e = norm(body.email);
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return json({ error: 'That email does not look right' }, 400);
+    { const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+      if ((await rateHit(`appstartip:${ip}`, 3600000)) > 60) return json({ error: 'Too many tries. Give it an hour.' }, 429); }
+    const pick = (k, max = 200) => String((body.answers || {})[k] || '').slice(0, max);
+    const answers = { goal: pick('goal'), level: pick('level'), format: pick('format'), days: pick('days'),
+      hours: pick('hours'), injuries: pick('injuries', 1200), plan: pick('plan', 120), step: pick('step', 40) };
+    const prev = okKey ? await getSetting('appstart:' + id) : null;
+    if (!prev || norm(prev.email) !== e) id = newId();
+    await setSetting('appstart:' + id, { email: e, name: String(body.name || '').slice(0, 60), answers,
+      at: (prev && norm(prev.email) === e && prev.at) || Date.now(), last: Date.now() });
+    return json({ ok: true, id, key: await hmac('appstart:' + id) });
+  }
+
   if (path === '/application' && request.method === 'POST') {
     const who = await me();
     const e = norm(who || body.email);
@@ -12144,6 +12173,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        the application; this key lets a page with no account send them, and
        only to this one application */
     const clipKey = row && row.id ? await hmac('appclip:' + row.id) : '';
+    /* sent: the started copy goes, and with it the reminder */
+    { const sid = String(body.startId || '').replace(/[^a-z0-9]/g, '').slice(0, 40);
+      if (sid && body.startKey && String(body.startKey) === await hmac('appstart:' + sid)) await dropSetting('appstart:' + sid).catch(() => {}); }
 
     const lines = Object.entries(answers).filter(([, v]) => v)
       .map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>');
@@ -14961,9 +14993,16 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     if (path === '/coach/applications') {
       const rows = await supa.rows('applications', 'select=*&order=created_at.desc');
+      const sent = new Set((rows || []).map(a => norm(a.email)));
+      const st0 = (await supa.rows('settings', `key=like.${enc('appstart:')}*&select=key,value`).catch(() => [])) || [];
+      const started = st0.map(r => ({ id: r.key.slice(9), ...(r.value || {}) }))
+        .filter(x => x.email && !sent.has(norm(x.email))).sort((a, b) => (b.last || 0) - (a.last || 0));
+      const nudged = new Set(((await supa.rows('nudges', `key=like.${enc('applynudge:')}*&select=key`).catch(() => [])) || []).map(r => r.key.slice(11)));
       return json({ applications: (rows || []).map(a => ({
         id: a.id, email: a.email, name: a.name || '', answers: a.answers || {},
-        status: a.status, at: ms(a.created_at) })) });
+        status: a.status, at: ms(a.created_at) })),
+        started: started.map(x => ({ email: x.email, name: x.name || '', step: (x.answers || {}).step || '', answers: x.answers || {},
+          at: x.at || 0, last: x.last || 0, reminded: nudged.has(norm(x.email)) })) });
     }
 
     if (path === '/coach/application/status' && request.method === 'POST') {

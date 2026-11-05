@@ -38,6 +38,18 @@ export const EMAILS = {
     ],
     "footnote": "Sent because we spoke about coaching. This is the last one."
   },
+  "applyNudge": {
+    "name": "Application started, not sent",
+    "when": "About a day after somebody gives their email on the coaching application and stops before sending it. Once only",
+    "vars": ["name", "step"],
+    "subject": "Your application is half done",
+    "title": "Pick up where you left off.",
+    "paras": [
+      "You started an application for coaching and stopped at {step}. Your answers so far are kept, and it takes a minute to finish.",
+      "Then you pick a time for a free 15 minute consultation, where I go through what I saw and we agree the plan."
+    ],
+    "footnote": "You gave your email on the London Handstand Academy coaching application. This is the only reminder."
+  },
   "interest0": {
     "name": "Interested in coaching, straight away",
     "when": "The moment somebody presses I'm interested on the coaching plans",
@@ -1001,6 +1013,14 @@ export function tipEmail(day, T, first, site) {
 export function startLinkEmail(T, x, site) {
   return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
     blocks: [{ t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras, btn: { label: x.label, sub: 'Secure payment by Stripe', href: x.href } }],
+    sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+
+/* ── an application started and not sent: one reminder (5 Nov 2026) ── */
+export function applyNudgeEmail(T, x, site) {
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [{ t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras,
+      btn: { label: 'Finish my application', sub: 'Your answers so far are kept', href: x.href } }],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 

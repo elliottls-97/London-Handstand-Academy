@@ -4125,6 +4125,34 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
       </div>
     </div>
 
+    <!-- Step 9: who, first on Apply (5 Nov 2026): the email is asked first,
+         so somebody who stops part way can be sent one reminder -->
+    <div class="quiz-step" id="qStep9">
+      <div style="padding:28px 28px 0;">
+        <div class="quiz-step-label">You</div>
+        <h2>Apply for coaching.</h2>
+        <p class="quiz-sub">Two minutes and up to three clips. Then you pick a time for a free 15 minute consultation.</p>
+      </div>
+      <div style="padding:0 28px;">
+        <div class="quiz-form-group">
+          <label class="quiz-label" for="q9name">Your name</label>
+          <input class="quiz-input" type="text" id="q9name" autocomplete="name" placeholder="First name">
+        </div>
+        <div class="quiz-form-group">
+          <label class="quiz-label" for="q9email">Email address</label>
+          <input class="quiz-input" type="email" id="q9email" autocomplete="email" placeholder="you@example.com">
+        </div>
+        <p class="quiz-legal">Your answers are saved as you go. If you stop part way, I will send you one email with a link back to them. <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a>.</p>
+        <p class="quiz-msg" id="q9msg" role="alert" hidden></p>
+      </div>
+      <div style="padding:0 28px 28px;">
+        <div class="quiz-nav">
+          <span></span>
+          <button class="btn-quiz-next" onclick="qStartNext()">Start →</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Step 6: Contact -->
     <div class="quiz-step" id="qStep6">
       <div style="padding:28px 28px 0;">
@@ -4133,13 +4161,13 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
         <p class="quiz-sub">I read every one and reply within 48 hours.</p>
       </div>
       <div style="padding:0 28px;">
-        <div class="quiz-form-group">
+        <div class="quiz-form-group" id="q6nameBox">
           <label class="quiz-label">Your name</label>
           <input class="quiz-input" type="text" id="q6name" placeholder="First name">
         </div>
         <div class="quiz-form-group">
           <label class="quiz-label">Email address</label>
-          <input class="quiz-input" type="email" id="q6email" placeholder="you@example.com">
+          <input class="quiz-input" type="email" id="q6email" placeholder="you@example.com" data-box="1">
         </div>
         <div class="quiz-form-group">
           <label class="quiz-label">Anything else you'd like Elliott to know?</label>
@@ -4771,9 +4799,9 @@ const QUIZ_VARIANTS = {
      and no calendar on the thank you: the call is the reply. */
   apply: {
     label: 'Apply for coaching',
-    steps: [1, 2, 3, 5, 8, 6],
-    names: { 1:'Goal', 2:'Where you are', 3:'Format', 5:'Your week', 8:'Film', 6:'Contact' },
-    heads: { 2:'Where are you now?', 5:'Your week.', 6:'Last bit.' },
+    steps: [9, 1, 2, 3, 5, 8, 6],
+    names: { 9:'You', 1:'Goal', 2:'Where you are', 3:'Format', 5:'Your week', 8:'Film', 6:'Last bit' },
+    heads: { 2:'Where are you now?', 5:'Your week.', 6:'Anything else?' },
     subs:  { 2:'Today, not where you want to be.', 5:'Anything that hurts, or has, and the time you have.', 6:'Then you pick a time for your free 15 minute consultation.' },
     preset: {},
     submitLabel: 'Send my application \u2192',
@@ -4879,6 +4907,9 @@ function applyQuizVariant() {
   if (callBox) callBox.style.display = (cfg.start || cfg.noCall) ? 'none' : '';
   const applyCall = document.getElementById('doneApplyCall');
   if (applyCall) applyCall.style.display = cfg.noCall ? 'none' : '';
+  const firstWho = cfg.steps.indexOf(9) > -1;
+  ['q6nameBox'].forEach(function (id) { var b = document.getElementById(id); if (b) b.style.display = firstWho ? 'none' : ''; });
+  var e6b = document.getElementById('q6email'); if (e6b && e6b.parentElement) e6b.parentElement.style.display = firstWho ? 'none' : '';
   const daysBox = document.getElementById('q5daysBox');
   if (daysBox) daysBox.style.display = cfg.steps.indexOf(8) > -1 ? '' : 'none';
   const dc = document.getElementById('doneClips');
@@ -4909,6 +4940,9 @@ function openQuiz(e, variant) {
     var n6 = document.getElementById('q6name'), e6 = document.getElementById('q6email');
     if (n6 && !n6.value) n6.value = localStorage.getItem('lha-name') || '';
     if (e6 && !e6.value) e6.value = localStorage.getItem('lha-email') || '';
+    var n9 = document.getElementById('q9name'), e9 = document.getElementById('q9email');
+    if (n9 && !n9.value) n9.value = n6 ? n6.value : '';
+    if (e9 && !e9.value) e9.value = e6 ? e6.value : '';
     var m6 = document.getElementById('q6msg'); if (m6) m6.hidden = true;
   } catch (x) {}
   document.getElementById('quiz-overlay').classList.add('open');
@@ -4938,6 +4972,7 @@ function showStep(n) {
 function nextStep() {
   const seq = quizSeq(), i = seq.indexOf(currentStep);
   if (i > -1 && i < seq.length - 1) showStep(seq[i + 1]);
+  if (quizVariant === 'apply' && i > -1 && i < seq.length - 1) qStartSave(seq[i + 1]);
 }
 function prevStep() {
   const seq = quizSeq(), i = seq.indexOf(currentStep);
@@ -4964,6 +4999,69 @@ function checkCommitFork(el) {
   var fork = document.getElementById('q4-fork');
   if (fork) fork.style.display = isOneOff ? 'block' : 'none';
 }
+
+/* ── started, not sent (5 Nov 2026) ───────────────────────────────────
+   The name and email come first. From then on each step answered is kept
+   on the server, so a reminder can bring them back to it. The id and its
+   key live on this device too, so opening it again carries on the same one. */
+var appStart = (function () { try { return JSON.parse(localStorage.getItem('lha-appstart') || 'null') || {}; } catch (x) { return {}; } })();
+function qPicked(stepId) {
+  var el = document.querySelector('#' + stepId + ' .quiz-option.selected .quiz-option-text strong');
+  return el ? el.textContent : '';
+}
+function qStartSave(stepNo) {
+  var e = (document.getElementById('q6email').value || '').trim(); if (!e) return;
+  var v = function (id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; };
+  var body = { id: appStart.id || '', key: appStart.key || '', email: e, name: v('q6name'),
+    answers: { goal: qPicked('qStep1'), level: qPicked('qStep2'), format: qPicked('qStep3'),
+      injuries: v('q5injuries'), hours: v('q5hours'), days: v('q5days'), plan: quizCfg().plan,
+      step: (quizCfg().names || {})[stepNo] || '' } };
+  return fetch('/api/app/application/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d && d.id) { appStart = { id: d.id, key: d.key }; try { localStorage.setItem('lha-appstart', JSON.stringify(appStart)); } catch (x) {} } })
+    .catch(function () {});
+}
+function qStartNext() {
+  var n = (document.getElementById('q9name').value || '').trim(), e = (document.getElementById('q9email').value || '').trim();
+  var m = document.getElementById('q9msg');
+  var say = function (t) { if (m) { m.textContent = t; m.hidden = !t; } };
+  if (!n) { say('Your name, so I know who I am replying to.'); document.getElementById('q9name').focus(); return; }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { say(e ? 'That email does not look right. Check it for a typo.' : 'Your email, so your answers can be kept.'); document.getElementById('q9email').focus(); return; }
+  say('');
+  document.getElementById('q6name').value = n; document.getElementById('q6email').value = e;
+  try { localStorage.setItem('lha-name', n); localStorage.setItem('lha-email', e); } catch (x) {}
+  try { if (window.LHA && window.LHA.count) window.LHA.count('siteapplyemail'); } catch (x) {}
+  nextStep();
+}
+/* from the reminder: ?resume=<id>&k=<key>#apply brings back what they had */
+function qRestore(d) {
+  var A = d.answers || {};
+  document.getElementById('q9name').value = d.name || ''; document.getElementById('q9email').value = d.email || '';
+  document.getElementById('q6name').value = d.name || ''; document.getElementById('q6email').value = d.email || '';
+  [['qStep1', A.goal], ['qStep2', A.level], ['qStep3', A.format]].forEach(function (p) {
+    if (!p[1]) return;
+    document.querySelectorAll('#' + p[0] + ' .quiz-option').forEach(function (o) {
+      var t = o.querySelector('strong'); o.classList.toggle('selected', !!t && t.textContent === p[1]); });
+  });
+  [['q5injuries', A.injuries], ['q5hours', A.hours], ['q5days', A.days]].forEach(function (p) { var el = document.getElementById(p[0]); if (el && p[1]) el.value = p[1]; });
+  /* back to the step they stopped at */
+  var cfg = QUIZ_VARIANTS.apply, at = 9;
+  Object.keys(cfg.names).forEach(function (k) { if (cfg.names[k] === A.step) at = Number(k); });
+  showStep(at);
+}
+(function () {
+  var q = new URLSearchParams(location.search), id = q.get('resume'), k = q.get('k');
+  if (!id || !k) return;
+  try { history.replaceState(null, '', location.pathname + '#apply'); } catch (x) {}
+  fetch('/api/app/application/started', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, key: k }) })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d) return;
+      appStart = { id: id, key: k }; try { localStorage.setItem('lha-appstart', JSON.stringify(appStart)); } catch (x) {}
+      var go = function () { if (!document.getElementById('quiz-overlay').classList.contains('open') && window.openApply) window.openApply(); qRestore(d); };
+      setTimeout(go, 700);
+    }).catch(function () {});
+})();
 
 /* ── the clips on Apply (5 Nov 2026) ──────────────────────────────────
    Picked on the film step, sent after the application has landed, one at
@@ -5122,6 +5220,7 @@ function submitQuiz() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: name, email: email,
+      startId: quizVariant === 'apply' ? (appStart.id || '') : '', startKey: quizVariant === 'apply' ? (appStart.key || '') : '',
       answers: {
         goal: goal, level: level, format: format, commitment: commit,
         hours: hours.trim ? hours.trim() : hours,
@@ -5151,6 +5250,7 @@ function submitQuiz() {
       applyQuizFormatToDone(format);
       showStep('done');
       if (quizVariant === 'apply') {
+        appStart = {}; try { localStorage.removeItem('lha-appstart'); } catch (x) {}
         /* kept on this device, so the consultation page knows who is booking */
         try { if (appSent.id && appSent.key) localStorage.setItem('lha-appk', JSON.stringify({ a: appSent.id, k: appSent.key })); } catch (x) {}
         qBookPaint(!clipList.length);

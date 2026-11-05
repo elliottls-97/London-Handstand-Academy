@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail, startLinkEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail, applyNudgeEmail, startLinkEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -583,6 +583,7 @@ export default async () => {
   await run('payments', () => paymentsCheck(done));
   await run('intent', () => intentMail(done));
   await run('interest', () => interestMail(done));
+  await run('applyNudge', () => applyNudgeMail(done));
   await run('startlinks', () => startLinkMail(done));
   /* new class dates, to the people who asked on the class page: one email
      each with everything new. The sending lives in app.mjs, beside Send now
@@ -1090,6 +1091,46 @@ async function intentMail(done) {
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       await supa.upsert('nudges', { key: anyKey, sent_at: new Date().toISOString() }, 'key').catch(() => {});
     }
+  }
+}
+
+/* ── an application started and not sent (5 Nov 2026) ─────────────────
+   The email is asked first. A day after the last answer, if nothing has
+   been sent from that address, one reminder with a link straight back to
+   it, the answers so far kept. Once per address, ever (nudges). Started
+   copies older than 30 days are dropped. */
+async function appStartKey(id) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return Buffer.from(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode('appstart:' + id))).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+const STEP_WORDS = { Goal: 'your goal', 'Where you are': 'where you are now', Format: 'how you want to train', 'Your week': 'your week', Film: 'the clips', Contact: 'the last step' };
+async function applyNudgeMail(done) {
+  done.applyNudge = { sent: 0, dropped: 0 };
+  const now = Date.now();
+  const rows = (await supa.rows('settings', `key=like.${enc('appstart:')}*&select=key,value`).catch(() => [])) || [];
+  if (!rows.length) return;
+  const st = await guardState().catch(() => null);
+  for (const r of rows) {
+    const v = r.value || {}, id = r.key.slice(9), e = norm(v.email);
+    const last = Number(v.last || v.at) || 0;
+    if (!e || now - last > 30 * DAY) { await supa.remove('settings', `key=eq.${enc(r.key)}`).catch(() => {}); done.applyNudge.dropped++; continue; }
+    if (now - last < 20 * 3600000 || now - last > 7 * DAY) continue;
+    if (st && st.roster.has(e)) continue;
+    /* sent from this address since it was started: nothing to finish */
+    const sent = await supa.row('applications', `email=eq.${enc(e)}&created_at=gte.${enc(new Date((Number(v.at) || last) - 3600000).toISOString())}&select=id`).catch(() => null);
+    if (sent) continue;
+    const nk = 'applynudge:' + e;
+    if (await supa.row('nudges', `key=eq.${enc(nk)}&select=key`).catch(() => null)) continue;
+    const first = String(v.name || '').split(' ')[0];
+    const T = await emailCopy('applyNudge', { name: esc(first), step: esc(STEP_WORDS[(v.answers || {}).step] || 'the first step') });
+    if (!T.off) {
+      const href = `${SITE}/?resume=${enc(id)}&k=${enc(await appStartKey(id))}#apply`;
+      const went = await email(e, T.subject, applyNudgeEmail(T, { first, href }, SITE));
+      if (!went) { done.held = (done.held || 0) + 1; continue; }
+      done.applyNudge.sent++;
+    }
+    await supa.upsert('nudges', { key: nk, sent_at: new Date().toISOString() }, 'key');
   }
 }
 
