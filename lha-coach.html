@@ -3138,21 +3138,28 @@ function analysis(email){
 
   /* weeks since they started, capped at what we can usefully draw */
   const weeks=Math.max(1,Math.min(12,Math.ceil((Date.now()-start)/(7*DAY))));
+  const partW=all.filter(x=>!x.done&&(x.kind==='part'||x.mode==='ticks'||x.mode==='checkin'));
   const perWeek=[...Array(weeks)].map((_,i)=>{
     const a=start+i*7*DAY, b=a+7*DAY;
-    return done.filter(x=>x.at>=a&&x.at<b).length;
+    return done.concat(partW).filter(x=>x.at>=a&&x.at<b).length;
   });
   /* they pick their own frequency at signup — measuring everyone against
      three made a 2-a-week beginner look like they were failing and a
      5-a-week client look better than they were */
   const target=(intakes[email]&&Number(intakes[email].days))||3;
-  const adherence=weeks?Math.round(done.length/(weeks*target)*100):0;
-  const sinceLast=done.length?Math.max(0,Math.floor((Date.now()-Math.max(...done.map(x=>x.at)))/DAY)):null;
+  const adherence=weeks?Math.round((done.length+partW.length)/(weeks*target)*100):0;
   /* a day they ticked some of and not all of is a part day, not an
      abandoned session. Only a session actually started and walked out of
      counts as abandoned, which is the one worth asking about. */
   const part=all.filter(x=>!x.done&&(x.kind==='part'||x.mode==='ticks'||x.mode==='checkin'));
   const abandoned=Math.max(0, all.length-done.length-part.length);
+  /* A day they trained on is a day they trained on, finished or not. Only
+     finished sessions counted here, so Hannah read "30 days since they
+     trained" and At risk on 5 Nov 2026 after ten part sessions in October
+     and one on 1 Nov, which Today listed as Trained the same day. Finish
+     rate and minutes still come from the finished ones. */
+  const trained=done.concat(part).sort((a,b)=>a.at-b.at);
+  const sinceLast=trained.length?Math.max(0,Math.floor((Date.now()-Math.max(...trained.map(x=>x.at)))/DAY)):null;
 
   /* status is the thing you want to see before anything else */
   let status='On track', tone='ok';
@@ -3160,7 +3167,7 @@ function analysis(email){
   else if(sinceLast>10){ status='At risk'; tone='bad'; }
   else if(sinceLast>6||adherence<50){ status='Slipping'; tone='warn'; }
 
-  return {p,done,all,opens,holds,start,weeks,perWeek,target,adherence,sinceLast,part,abandoned,status,tone};
+  return {p,done,trained,all,opens,holds,start,weeks,perWeek,target,adherence,sinceLast,part,abandoned,status,tone};
 }
 
 function heatmap(opens,done){
@@ -3329,7 +3336,7 @@ function summarise(email){
   if(!a.all.length&&!a.opens.length) return ['Nothing recorded yet.'];
 
   const wks=a.weeks;
-  out.push(`${a.done.length} session${a.done.length===1?'':'s'} in ${wks} week${wks===1?'':'s'}, ${a.adherence}% of a ${a.target}-a-week plan.`);
+  out.push(`${a.trained.length} session${a.trained.length===1?'':'s'} in ${wks} week${wks===1?'':'s'}, ${a.adherence}% of a ${a.target}-a-week plan${a.part.length?', '+a.part.length+' stopped early':''}.`);
 
   /* direction of travel matters more than the total */
   if(a.perWeek.length>=4){
@@ -8593,7 +8600,7 @@ function metricsHTML(email){
 
   <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:16px">
     ${statCard(a.adherence+'%','ADHERENCE', a.adherence<50?'warn':'')}
-    ${statCard(a.done.length,'SESSIONS DONE')}
+    ${statCard(a.trained.length,'SESSIONS')}
     ${statCard(a.perWeek[a.perWeek.length-1]??0,'THIS WEEK')}
     ${statCard(finishRate===null?'—':finishRate+'%','FINISH RATE', finishRate!==null&&finishRate<70?'warn':'')}
     ${statCard(((p.opens||[]).length),'DAYS ON THE APP')}
@@ -8605,7 +8612,7 @@ function metricsHTML(email){
     ${statCard(longestStreak(a.opens),'LONGEST STREAK')}
   </div>
   <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:12px">
-    ${a.done.length} of ${a.weeks*a.target} sessions across ${a.weeks} week${a.weeks===1?'':'s'} at ${a.target} a week.
+    ${a.trained.length} of ${a.weeks*a.target} sessions across ${a.weeks} week${a.weeks===1?'':'s'} at ${a.target} a week.
     ${a.abandoned?`${a.abandoned} session${a.abandoned===1?'':'s'} started and not finished.`:''}
     ${avgActual&&avgPlanned?`Averaging ${avgActual} min against ${avgPlanned} planned.`:''}
   </div>
@@ -8970,8 +8977,12 @@ function inboxItems(){
     /* a check point logged with no clip: nothing to watch, but it is the
        thing they came to do and it used to reach nobody */
     if(q.kind==='cplog'){
+      /* a number that hit its target is a sign-off waiting on you: it sat
+         under "Also happened" with the headline reading nobody waiting,
+         so Marina's three hits on 5 Nov 2026 were invisible */
+      const hits=(q.logs||[]).filter(x=>cpLogHit(q.email,x)).length;
       out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at,
-        action:'See their check points', cplog:true, logs:q.logs||[],
+        action:'See their check points', cplog:true, logs:q.logs||[], hits, act:hits?1:0,
         detail:q.n+' check point'+(q.n===1?'':'s')+' logged'
           +((q.numbers||{}).name?' · '+q.numbers.name:'')});
       return;
@@ -9226,7 +9237,7 @@ function todayPeople(){
     by.get(k).items.push(r);
   });
   return [...by.values()].map(p=>{
-    const act=p.items.filter(x=>INBOX_TYPE[x.type].act);
+    const act=p.items.filter(x=>x.act!=null ? x.act : INBOX_TYPE[x.type].act);
     const oldest=act.length?Math.min(...act.map(x=>x.at||Date.now())):0;
     const newest=Math.max(...p.items.map(x=>x.at||0));
     const c=p.email?clients.find(x=>x.email===p.email):null;
@@ -9244,6 +9255,13 @@ function whoName(name, email){
   if(/@privaterelay\.appleid\.com$/i.test(e) && (!name || name===local)) return 'Apple hidden email ('+local.slice(0,4)+')';
   if(e && (!name || name===local)) return e;
   return name||e||'Somebody';
+}
+/* whether a logged number is at its target: by the check point's own rule
+   when it is loaded, else by the target the queue sent with it */
+function cpLogHit(email, x){
+  const def=(cpDefs[email]||[]).find(c=>c&&c.k===x.k);
+  if(def&&tracks[email]){ try{ return cpStand(email, def).state==='hit'; }catch(e){} }
+  return Number(x.target)>0 && Number(x.v)>=Number(x.target);
 }
 /* what one check point logged means now: hit and waiting on you, or not */
 function cpLogLine(email, x){
@@ -9325,9 +9343,9 @@ function lineHTML(r){
     body=`<div class="tsub"><div>${esc(r.detail)}</div></div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openClient(${je},'thread')">Open it</button>`;
   } else if(r.type==='logged'){
-    what=r.logs&&r.logs.length?(r.logs.length+' logged'):esc(r.detail);
+    what=r.hits?(r.hits+' target'+(r.hits===1?'':'s')+' hit, to sign off'):r.logs&&r.logs.length?(r.logs.length+' logged'):esc(r.detail);
     body=`<div class="tsub">${(r.logs||[]).map(x=>cpLogLine(r.email,x)).join('')}</div>`;
-    acts=`<button class="btn btn-secondary btn-sm" onclick="openCpLog(${je})">See their check points</button>
+    acts=`<button class="btn ${r.hits?'btn-primary':'btn-secondary'} btn-sm" onclick="openCpLog(${je})">${r.hits?'Sign them off':'See their check points'}</button>
       <button class="btn btn-ghost btn-sm" onclick="seenOne(${je},'cp')">Seen</button>`;
   } else if(r.type==='said'){
     what=r.said.length===1?esc(String(r.said[0].kind||'A note')):r.said.length+' things';
@@ -10471,15 +10489,20 @@ function cpStand(email, k){
   const hitV=v=>k.kind==='face'?Number(v)>=2 : k.kind==='yn'?!!Number(v)
     : tgt==null?false : lower?(Number(v)>0&&Number(v)<=tgt) : Number(v)>=tgt;
   const newer=!!(last && s0 && (last.at||0) > (s0.verdictAt||s0.at||0));
-  const waiting=!!(clip && !clip.verdict);
+  /* a clip you sent a recording back on is answered: the verdict is still
+     open, but it is not a clip to watch and not waiting on you (Hannah's
+     two, 5 Nov 2026) */
+  const replied=!!(clip && !clip.verdict && clip.replyAt);
+  const waiting=!!(clip && !clip.verdict && !clip.replyAt);
   const state = waiting ? 'clip'
     /* one that only asks how many is a record: logged or not, nothing to sign */
     : k.measure ? (last ? 'logged' : 'none')
     : s0&&s0.verdict==='reached' ? 'signed'
     : s0&&s0.verdict==='notyet'&&!newer ? 'notyet'
+    : replied ? 'replied'
     : last&&hitV(last.v) ? 'hit'
     : last ? 'going' : 'none';
-  return {hist,last,clip,s0,tgt,lower,state,waiting};
+  return {hist,last,clip,s0,tgt,lower,state,waiting,replied};
 }
 function cpTargetLine(k, tgt, lower){
   const unit=k.unit||'';
@@ -10492,7 +10515,7 @@ function cpsWaitKeys(email){
   const tr=((tracks[email]||{}).checkpoints)||{};
   return Object.keys(tr).filter(k=>{
     const clip=(tr[k]||[]).filter(r=>r&&r.video).slice(-1)[0];
-    return clip && !clip.verdict;
+    return clip && !clip.verdict && !clip.replyAt;
   });
 }
 function cpsWaiting(email){ return cpsWaitKeys(email).length; }
@@ -10531,6 +10554,7 @@ function marksPaneHTML(){
     const TAG={clip:['clip to watch','tag-accent'], hit:['target hit, sign it off','tag-accent'],
       signed:['signed off','tag-accent'], notyet:['not there yet','tag-accent-2'],
       going:['in progress','tag-neutral'], none:['nothing yet','tag-neutral'],
+      replied:['answered, verdict open','tag-neutral'],
       logged:['recording','tag-neutral']}[state];
     const needs = state==='clip' || state==='hit';
     const when = r => r && r.verdictAt ? ' '+esc(ago(r.verdictAt)) : '';

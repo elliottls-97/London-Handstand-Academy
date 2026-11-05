@@ -11566,11 +11566,20 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const k = String(body.checkpoint.k || '').slice(0, 32);
         const hist = ((cur.checkpoints || {})[k]) || [];
         const got = hist[hist.length - 1];
-        if (got && (await rateHit(`cpalert:${who}`, 20 * 60000)) === 1) {
+        if (got) {
           const defs = ((await getSetting(`programme:${who}`)) || planFile(who) || {}).checkpoints || [];
           const d = defs.find(c => c && c.k === k) || {};
-          await coachAlert(who, 'checkpoints', { title: firstNameOf(who) + ' logged a check point',
-            body: (d.n || CHECKPOINT_NAMES[k] || k) + ': ' + got.v + (d.target ? ' (target ' + d.target + ')' : ''),
+          const tgt = Number(d.target) > 0 ? Number(d.target) : 0;
+          const hit = !!tgt && (d.lower ? (got.v > 0 && got.v <= tgt) : got.v >= tgt);
+          /* a number at its target is a sign-off waiting on the coach, so it
+             goes through the twenty minute gate on its own, once per check
+             point: Marina's five logs in a minute sent one notification
+             naming the first of them, which was not one of the hits
+             (5 Nov 2026) */
+          const first = (await rateHit(`cpalert:${who}`, 20 * 60000)) === 1;
+          const firstHit = hit && (await rateHit(`cphit:${who}:${k}`, 20 * 60000)) === 1;
+          if (first || firstHit) await coachAlert(who, 'checkpoints', { title: firstNameOf(who) + (hit ? ' hit a check point target' : ' logged a check point'),
+            body: (d.n || CHECKPOINT_NAMES[k] || k) + ': ' + got.v + (tgt ? ' (target ' + tgt + (hit ? ', sign it off' : '') + ')' : ''),
             tag: 'cp:' + who, t: 'marks' });
         }
       }
