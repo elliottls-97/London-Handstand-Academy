@@ -567,6 +567,9 @@ button.cd-row{cursor:pointer}
 /* the landed screen's .climb is a grid of six (812e1c5): not here, where it
    squeezed each step into a column one word wide */
 .stairs .climb{position:relative;padding-left:34px;display:block;margin-top:0}
+/* the iPhone app's first screen is the website's animated intro (app-intro.js): full screen, in the app's own faces, clear of the notch */
+#app .awi{position:fixed;inset:0;z-index:60;--font-body:var(--sans);--font-disp:var(--serif)}
+#app .awi-in,#app .awi.two .awi-in{padding-top:calc(24px + env(safe-area-inset-top,0px))}
 .stairs .rail{position:absolute;left:11px;top:6px;bottom:22px;width:2px;border-radius:2px;
  background:linear-gradient(0deg,#8fe3d6,rgba(143,227,214,.25))}
 .stairs .rail::before{content:"";position:absolute;left:50%;top:-7px;transform:translateX(-50%);
@@ -2236,6 +2239,8 @@ button.px-step{cursor:pointer}
 <script src="ladder-data.js"></script>
 <script src="muscle-up-data.js"></script>
 <script src="timing.js"></script>
+<!-- the animated page before the app, the iPhone app's first screen; shared with the website -->
+<script src="app-intro.js"></script>
 <script src="voice.js"></script>
 <script src="vidshrink.js"></script>
 <script>
@@ -26642,6 +26647,15 @@ function maybeTour(){
   /* Tours no longer start on their own. They arrived uninvited over the
      screen somebody had just opened; "Show me around" in the top bar and
      How the app works in the menu start one when it is wanted. */
+  /* One exception (Elliott, 3 Nov 2026 "turn the guided tour on after the
+     quiz", kept 5 Nov): somebody arriving on Train for the first time
+     straight from the questions and the landing screen is walked through
+     it. Once, and only them. */
+  if(st.tourNext && st.tab==='home' && !coachedView() && !tourKey && !st.ov && !document.getElementById('tour')){
+    delete st.tourNext; save();
+    setTimeout(()=>{ if(!tourKey && !st.ov && st.tab==='home') startTour('home'); }, 700);
+    return;
+  }
   return;
   if(tourKey || st.ov || document.getElementById('tour')) return;
   if(st.token && !trackHeard) return;
@@ -26691,9 +26705,21 @@ function swapKeepBar(app, html){
     sync(a,b); if(a.innerHTML!==b.innerHTML) a.innerHTML=b.innerHTML;
   });
 }
+let appIntroH=null;
+function appIntroMount(){
+  const el=$('#awIntro'); if(!el) return; el.dataset.mounted='1';
+  appIntroH=LHAIntro.mount(el, { coaching:false, store:false,
+    onGo:()=>{ appIntroStop(); startFree(); },
+    onLogin:()=>{ appIntroStop(); st.tab='signin'; save(); render(); } });
+  appIntroH.open();
+}
+function appIntroStop(){ if(appIntroH){ try{ appIntroH.stop(); }catch(e){} appIntroH=null; } }
 function render(){
-  /* the landing screen's first-run look ends when they leave it */
-  if(st.guideNext && st.oriented) delete st.guideNext;
+  if(appIntroH && (st.mode || st.in)) appIntroStop();
+  /* the landing screen's first-run look ends when they leave it; the one
+     guided tour of Train follows (Elliott, 5 Nov 2026: "the old walk
+     through wants to stay") */
+  if(st.guideNext && st.oriented){ delete st.guideNext; if(!st.token) st.tourNext=1; }
   /* a sheet covers the page. Redrawing underneath it costs a flash and buys
      nothing — closeOv renders on the way out. */
   if(st.ov && $('#ov') && $('#ov').classList.contains('on')){ renderPending=true; return; }
@@ -26777,7 +26803,16 @@ function render(){
   if(st.tab==='joinedout' && !st.token){ swap(screenJoinedOut()); return; }
   if(st.tab==='reset'){ swap(screenReset()); return; }
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
-  if(!st.mode && !st.in){ swap(screenWelcome()); return; }
+  if(!st.mode && !st.in){
+    /* the iPhone app opens on the website's animated page (app-intro.js),
+       without Coaching. Mounted once: a redraw while it plays would start
+       the scenes again from the top. */
+    if(IOS_APP && !st.preview && window.LHAIntro){
+      if(!($('#awIntro')||{}).dataset || !$('#awIntro').dataset.mounted){ swap('<div id="awIntro" class="awi" hidden></div>'); appIntroMount(); }
+      return;
+    }
+    swap(screenWelcome()); return;
+  }
   /* Reloading part-way through the intake used to land on Today with half a
      profile filled in and the level question never answered, because resuming
      the quiz was conditional on the tab still being 'quiz'. It is not the tab
