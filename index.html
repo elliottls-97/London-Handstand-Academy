@@ -6432,9 +6432,13 @@ function homeClasses(list){
       var a = list[i];
       if (a.style.display === 'none' || now > new Date(a.getAttribute('data-ws-date'))) continue;
       var nm = a.querySelector('.cc-opt-name'), ds = a.querySelector('.cc-opt-desc'), pr = a.querySelector('.cc-opt-price');
-      var when = new Date(a.getAttribute('data-ws-next') || a.getAttribute('data-ws-date'))
+      /* the card written into the page, before the dashboard's dates load,
+         carries a far off date so it stays shown; read as a date it said
+         "Next one Thu 31 Dec" until they arrived (6 Nov 2026) */
+      var fb = a.hasAttribute('data-ws-fallback');
+      var when = fb ? 'Saturdays' : new Date(a.getAttribute('data-ws-next') || a.getAttribute('data-ws-date'))
         .toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/London' }).replace(',', '');
-      return { href: a.getAttribute('href'), name: nm ? nm.textContent.trim() : 'A class', when: when,
+      return { href: a.getAttribute('href'), name: nm ? nm.textContent.trim() : 'A class', when: when, fallback: fb,
                /* the start of the line says who it is for, when the dashboard wrote one */
                who: ds && !/\d/.test(ds.textContent.split('·')[0]) ? ds.textContent.split('·')[0].trim() : '',
                price: pr ? pr.textContent.replace(/\s*·\s*full$/, '').trim() : '' };
@@ -6444,7 +6448,8 @@ function homeClasses(list){
   function classDoorPaint(){
     var c = liveClass();
     D.querySelectorAll('[data-class-line]').forEach(function(el){
-      el.textContent = c ? 'Next one ' + c.when + (c.price ? ', ' + c.price : '') + '.' + (c.who ? ' ' + c.who + '.' : '')
+      el.textContent = c && c.fallback ? 'Saturdays at OverGravity' + (c.price ? ', ' + c.price.charAt(0).toLowerCase() + c.price.slice(1) : '') + '. Every level.'
+                     : c ? 'Next one ' + c.when + (c.price ? ', ' + c.price : '') + '.' + (c.who ? ' ' + c.who + '.' : '')
                          : 'Workshops at OverGravity. Next dates by email.';
     });
     D.querySelectorAll('.door[data-door="class"]').forEach(function(a){ a.setAttribute('href', c ? c.href : '#newsletter'); });
@@ -6933,7 +6938,7 @@ function homeClasses(list){
       three = true;
       var sa = D.getElementById('scApp'), scl = D.getElementById('scClass');
       if (sa) sa.setAttribute('href', appHref('site-bar'));
-      if (scl){ scl.setAttribute('href', c ? c.href : '/handstand-class'); scl.textContent = c ? 'Class ' + c.when.replace(/^\S+\s/, '') : 'Classes'; }
+      if (scl){ scl.setAttribute('href', c ? c.href : '/handstand-class'); scl.textContent = c && !c.fallback ? 'Class ' + c.when.replace(/^\S+\s/, '') : 'Classes'; }
     }
     bar.classList.toggle('is-three', three);
     scLabel.innerHTML = esc(lab) + '<br><a href="' + esc(sub[1]) + '">' + esc(sub[0]) + '</a>';
