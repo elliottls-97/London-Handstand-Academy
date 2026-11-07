@@ -768,7 +768,7 @@ export function afterClassEmail(d) {
   const site = d.site || SITE;
   const dates = d.dates || [];
   const o = d.offers;
-  const review = mCard(`<div style="font-size:18px;line-height:20px;letter-spacing:3px;color:${MC.amber};margin:0 0 12px">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+  const reviewCard = mCard(`<div style="font-size:18px;line-height:20px;letter-spacing:3px;color:${MC.amber};margin:0 0 12px">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
 <div class="s" style="${mf(M_SERIF, 30, 34, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit('Leave a review.')}</div>
 ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) + mBtn(d.review, 'Write a review', true)
   : mPara('Reply with a sentence about how you found it, good or bad. I read every one.', 10)}`);
@@ -812,6 +812,7 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
       [{ href: `${site}/#coaching`, label: 'See coaching' }])
     : '';
   /* the dates in the top card, under the words (Elliott, 7 Nov 2026: "integrate next dates to the top bit of email") */
+  const review = d.noReview ? '' : reviewCard;
   const html = dates.length
     ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>` })) + review + offers)
     : mShell(d, mHero(d) + review + mH2('Next dates.') + datesCard + offers);
@@ -825,8 +826,8 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
   else T.push('New dates are on the way.', d.more || `${site}/handstand-class`, '');
   if (d.heroAfter) T.push(mPlain(d.heroAfter), '');
   if (d.cta && d.cta.href) T.push(`${d.cta.label || 'Book'}: ${d.cta.href}`, '');
-  T.push('LEAVE A REVIEW');
-  if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
+  if (!d.noReview) T.push('LEAVE A REVIEW');
+  if (d.noReview) {} else if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
   else T.push('Reply with a sentence about how you found it, good or bad. I read every one.', '');
   if (o) {
     T.push('KEEP GOING', '',

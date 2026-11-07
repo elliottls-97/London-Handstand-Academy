@@ -1036,6 +1036,63 @@ async function workshopMail(done) {
       }
     }
   }
+  await classNews(all, afterData, done);
+}
+
+/* ── the new Saturday class, told to people who came before (Elliott, 7 Nov 2026:
+   "send out a similar email for people who came to previous classes (but didn't come
+   to this one!) to let them know about it (without the discount code!). Email should
+   send tomorrow morning at 9am"). Once each, on the morning run of the day named,
+   to everyone who came to a class before and was not at the classes named in skip,
+   unless they have booked a date to come already. Offers off or unsubscribed: held. */
+const CLASS_NEWS = { id: 'sat11-2026-11', on: '2026-11-08', skip: ['calisthenics-class', 'all-levels-handsta-7-nov'] };
+async function classNews(all, afterData, done) {
+  const N = CLASS_NEWS;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  if (today !== N.on) return;
+  const books = {};
+  for (const w of Object.values(all)) {
+    if (!w || !w.slug || !w.when) continue;
+    const r = await supa.row('settings', `key=eq.${enc('wsbook:' + w.slug)}&select=value`).catch(() => null);
+    books[w.slug] = ((r && r.value) || []).filter(p => p && p.email && p.status !== 'cancelled' && p.status !== 'refunded' && p.status !== 'moved');
+  }
+  const out = new Set(), came = new Map();
+  for (const w of Object.values(all)) {
+    if (!w || !w.slug || !w.when) continue;
+    const B = books[w.slug] || [];
+    if (N.skip.includes(w.slug) || ms(w.when) > Date.now()) { B.forEach(p => out.add(norm(p.email))); continue; }
+    for (const p of B) if (p.attended !== 'no' && !came.has(norm(p.email))) came.set(norm(p.email), p);
+  }
+  const A = await afterData();
+  const sat = A.coming.filter(c => /all levels|calisthenics/i.test((c.w && c.w.title) || ''));
+  if (!sat.length) return;
+  const next = sat[0];
+  const dm = c => new Date(ms(c.w.when)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+  done.workshops.news = 0;
+  for (const [e, p] of came) {
+    if (out.has(e)) continue;
+    const key = `classnews:${N.id}:${e}`;
+    if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+    const first = String(p.name || '').split(' ')[0];
+    const M = afterClassEmail({ site: SITE, first, noReview: true,
+      kicker: 'Saturday classes', title: 'Every Saturday at 11.',
+      paras: ['Thanks for coming to one of my classes. A quick note, because Saturdays have changed.',
+        'There is now one class every Saturday, 11am to 12, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels. The 1pm class has gone, so this is the one to come to.'],
+      cta: { href: wsBookHref(next.w), label: `Book ${dm(next)}` },
+      headshot: '/assets/site/coach-elliott-headshot.jpg',
+      preheader: `One class every Saturday, 11am to 12. Next: ${wsWhenTxt(next.w).split(', ')[0]}.`,
+      footnote: 'You are getting this because you came to one of my classes.',
+      dates: sat.map(c => { const [d0, ...t] = wsWhenTxt(c.w).split(', ');
+        return { day: d0, time: t.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim(),
+          price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
+          left: c.left, full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
+      more: `${SITE}/handstand-class`,
+      offers: !A.roster.has(e) && (await wantsEmail(e, 'offers')) ? A.prices : null });
+    await email(e, 'Saturdays have changed: every week at 11', M.html, 'offers', { text: M.text });
+    if (sendFailed) { done.failed = (done.failed || 0) + 1; continue; }
+    done.workshops.news++;
+    await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
+  }
 }
 
 /* ── started booking and stopped ────────────────────────────────────────
