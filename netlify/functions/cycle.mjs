@@ -967,12 +967,16 @@ async function workshopMail(done) {
           const pitch = !A.roster.has(e) && (await wantsEmail(e, 'offers'));
           /* a calisthenics class with another one within the week (Elliott, 7 Nov 2026): said
              straight under the thank you, not only in the dates further down */
-          const caliNext = /calisthenics/i.test(w.title || '')
-            ? A.coming.find(c => /calisthenics/i.test((c.w && c.w.title) || '') && ms(c.w.when) > at && ms(c.w.when) - at < 8 * 24 * 3600e3) : null;
+          /* 7 Nov 2026, the new schedule: one class every Saturday at 11, handstands then the week's topic.
+             Anybody at a Saturday class hears about next Saturday's; the code below stays with the
+             calisthenics class it was made for */
+          const SAT = /all levels|calisthenics/i;
+          const caliNext = SAT.test(w.title || '')
+            ? A.coming.find(c => SAT.test((c.w && c.w.title) || '') && ms(c.w.when) > at && ms(c.w.when) - at < 8 * 24 * 3600e3) : null;
           /* a live class code made in the dashboard for that date (7 Nov 2026: "an offer at £15 if they
              sign up today"): offered under the line, with the date's book button carrying it */
           let caliCode = null;
-          if (caliNext) {
+          if (caliNext && /calisthenics/i.test(w.title || '')) {
             const codes = (await supa.row('settings', 'key=eq.wscodes&select=value').catch(() => null) || {}).value || {};
             for (const [c, d] of Object.entries(codes)) {
               if (!d || d.off === false || d.for === 'session' || d.workshop !== caliNext.w.slug) continue;
@@ -987,7 +991,9 @@ async function workshopMail(done) {
             const d = t.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const h = t.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
             const same = h === new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
-            const base = `There is another calisthenics class next week, on <b>${esc(d)}</b> at ${esc(h)}${same ? ', the same time' : ''}.`;
+            const topic = String(caliNext.w.topic || '').trim();
+            const base = `The class is now every Saturday at 11am, in Arch 2 at OverGravity: handstands every week, then that week's topic. `
+              + `Next is <b>${esc(d)}</b>${same ? ', the same time' : ''}${topic ? ': ' + esc(topic.charAt(0).toLowerCase() + topic.slice(1)) : ''}.`;
             if (!caliCode) return base;
             const price = Number(caliNext.w.price) || 0;
             const off = caliCode.d.pct ? Math.round(price * Math.min(100, Number(caliCode.d.pct)) / 100) : Math.min(price, Math.round(Number(caliCode.d.pence) || 0));
