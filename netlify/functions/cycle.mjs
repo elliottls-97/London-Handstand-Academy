@@ -1077,7 +1077,7 @@ async function classNews(all, afterData, done) {
     const M = afterClassEmail({ site: SITE, first, noReview: true,
       kicker: 'Saturday classes', title: 'Every Saturday at 11.',
       paras: ['Thanks for coming to one of my classes. A quick note, because Saturdays have changed.',
-        'There is now one class every Saturday, 11am to 12, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels. The 1pm class has gone, so this is the one to come to.'],
+        'There is now one class every Saturday, 11am to 12, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels.'],
       cta: { href: wsBookHref(next.w), label: `Book ${dm(next)}` },
       headshot: '/assets/site/coach-elliott-headshot.jpg',
       preheader: `One class every Saturday, 11am to 12. Next: ${wsWhenTxt(next.w).split(', ')[0]}.`,
