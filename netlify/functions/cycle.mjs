@@ -1003,28 +1003,29 @@ async function workshopMail(done) {
             const h = t.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
             const same = h === new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
             const topic = String(caliNext.w.topic || '').trim();
-            const base = `The class is now every Saturday at 11am, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels. `
-              + `Next is <b>${esc(d)}</b>${same ? ', the same time' : ''}${topic ? ': ' + esc(topic.charAt(0).toLowerCase() + topic.slice(1)) : ''}.`;
+            /* the dates themselves are listed under these words now, each with its topic */
+            const base = `The class is now every Saturday at 11am, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels.`;
             if (!caliCode) return base;
             const day = x => new Date(x).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const by = caliCode.d.until ? day(ms(caliCode.d.until)) : '';
-            const when = !by ? '' : by === day(Date.now()) ? ' by this evening' : by === day(Date.now() + 864e5) ? ' by tomorrow evening' : ` by ${esc(by.split(' ')[0])} evening`;
+            const when = !by ? '' : by === day(Date.now()) ? 'midnight tonight' : by === day(Date.now() + 864e5) ? 'midnight tomorrow' : `midnight on ${esc(by.split(' ')[0])}`;
             const a = parseInt(dm(both[0])), m0 = dm(both[0]).split(' ')[1], m1 = dm(both[1]).split(' ')[1];
             const pair = m0 === m1 ? `<b>${a} and ${esc(dm(both[1]))}</b>` : `<b>${esc(dm(both[0]))} and ${esc(dm(both[1]))}</b>`;
-            return base + ` Book both, ${pair},${when} with code <b>${esc(caliCode.c)}</b> and you get ${gbp(Math.round((full - bothPrice) / 2))} off each: ${gbp(bothPrice)} for the two instead of ${gbp(full)}. The button puts the code in for you.`;
+            /* 7 Nov: "not clear on the email!!!": the offer on its own, price first, then how */
+            return [base, `<b>Book the next two, ${pair.replace(/<\/?b>/g, '')}, for ${gbp(bothPrice)} instead of ${gbp(full)}.</b> Use code <b>${esc(caliCode.c)}</b>${when ? ' before ' + when : ''}. The button below puts the code in; tick both dates.`];
           })() : '';
           /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
           const withCode = h => caliCode ? h.replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, hh) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (hh || '')) : h;
           const caliCta = caliNext ? { href: withCode(wsBookHref(caliNext.w)), label: caliCode ? `Book both for ${gbp(bothPrice)}` : `Book ${dm(caliNext)}` } : null;
           /* no photo on the thank you (Elliott, 7 Nov 2026) */
-          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote, cta: caliCta,
+          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([].concat(caliLine)[0]) : T.paras, heroAfter: caliLine ? [].concat(caliLine)[1] || '' : '', footnote: T.footnote, cta: caliCta,
             kicker: w.title, review: reviewUrl,
             headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: A.coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(A.coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
             dates: A.coming.map(c => {
               const [d0, ...t] = wsWhenTxt(c.w).split(', ');
               return { day: d0, time: t.join(', '), place: c.w.place || '',
-                what: wsKind(c.w) === wsKind(w) ? '' : c.w.title,
+                what: String(c.w.topic || '').trim() || (wsKind(c.w) === wsKind(w) ? '' : c.w.title),
                 price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: c.left, full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */

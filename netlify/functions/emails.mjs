@@ -689,6 +689,7 @@ ${d.photo ? `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${esc
 ${d.kicker ? mKick(escH(d.kicker)) : ''}
 <h1 class="h1 s" style="margin:0;${mf(M_SERIF, 42, 44, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(escH(d.title || ''))}</h1>
 ${first ? mPara(`Hi ${first},`, 18) : ''}${paras.map((p, i) => mPara(p, i || first ? 12 : 18)).join('')}
+${d.heroInner || ''}${d.heroAfter ? mPara(d.heroAfter, 4) : ''}
 ${d.cta && d.cta.href ? mBtn(d.cta.href, escH(d.cta.label || 'Book'), true) : ''}
 </td></tr></table></td></tr>`;
 };
@@ -810,18 +811,23 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
         `${escH(o.online)} a month online. ${escH(o.inperson)} with a session in London each month.`, placesLine],
       [{ href: `${site}/#coaching`, label: 'See coaching' }])
     : '';
-  const html = mShell(d, mHero(d) + review + mH2('Next dates.') + datesCard + offers);
+  /* the dates in the top card, under the words (Elliott, 7 Nov 2026: "integrate next dates to the top bit of email") */
+  const html = dates.length
+    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>` })) + review + offers)
+    : mShell(d, mHero(d) + review + mH2('Next dates.') + datesCard + offers);
 
-  const T = mTextTop(d);
-  T.push('LEAVE A REVIEW');
-  if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
-  else T.push('Reply with a sentence about how you found it, good or bad. I read every one.', '');
+  const T = mTextTop(Object.assign({}, d, { cta: null }));
   T.push('NEXT DATES');
   if (dates.length) dates.forEach(x => {
     T.push([x.day, x.what, x.time, x.place, x.price].filter(Boolean).join(', ') + (leftTxt(x) ? `. ${leftTxt(x)}` : ''));
     T.push(x.booked ? 'You are booked.' : x.full ? 'Full.' : `Book: ${x.href}`, '');
   });
   else T.push('New dates are on the way.', d.more || `${site}/handstand-class`, '');
+  if (d.heroAfter) T.push(mPlain(d.heroAfter), '');
+  if (d.cta && d.cta.href) T.push(`${d.cta.label || 'Book'}: ${d.cta.href}`, '');
+  T.push('LEAVE A REVIEW');
+  if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
+  else T.push('Reply with a sentence about how you found it, good or bad. I read every one.', '');
   if (o) {
     T.push('KEEP GOING', '',
       `The Handstand Ladder app. First stage free. The other five, ${o.app} a month, ${trialTxt} free. A muscle up plan joins it soon.`,
