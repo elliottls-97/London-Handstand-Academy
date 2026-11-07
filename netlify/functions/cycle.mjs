@@ -988,7 +988,7 @@ async function workshopMail(done) {
             const h = t.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
             const same = h === new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
             const base = `There is another calisthenics class next week, on <b>${esc(d)}</b> at ${esc(h)}${same ? ', the same time' : ''}.`;
-            if (!caliCode) return base + ' Book it below.';
+            if (!caliCode) return base;
             const price = Number(caliNext.w.price) || 0;
             const off = caliCode.d.pct ? Math.round(price * Math.min(100, Number(caliCode.d.pct)) / 100) : Math.min(price, Math.round(Number(caliCode.d.pence) || 0));
             const by = caliCode.d.until ? new Date(ms(caliCode.d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '') : '';
@@ -996,10 +996,15 @@ async function workshopMail(done) {
             /* "book before midnight" (Elliott, 7 Nov 2026): tonight when the code ends on the day it is sent */
             const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const when = !by ? '' : by === today ? ' before midnight tonight' : ` before midnight on ${esc(by)}`;
-            return base + ` Book it${when} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The Book button below puts the code in for you.`;
+            return base + ` Book it${when} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The button puts the code in for you.`;
           })() : '';
+          /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
+          const withCode = h => caliCode ? h.replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, hh) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (hh || '')) : h;
+          const caliCta = caliNext ? { href: withCode(wsBookHref(caliNext.w)), label: caliCode && caliCode.d.pence > 0 && !caliCode.d.pct
+            ? `Book ${new Date(ms(caliNext.w.when)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })} for £${((caliNext.w.price - Math.min(caliNext.w.price, caliCode.d.pence)) / 100).toFixed(2).replace(/\.00$/, '')}`
+            : `Book ${new Date(ms(caliNext.w.when)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' })}` } : null;
           /* no photo on the thank you (Elliott, 7 Nov 2026) */
-          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote,
+          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote, cta: caliCta,
             kicker: w.title, review: reviewUrl,
             headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: A.coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(A.coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',

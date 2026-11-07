@@ -689,6 +689,7 @@ ${d.photo ? `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${esc
 ${d.kicker ? mKick(escH(d.kicker)) : ''}
 <h1 class="h1 s" style="margin:0;${mf(M_SERIF, 42, 44, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(escH(d.title || ''))}</h1>
 ${first ? mPara(`Hi ${first},`, 18) : ''}${paras.map((p, i) => mPara(p, i || first ? 12 : 18)).join('')}
+${d.cta && d.cta.href ? mBtn(d.cta.href, escH(d.cta.label || 'Book'), true) : ''}
 </td></tr></table></td></tr>`;
 };
 const mSign = d => {
@@ -750,6 +751,7 @@ const mTextTop = d => {
   const T = [mPlain(escH(d.title || '')), ''];
   if (d.first) T.push(`Hi ${d.first},`, '');
   (d.paras || []).filter(Boolean).forEach(p => T.push(mPlain(p), ''));
+  if (d.cta && d.cta.href) T.push(`${d.cta.label || 'Book'}: ${d.cta.href}`, '');
   return T;
 };
 const mTextEnd = (T, d) => {
