@@ -94,7 +94,7 @@ const wsWhenTxt = w => {
   if (!w || !w.when) return '';
   /* as app.mjs wsMins: the calisthenics class is an hour, and read as two
      hours here, 11am to 1pm, in its reminder and the day after (24 Oct 2026) */
-  const a = new Date(w.when).getTime(), b = a + (/all levels/i.test(w.title || '') ? 90 : /calisthenics/i.test(w.title || '') ? 60 : 120) * 60e3;
+  const a = new Date(w.when).getTime(), b = a + (Number(w.mins) > 0 ? Number(w.mins) : /all levels/i.test(w.title || '') ? 90 : /calisthenics/i.test(w.title || '') ? 60 : 120) * 60e3;
   const s = wsClock(a), e = wsClock(b);
   return new Date(a).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' })
     + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
@@ -863,7 +863,7 @@ async function workshopMail(done) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '',
-            arch: /calisthenics/i.test(w.title || '') ? 'Arch 2' : 'Arch 1 (the purple room)',
+            arch: 'Arch 2',
             directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Directions</a>.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           /* a reminder the booking promised is theirs, like a receipt; and it

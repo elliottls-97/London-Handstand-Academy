@@ -469,7 +469,7 @@ export const EMAILS = {
     "paras": [
       "<b>{title}</b>, {when}{place}.",
       "We are in <b>{arch}</b> at OverGravity: Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. {directions}",
-      "Here early, or doing both classes? Wait in the café in Arch 1 between them. There are changing rooms, so you can change when you get there.",
+      "Here early? There is a café to wait in, and changing rooms, so you can change when you get there.",
       "Bring clothes you can move in and some water. Arrive ten minutes early so we start on time."
     ]
   },
@@ -505,7 +505,7 @@ export const EMAILS = {
     "title": "Your place is not held yet.",
     "paras": [
       "You started booking <b>{title}</b>, {when}{place}, and did not get to the end. No payment was taken and nothing is held for you, so if you want to come, the place is still open.",
-      "People leave the class with a handstand that has moved on in ninety minutes: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. {coach_line} 5.0 on Google.",
+      "People leave the class with a handstand that has moved on in one class: a first hold against the wall, the first seconds of balance off it, or the next piece of the press. {coach_line} 5.0 on Google.",
       "{early_line} It takes a minute to book, card or Apple Pay, no account. {pair_line} If you have changed your mind, ignore this: there is one more short note in a few days, and that is all.",
       "Any question, just reply."
     ],
@@ -1108,7 +1108,7 @@ export function classAlertEmail(x, site) {
             <a href="${escH(c.href)}" style="font:600 13.5px/1.6 ${FS};color:#006663">${c.full ? 'Waiting list' : 'Book'}</a>${c.left && !c.full ? `<div style="font:400 12px/1.3 ${FS};color:${c.left <= 3 ? '#a4503c' : '#686868'}">${c.left} left</div>` : ''}</td></tr></table>`).join('')] }] : []),
       { t: 'card', kicker: 'Where', head: '', hi: 'OverGravity, Shadwell', appTone: true,
         paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Open in Google Maps</a>.',
-          '<b>Handstands are in Arch 1</b>, the purple room, with soft mats and wall. <b>Calisthenics is in Arch 2</b>, with the bars, rings and parallel bars. There are changing rooms, and a caf&eacute; in Arch 1 to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
+          'Every class is in <b>Arch 2</b>, with soft mats, wall, bars and rings. There are changing rooms, and a caf&eacute; to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
       ...(news.some(two) ? [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }] : []),
       { t: 'card', paras: [`Can't make ${one ? 'this one' : 'these'} either? Book a <a href="${S}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${S}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
           `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },

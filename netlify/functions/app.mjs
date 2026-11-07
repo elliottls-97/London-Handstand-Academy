@@ -203,7 +203,8 @@ const wsPounds = v => '£' + ((Number(v) || 0) / 100).toFixed(2).replace(/\.00$/
 const wsDayOf = w => w && w.when ? new Date(ms(w.when)).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }) : '';
 const wsPairOk = (w, w2) => !!w && !!w2 && (wsKindOf(w) === wsKindOf(w2)
   || (!!wsDayOf(w) && wsDayOf(w) === wsDayOf(w2) && /all levels|calisthenics/i.test(w.title || '') && /all levels|calisthenics/i.test(w2.title || '') && wsKindOf(w) !== wsKindOf(w2)));
-const wsMins = w => /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
+/* a class's own length when it has one (7 Nov 2026: Saturdays at 11, 75 minutes, a topic a week) */
+const wsMins = w => Number(w && w.mins) > 0 ? Number(w.mins) : /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
 /* where a class is booked: the All Levels and Calisthenics classes share the
    class page; anything else has its own page */
 const wsPageHref = (w, src) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
@@ -320,7 +321,7 @@ async function wsManageLink(slug, addr, session, until) {
 const WS_MAP = 'https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB';
 /* the handstand class is in Arch 1, the purple room; calisthenics in Arch 2
    with the bars and rings (Elliott, 25 Oct 2026) */
-const wsArch = w => /calisthenics/i.test((w && w.title) || '') ? 'Arch 2' : 'Arch 1 (the purple room)';
+const wsArch = w => 'Arch 2';   /* every class in Arch 2 (Elliott, 7 Nov 2026) */
 function wsWhereHTML(w) {
   if (w && w.place && !/overgravity/i.test(w.place)) return `<b>Where:</b> ${esc(w.place)}.`;
   return `<b>Where:</b> OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
@@ -668,7 +669,7 @@ async function caSendDue() {
     const { due, onSale } = await caWhoDue();
     if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
-    const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'calisthenics' ? 'Arch 2' : caKindOf(o.c) === 'handstand' ? 'Arch 1' : '',
+    const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : 'Arch 2',
       price: pl(o.c), left: o.left, full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
     for (const { e, x, fresh } of due.slice(0, 90)) {
       const newSet = new Set(fresh.map(o => o.c.slug));
@@ -1498,7 +1499,7 @@ async function newsRender({ subject, body, slug, blocks }, test) {
     return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
       card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
-      btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? 'All levels · 90 minutes' : '', href: newsClassHref(w, w.slug) } };
+      btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
   };
   const first = test ? test.first : '{{{contact.first_name|there}}}';
   /* the sections the editor sends, or the one box of words it used to */
@@ -7344,7 +7345,7 @@ const handle = async (request) => {
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
-    desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '',
+    desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '', mins: wsMins(w), topic: w.topic || '',
     early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
       thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w) } : null });
   if (path === '/workshops' && request.method === 'GET') {
@@ -8480,6 +8481,8 @@ const handle = async (request) => {
         slug, title: str(f.title, 80) || slug,
         when: whenMs ? new Date(whenMs).toISOString() : '',
         place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80), coach: str(f.coach, 60).trim(),
+        /* the week's topic and the class's length in minutes (7 Nov 2026); no length keeps the old one by title */
+        topic: str(f.topic, 80).trim(), mins: Math.max(0, Math.min(480, Math.round(Number(f.mins) || 0))) || undefined,
         /* on a rename the stored record is under the old slug, and reading
            the new one would quietly make the workshop free */
         price: owner ? Math.max(0, Math.round(Number(f.price) || 0))

@@ -49,7 +49,7 @@ function classEvents(list, origin) {
     .map(w => { const t = Date.parse(w.when);
       return { '@context': 'https://schema.org', '@type': 'Event', name: w.title || 'All Levels Handstand Class',
         image: [origin + '/assets/site/latest-workshop-group-handstand-picture.jpg'],
-        startDate: new Date(t).toISOString(), endDate: new Date(t + 90 * 60000).toISOString(),
+        startDate: new Date(t).toISOString(), endDate: new Date(t + (Number(w.mins) || 90) * 60000).toISOString(),
         eventStatus: 'https://schema.org/EventScheduled', eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
         location: EV_LOC,
         organizer: { '@type': 'Organization', name: 'London Handstand Academy', url: origin + '/' },
@@ -57,7 +57,7 @@ function classEvents(list, origin) {
         offers: { '@type': 'Offer', price: String((Number(w.price) || 0) / 100), priceCurrency: 'GBP',
           /* no place limit is not sold out: the API sends left 0 when places is 0 */
           availability: Number(w.places) > 0 && w.left === 0 ? 'https://schema.org/SoldOut' : 'https://schema.org/InStock', url: origin + '/handstand-class' },
-        description: 'A 90 minute all levels handstand class. Complete beginners through to press and one arm work. Every drill has a regression and a progression, so everyone works on the next thing for them.' }; });
+        description: 'A ' + (Number(w.mins) || 90) + ' minute all levels handstand class. Complete beginners through to press and one arm work. Every drill has a regression and a progression, so everyone works on the next thing for them.' }; });
 }
 
 function setMeta(html, re, tag) {
