@@ -26,7 +26,7 @@ const london = ts => {
 const parts = d => { const p = d.split('-'), t = new Date(Date.UTC(+p[0], p[1] - 1, +p[2], 12)); return { dow: DAY[t.getUTCDay()], dd: +p[2], m: MON[p[1] - 1] }; };
 
 function classTitle(list) {
-  const up = (list || []).filter(w => w && w.when && /all levels/i.test(w.title || ''))
+  const up = (list || []).filter(w => w && w.when && /all levels|handstand and calisthenics/i.test(w.title || ''))
     .map(w => Date.parse(w.when)).filter(t => t && t + 90 * 60000 > Date.now()).sort((x, y) => x - y)
     .map(t => { const g = london(t); return parts(g.year + '-' + g.month + '-' + g.day); });
   if (!up.length) return '';
@@ -44,7 +44,7 @@ const EV_LOC = { '@type': 'Place', name: 'OverGravity Gymnastics',
   address: { '@type': 'PostalAddress', streetAddress: 'Arches 160 to 163, Sutton Street', addressLocality: 'London',
     postalCode: 'E1 0DB', addressRegion: 'Shadwell', addressCountry: 'GB' } };
 function classEvents(list, origin) {
-  return (list || []).filter(w => w && w.when && /all levels/i.test(w.title || '') && Date.parse(w.when) + 90 * 60000 > Date.now())
+  return (list || []).filter(w => w && w.when && /all levels|handstand and calisthenics/i.test(w.title || '') && Date.parse(w.when) + 90 * 60000 > Date.now())
     .sort((x, y) => Date.parse(x.when) - Date.parse(y.when)).slice(0, 6)
     .map(w => { const t = Date.parse(w.when);
       return { '@context': 'https://schema.org', '@type': 'Event', name: w.title || 'All Levels Handstand Class',

@@ -94,7 +94,7 @@ const wsWhenTxt = w => {
   if (!w || !w.when) return '';
   /* as app.mjs wsMins: the calisthenics class is an hour, and read as two
      hours here, 11am to 1pm, in its reminder and the day after (24 Oct 2026) */
-  const a = new Date(w.when).getTime(), b = a + (Number(w.mins) > 0 ? Number(w.mins) : /all levels/i.test(w.title || '') ? 90 : /calisthenics/i.test(w.title || '') ? 60 : 120) * 60e3;
+  const a = new Date(w.when).getTime(), b = a + (Number(w.mins) > 0 ? Number(w.mins) : /handstand and calisthenics/i.test(w.title || '') ? 60 : /all levels/i.test(w.title || '') ? 90 : /calisthenics/i.test(w.title || '') ? 60 : 120) * 60e3;
   const s = wsClock(a), e = wsClock(b);
   return new Date(a).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' })
     + ', ' + (s.slice(-2) === e.slice(-2) ? s.slice(0, -2) : s) + ' to ' + e;
@@ -1043,7 +1043,7 @@ async function workshopMail(done) {
    anything else is workshop.html. Every started booking email sent people
    to the all levels page, which does not offer the others (16 Oct 2026,
    review), as the after-class email already knew. */
-const wsBookHref = w => /all levels/i.test((w && w.title) || '')
+const wsBookHref = w => /all levels|handstand and calisthenics/i.test((w && w.title) || '')
   ? `${SITE}/handstand-class?src=email#book` : /calisthenics/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=calisthenics&src=email#book` : `${SITE}/workshop.html?slug=${enc(w.slug)}&src=email`;
 async function intentMail(done) {
   done.intents = { reminded: 0 };

@@ -204,10 +204,10 @@ const wsDayOf = w => w && w.when ? new Date(ms(w.when)).toLocaleDateString('en-G
 const wsPairOk = (w, w2) => !!w && !!w2 && (wsKindOf(w) === wsKindOf(w2)
   || (!!wsDayOf(w) && wsDayOf(w) === wsDayOf(w2) && /all levels|calisthenics/i.test(w.title || '') && /all levels|calisthenics/i.test(w2.title || '') && wsKindOf(w) !== wsKindOf(w2)));
 /* a class's own length when it has one (7 Nov 2026: Saturdays at 11, 75 minutes, a topic a week) */
-const wsMins = w => Number(w && w.mins) > 0 ? Number(w.mins) : /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
+const wsMins = w => Number(w && w.mins) > 0 ? Number(w.mins) : /handstand and calisthenics/i.test((w && w.title) || '') ? 60 : /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
 /* where a class is booked: the All Levels and Calisthenics classes share the
    class page; anything else has its own page */
-const wsPageHref = (w, src) => /all levels/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
+const wsPageHref = (w, src) => /all levels|handstand and calisthenics/i.test((w && w.title) || '') ? `${SITE}/handstand-class${src ? '?src=' + src : ''}#book`
   : /calisthenics/i.test((w && w.title) || '') ? `${SITE}/handstand-class?class=calisthenics${src ? '&src=' + src : ''}#book`
   : `${SITE}/workshop.html?slug=${enc(w && w.slug)}${src ? '&src=' + src : ''}`;
 const wsClock = t => new Date(t).toLocaleString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(/\s+/g, '').toLowerCase();
@@ -641,7 +641,7 @@ async function wsOfferFreed(slug, w) {
    classes put on sale after they asked: a date they have already seen and
    could not make is not news. Each email carries a way off the list. */
 const CA_KINDS = { handstand: 'Handstand classes', calisthenics: 'Calisthenics: pull ups to muscle ups', workshop: 'Workshops and specials' };
-const caKindOf = w => { const t = String((w && w.title) || ''); return /calisthenic|muscle|pull ?up/i.test(t) ? 'calisthenics' : /handstand|all levels/i.test(t) ? 'handstand' : 'workshop'; };
+const caKindOf = w => { const t = String((w && w.title) || ''); return /handstand and calisthenics/i.test(t) ? 'handstand' : /calisthenic|muscle|pull ?up/i.test(t) ? 'calisthenics' : /handstand|all levels/i.test(t) ? 'handstand' : 'workshop'; };
 const caTok = async e => (await sha256hex('lha-classalert:' + norm(e) + ':' + (process.env.SIGNING_SECRET || ''))).slice(0, 24);
 /* One email a person, with every class of the kinds they ticked that went
    on sale since they asked and they have not heard about, run by the 9am
@@ -1499,7 +1499,7 @@ async function newsRender({ subject, body, slug, blocks }, test) {
     return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
       card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
-      btn: { label: 'Book your place', sub: /all levels/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
+      btn: { label: 'Book your place', sub: /all levels|handstand and calisthenics/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
   };
   const first = test ? test.first : '{{{contact.first_name|there}}}';
   /* the sections the editor sends, or the one box of words it used to */
@@ -1513,7 +1513,7 @@ async function newsRender({ subject, body, slug, blocks }, test) {
 /* the first email to a new subscriber, and the one asking somebody who
    left whether they want back on */
 async function newsWelcome(e, n) {
-  const all = Object.values((await getSetting('workshops')) || {}).filter(w => w && w.live && w.when && ms(w.when) > Date.now() && /all levels/i.test(w.title || ''))
+  const all = Object.values((await getSetting('workshops')) || {}).filter(w => w && w.live && w.when && ms(w.when) > Date.now() && /all levels|handstand and calisthenics/i.test(w.title || ''))
     .sort((a, b) => ms(a.when) - ms(b.when));
   const w = all[0];
   return email(e, 'You are on the list', mail({ title: 'You are on the list.', greeting: String(n || '').split(' ')[0] || undefined,
