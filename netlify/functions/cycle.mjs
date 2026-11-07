@@ -995,7 +995,9 @@ async function workshopMail(done) {
             const gbp = p => '£' + (p / 100).toFixed(2).replace(/\.00$/, '');
             /* "book before midnight" (Elliott, 7 Nov 2026): tonight when the code ends on the day it is sent */
             const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
-            const when = !by ? '' : by === today ? ' before midnight tonight' : ` before midnight on ${esc(by)}`;
+            /* 7 Nov: "make it the end of tomorrow deadline": a code ending the day after the send reads "by the end of tomorrow" */
+            const tomorrow = new Date(Date.now() + 864e5).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
+            const when = !by ? '' : by === today ? ' before midnight tonight' : by === tomorrow ? ` by the end of tomorrow, ${esc(by.split(' ')[0])},` : ` before midnight on ${esc(by)}`;
             return base + ` Book it${when} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The button puts the code in for you.`;
           })() : '';
           /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
