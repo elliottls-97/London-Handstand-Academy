@@ -978,15 +978,15 @@ async function workshopMail(done) {
           /* 7 Nov 2026: "a mixture of handstands and calisthenics open to all levels. Book on both by
              Sunday evening and get £5 off both". The offer is a class code made in the dashboard whose
              note says thank you email; with the saving for a second class it makes £5 off each. */
-          const both = caliNext ? A.coming.filter(c => SAT.test((c.w && c.w.title) || '') && ms(c.w.when) > at && ms(c.w.when) - at < 15 * 24 * 3600e3 && !c.who.has(e)).slice(0, 2) : [];
-          let caliCode = null, multiOff = 500;
-          if (both.length === 2) {
-            const [codesRow, multiRow] = await Promise.all([supa.row('settings', 'key=eq.wscodes&select=value').catch(() => null), supa.row('settings', 'key=eq.wsmulti&select=value').catch(() => null)]);
-            const codes = (codesRow || {}).value || {};
-            if (multiRow && multiRow.value && multiRow.value.pence != null) multiOff = Math.max(0, Number(multiRow.value.pence) || 0);
+          /* 7 Nov 2026: "my thoughts were rushing them to book so i know i have people for next
+             Saturday". The offer is next Saturday only, by a deadline: a class code made in the dashboard
+             for that date (or any date) whose note says thank you email. One discount, nothing stacked. */
+          let caliCode = null;
+          if (caliNext) {
+            const codes = (((await supa.row('settings', 'key=eq.wscodes&select=value').catch(() => null)) || {}).value) || {};
             for (const [c, d] of Object.entries(codes)) {
               if (!d || d.off === false || d.for === 'session' || !/thank ?you/i.test(d.note || '')) continue;
-              if (d.workshop && !both.some(x => x.w.slug === d.workshop)) continue;
+              if (d.workshop && d.workshop !== caliNext.w.slug) continue;
               if (d.until && ms(d.until) + 24 * 3600e3 < Date.now()) continue;
               if (Number(d.max) > 0 && Number(d.used || 0) >= Number(d.max)) continue;
               if (!(Number(d.pence) > 0) || Number(d.pct) > 0) continue;
@@ -995,28 +995,19 @@ async function workshopMail(done) {
           }
           const gbp = p => '£' + (p / 100).toFixed(2).replace(/\.00$/, '');
           const dm = c => new Date(ms(c.w.when)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'Europe/London' });
-          const full = both.reduce((t, c) => t + (Number(c.w.price) || 0), 0);
-          const bothPrice = caliCode ? Math.max(0, full - multiOff - Math.round(Number(caliCode.d.pence) || 0)) : 0;
+          const nextPrice = caliNext ? Number(caliNext.w.price) || 0 : 0;
+          const offPrice = caliCode ? Math.max(0, nextPrice - Math.round(Number(caliCode.d.pence) || 0)) : nextPrice;
           const caliLine = caliNext ? (() => {
-            const t = new Date(ms(caliNext.w.when));
-            const d = t.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
-            const h = t.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
-            const same = h === new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
-            const topic = String(caliNext.w.topic || '').trim();
-            /* the dates themselves are listed under these words now, each with its topic */
             const base = `The class is now every Saturday at 11am, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels.`;
             if (!caliCode) return base;
             const day = x => new Date(x).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const by = caliCode.d.until ? day(ms(caliCode.d.until)) : '';
             const when = !by ? '' : by === day(Date.now()) ? 'midnight tonight' : by === day(Date.now() + 864e5) ? 'midnight tomorrow' : `midnight on ${esc(by.split(' ')[0])}`;
-            const a = parseInt(dm(both[0])), m0 = dm(both[0]).split(' ')[1], m1 = dm(both[1]).split(' ')[1];
-            const pair = m0 === m1 ? `<b>${a} and ${esc(dm(both[1]))}</b>` : `<b>${esc(dm(both[0]))} and ${esc(dm(both[1]))}</b>`;
-            /* 7 Nov: "not clear on the email!!!": the offer on its own, price first, then how */
-            return [base, `<b>Book the next two, ${pair.replace(/<\/?b>/g, '')}, for ${gbp(bothPrice)} instead of ${gbp(full)}.</b> Use code <b>${esc(caliCode.c)}</b>${when ? ' before ' + when : ''}. The button below puts the code in; tick both dates.`];
+            return [base, `<b>Book next Saturday, ${esc(dm(caliNext))}, for ${gbp(offPrice)} instead of ${gbp(nextPrice)}.</b> Use code <b>${esc(caliCode.c)}</b>${when ? ' before ' + when : ''}. The button below puts it in for you.`];
           })() : '';
           /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
           const withCode = h => caliCode ? h.replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, hh) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (hh || '')) : h;
-          const caliCta = caliNext ? { href: withCode(wsBookHref(caliNext.w)), label: caliCode ? `Book both for ${gbp(bothPrice)}` : `Book ${dm(caliNext)}` } : null;
+          const caliCta = caliNext ? { href: withCode(wsBookHref(caliNext.w)), label: caliCode ? `Book ${dm(caliNext)} for ${gbp(offPrice)}` : `Book ${dm(caliNext)}` } : null;
           /* no photo on the thank you (Elliott, 7 Nov 2026) */
           const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([].concat(caliLine)[0]) : T.paras, heroAfter: caliLine ? [].concat(caliLine)[1] || '' : '', footnote: T.footnote, cta: caliCta,
             kicker: w.title, review: reviewUrl,
@@ -1025,11 +1016,12 @@ async function workshopMail(done) {
             dates: A.coming.map(c => {
               const [d0, ...t] = wsWhenTxt(c.w).split(', ');
               return { day: d0, time: t.join(', '), place: c.w.place || '',
-                what: String(c.w.topic || '').trim() || (wsKind(c.w) === wsKind(w) ? '' : c.w.title),
-                price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
+                /* one Saturday class now: a date shows its topic, never the class name again (7 Nov 2026) */
+                what: String(c.w.topic || '').trim() || (/handstand and calisthenics/i.test(c.w.title || '') || wsKind(c.w) === wsKind(w) ? '' : c.w.title),
+                price: caliCode && c === caliNext ? `${gbp(offPrice)} with ${caliCode.c}` : c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: c.left, full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
-                href: caliCode && both.includes(c) ? withCode(wsBookHref(c.w)) : wsBookHref(c.w) };
+                href: caliCode && c === caliNext ? withCode(wsBookHref(c.w)) : wsBookHref(c.w) };
             }),
             more: `${SITE}/handstand-class`,
             offers: pitch ? A.prices : null });
