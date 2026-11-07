@@ -993,7 +993,10 @@ async function workshopMail(done) {
             const off = caliCode.d.pct ? Math.round(price * Math.min(100, Number(caliCode.d.pct)) / 100) : Math.min(price, Math.round(Number(caliCode.d.pence) || 0));
             const by = caliCode.d.until ? new Date(ms(caliCode.d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '') : '';
             const gbp = p => '£' + (p / 100).toFixed(2).replace(/\.00$/, '');
-            return base + ` Book it${by ? ` by the end of ${esc(by)}` : ''} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The button below puts the code in for you.`;
+            /* "book before midnight" (Elliott, 7 Nov 2026): tonight when the code ends on the day it is sent */
+            const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
+            const when = !by ? '' : by === today ? ' before midnight tonight' : ` before midnight on ${esc(by)}`;
+            return base + ` Book it${when} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The Book button below puts the code in for you.`;
           })() : '';
           const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote,
             kicker: w.title, review: reviewUrl,
