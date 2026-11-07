@@ -965,7 +965,37 @@ async function workshopMail(done) {
           /* a coaching client hears no coaching pitch, and somebody who
              turned offers off gets the thank you and the dates only */
           const pitch = !A.roster.has(e) && (await wantsEmail(e, 'offers'));
-          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: T.paras, footnote: T.footnote,
+          /* a calisthenics class with another one within the week (Elliott, 7 Nov 2026): said
+             straight under the thank you, not only in the dates further down */
+          const caliNext = /calisthenics/i.test(w.title || '')
+            ? A.coming.find(c => /calisthenics/i.test((c.w && c.w.title) || '') && ms(c.w.when) > at && ms(c.w.when) - at < 8 * 24 * 3600e3) : null;
+          /* a live class code made in the dashboard for that date (7 Nov 2026: "an offer at £15 if they
+             sign up today"): offered under the line, with the date's book button carrying it */
+          let caliCode = null;
+          if (caliNext) {
+            const codes = (await supa.row('settings', 'key=eq.wscodes&select=value').catch(() => null) || {}).value || {};
+            for (const [c, d] of Object.entries(codes)) {
+              if (!d || d.off === false || d.for === 'session' || d.workshop !== caliNext.w.slug) continue;
+              if (d.until && ms(d.until) + 24 * 3600e3 < Date.now()) continue;
+              if (Number(d.max) > 0 && Number(d.used || 0) >= Number(d.max)) continue;
+              if (!(Number(d.pence) > 0 || Number(d.pct) > 0)) continue;
+              caliCode = { c, d }; break;
+            }
+          }
+          const caliLine = caliNext ? (() => {
+            const t = new Date(ms(caliNext.w.when));
+            const d = t.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
+            const h = t.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
+            const same = h === new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(' ', '');
+            const base = `There is another calisthenics class next week, on <b>${esc(d)}</b> at ${esc(h)}${same ? ', the same time' : ''}.`;
+            if (!caliCode) return base + ' Book it below.';
+            const price = Number(caliNext.w.price) || 0;
+            const off = caliCode.d.pct ? Math.round(price * Math.min(100, Number(caliCode.d.pct)) / 100) : Math.min(price, Math.round(Number(caliCode.d.pence) || 0));
+            const by = caliCode.d.until ? new Date(ms(caliCode.d.until)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '') : '';
+            const gbp = p => '£' + (p / 100).toFixed(2).replace(/\.00$/, '');
+            return base + ` Book it${by ? ` by the end of ${esc(by)}` : ''} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The button below puts the code in for you.`;
+          })() : '';
+          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote,
             kicker: w.title, review: reviewUrl,
             photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' },
             headshot: '/assets/site/coach-elliott-headshot.jpg',
@@ -977,7 +1007,7 @@ async function workshopMail(done) {
                 price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: c.left, full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
-                href: wsBookHref(c.w) };
+                href: caliCode && c === caliNext ? wsBookHref(c.w).replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, h) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (h || '')) : wsBookHref(c.w) };
             }),
             more: `${SITE}/handstand-class`,
             offers: pitch ? A.prices : null });
