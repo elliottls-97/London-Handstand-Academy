@@ -1004,7 +1004,9 @@ async function workshopMail(done) {
               const [d0, ...t] = wsWhenTxt(c.w).split(', ');
               return { day: d0, time: t.join(', '), place: c.w.place || '',
                 what: wsKind(c.w) === wsKind(w) ? '' : c.w.title,
-                price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
+                price: caliCode && c === caliNext && caliCode.d.pence > 0 && !caliCode.d.pct
+                  ? '£' + ((c.w.price - Math.min(c.w.price, caliCode.d.pence)) / 100).toFixed(2).replace(/\.00$/, '') + ' with ' + caliCode.c
+                  : c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: c.left, full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
                 href: caliCode && c === caliNext ? wsBookHref(c.w).replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, h) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (h || '')) : wsBookHref(c.w) };
