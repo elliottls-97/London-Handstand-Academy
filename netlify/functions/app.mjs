@@ -8281,7 +8281,6 @@ const handle = async (request) => {
       const T = renderEmail('wsThanks', { name: esc(t.first), title: esc(w.title), day: esc(day), review_line: '', app_line: '' }, saved);
       const pitch = !roster.has(t.email) && (await wantsEmail(t.email, 'offers'));
       const M = afterClassEmail({ site: SITE, first: t.first, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: reviewUrl,
-        photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' },
         headshot: '/assets/site/coach-elliott-headshot.jpg',
         preheader: coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
         dates: coming.map(c => {
@@ -9743,7 +9742,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const [d0, ...t0] = whenTxt.split(', ');
       const M = key === 'wsThanks'
         ? afterClassEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: `${SITE}/review`,
-            photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' }, headshot: '/assets/site/coach-elliott-headshot.jpg',
+            /* no photo on the thank you (Elliott, 7 Nov 2026) */ headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }] })
         : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/?src=workshop#apply`,
             photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand' }, headshot: '/assets/site/coach-elliott-headshot.jpg', preheader: '' });

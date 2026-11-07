@@ -998,9 +998,9 @@ async function workshopMail(done) {
             const when = !by ? '' : by === today ? ' before midnight tonight' : ` before midnight on ${esc(by)}`;
             return base + ` Book it${when} with code <b>${esc(caliCode.c)}</b> and it is ${gbp(price - off)} instead of ${gbp(price)}. The Book button below puts the code in for you.`;
           })() : '';
+          /* no photo on the thank you (Elliott, 7 Nov 2026) */
           const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([caliLine]) : T.paras, footnote: T.footnote,
             kicker: w.title, review: reviewUrl,
-            photo: { src: '/assets/email/class-upside-down.jpg', alt: 'The class at OverGravity, upside down' },
             headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: A.coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(A.coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
             dates: A.coming.map(c => {
