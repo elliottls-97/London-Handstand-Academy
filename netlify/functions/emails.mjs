@@ -689,7 +689,7 @@ ${d.photo ? `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${esc
 ${d.kicker ? mKick(escH(d.kicker)) : ''}
 <h1 class="h1 s" style="margin:0;${mf(M_SERIF, 42, 44, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(escH(d.title || ''))}</h1>
 ${first ? mPara(`Hi ${first},`, 18) : ''}${paras.map((p, i) => mPara(p, i || first ? 12 : 18)).join('')}
-${d.heroInner || ''}${d.heroAfter ? mPara(d.heroAfter, 4) : ''}
+${d.heroInner || ''}${d.heroAfter ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 2px"><tr><td bgcolor="#e6f2f0" style="background:#e6f2f0;border:1px solid rgba(0,102,99,.25);border-radius:16px;padding:16px 18px;${mf(M_SANS, 16, 24, 400)};color:${MC.ink}">${d.heroAfter}</td></tr></table>` : ''}
 ${d.cta && d.cta.href ? mBtn(d.cta.href, escH(d.cta.label || 'Book'), true) : ''}
 </td></tr></table></td></tr>`;
 };

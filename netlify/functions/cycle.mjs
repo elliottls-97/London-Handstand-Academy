@@ -1002,8 +1002,10 @@ async function workshopMail(done) {
             if (!caliCode) return base;
             const day = x => new Date(x).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const by = caliCode.d.until ? day(ms(caliCode.d.until)) : '';
-            const when = !by ? '' : by === day(Date.now()) ? 'midnight tonight' : by === day(Date.now() + 864e5) ? 'midnight tomorrow' : `midnight on ${esc(by.split(' ')[0])}`;
-            return [base, `<b>Book next Saturday, ${esc(dm(caliNext))}, for ${gbp(offPrice)} instead of ${gbp(nextPrice)}.</b> Use code <b>${esc(caliCode.c)}</b>${when ? ' before ' + when : ''}. The button below puts it in for you.`];
+            /* 7 Nov: "make discount clearer", "deadline be midnight on Sunday": the day named, whatever day it is read */
+            const when = by ? `midnight on ${esc(by.split(' ')[0])}${by === day(Date.now()) ? ' (tonight)' : ''}` : '';
+            return [base, `<b style="font-size:18px">${gbp(nextPrice - offPrice)} off next Saturday, ${esc(dm(caliNext))}.</b><br>`
+              + `${gbp(offPrice)} instead of ${gbp(nextPrice)} with code <b>${esc(caliCode.c)}</b>${when ? `, if you book before <b>${when}</b>` : ''}. The button below puts the code in for you.`];
           })() : '';
           /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
           const withCode = h => caliCode ? h.replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, hh) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (hh || '')) : h;
