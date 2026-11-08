@@ -34,7 +34,7 @@ function classTitle(list) {
   const when = a.dow.slice(0, 3) + ' ' + a.dd + (b ? (b.m === a.m ? ' and ' + b.dd + ' ' + a.m : ' ' + a.m + ' and ' + b.dd + ' ' + b.m) : ' ' + a.m);
   /* a calisthenics class listed too: the page is about Saturday classes (22 Oct 2026) */
   const cali = (list || []).some(w => w && /calisthenics/i.test(w.title || '') && (!w.when || Date.parse(w.when) + 60 * 60000 > Date.now()));
-  return 'Handstand and Calisthenics Class · ' + when + ' · OverGravity, London';
+  return 'Saturday Handstand and Calisthenics Classes · ' + when + ' · OverGravity, London';
 }
 
 /* The dates as events, for Google's event listings. They were written into

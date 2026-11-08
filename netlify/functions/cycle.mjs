@@ -998,7 +998,7 @@ async function workshopMail(done) {
           const nextPrice = caliNext ? Number(caliNext.w.price) || 0 : 0;
           const offPrice = caliCode ? Math.max(0, nextPrice - Math.round(Number(caliCode.d.pence) || 0)) : nextPrice;
           const caliLine = caliNext ? (() => {
-            const base = `The class is now every Saturday at 11am, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels.`;
+            const base = `Saturdays are at 11am in Arch 2 at OverGravity: an all levels handstand class one week, a calisthenics class the next.`;
             if (!caliCode) return base;
             const day = x => new Date(x).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const by = caliCode.d.until ? day(ms(caliCode.d.until)) : '';
@@ -1077,7 +1077,7 @@ async function classNews(all, afterData, done) {
     const M = afterClassEmail({ site: SITE, first, noReview: true,
       kicker: 'Saturday classes', title: 'Every Saturday at 11.',
       paras: ['Thanks for coming to one of my classes. A quick note, because Saturdays have changed.',
-        'There is now one class every Saturday, 11am to 12, in Arch 2 at OverGravity: a mixture of handstands and calisthenics, open to all levels.'],
+        'Saturdays are at 11am in Arch 2 at OverGravity: an all levels handstand class one week, a calisthenics class the next.'],
       cta: { href: wsBookHref(next.w), label: `Book ${dm(next)}` },
       headshot: '/assets/site/coach-elliott-headshot.jpg',
       preheader: `One class every Saturday, 11am to 12. Next: ${wsWhenTxt(next.w).split(', ')[0]}.`,
