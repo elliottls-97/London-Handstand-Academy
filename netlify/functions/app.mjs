@@ -204,6 +204,8 @@ const wsDayOf = w => w && w.when ? new Date(ms(w.when)).toLocaleDateString('en-G
 const wsPairOk = (w, w2) => !!w && !!w2 && (wsKindOf(w) === wsKindOf(w2)
   || (!!wsDayOf(w) && wsDayOf(w) === wsDayOf(w2) && /all levels|calisthenics/i.test(w.title || '') && /all levels|calisthenics/i.test(w2.title || '') && wsKindOf(w) !== wsKindOf(w2)));
 /* a class's own length when it has one (7 Nov 2026: Saturdays at 11, 75 minutes, a topic a week) */
+/* places are shown once a few are taken (Elliott, 8 Nov 2026: "don't show places till a few are taken"): three booked, or five or fewer left */
+const wsLeftShown = (places, left) => { const p = Number(places) || 0; return p > 0 && left != null && left > 0 && (p - left >= 3 || left <= 5) ? left : 0; };
 const wsMins = w => Number(w && w.mins) > 0 ? Number(w.mins) : /handstand and calisthenics/i.test((w && w.title) || '') ? 60 : /all levels/i.test((w && w.title) || '') ? 90 : /calisthenics/i.test((w && w.title) || '') ? 60 : 120;
 /* where a class is booked: the All Levels and Calisthenics classes share the
    class page; anything else has its own page */
@@ -670,7 +672,7 @@ async function caSendDue() {
     if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
     const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : 'Arch 2',
-      price: pl(o.c), left: o.left, full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
+      price: pl(o.c), left: wsLeftShown(o.c.places, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
     for (const { e, x, fresh } of due.slice(0, 90)) {
       const newSet = new Set(fresh.map(o => o.c.slug));
       const news = fresh.map(o => row(o, newSet)), all = onSale.map(o => row(o, newSet));
@@ -1497,7 +1499,7 @@ async function newsRender({ subject, body, slug, blocks }, test) {
     const w = sl ? all[String(sl).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)] : null; if (!w) return null;
     const left = Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length);
     return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
-      card: { kicker: (Number(w.places) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
+      card: { kicker: (wsLeftShown(w.places, left) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
       btn: { label: 'Book your place', sub: /all levels|handstand and calisthenics/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
   };
@@ -8222,7 +8224,7 @@ const handle = async (request) => {
       return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#006663;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
-        `${left ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
+        `${wsLeftShown(w.places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
@@ -8287,7 +8289,7 @@ const handle = async (request) => {
         dates: coming.map(c => {
           const [d0, ...tt] = wsWhenTxt(c.w).split(', ');
           return { day: d0, time: tt.join(', '), place: c.w.place || '', what: wsKindOf(c.w) === wsKindOf(w) ? '' : c.w.title,
-            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: c.left, full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
+            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.w.places, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
         }),
         more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
       return { T, M };

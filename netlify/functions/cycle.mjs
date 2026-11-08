@@ -25,6 +25,8 @@ async function emailCopy(key, vars) {
   return renderEmail(key, vars, EMAIL_OVER);
 }
 
+/* places are shown once a few are taken (Elliott, 8 Nov 2026: "don't show places till a few are taken"): three booked, or five or fewer left */
+const wsLeftShownC = (places, left) => { const p = Number(places) || 0; return p > 0 && left != null && left > 0 && (p - left >= 3 || left <= 5) ? left : 0; };
 const DAY = 24 * 60 * 60 * 1000;
 /* an early bird that has ended reads as the price it went up to, whether or
    not the site has written it in yet (app.mjs wsRoll does that) */
@@ -1021,7 +1023,7 @@ async function workshopMail(done) {
                 /* one Saturday class now: a date shows its topic, never the class name again (7 Nov 2026) */
                 what: String(c.w.topic || '').trim() || (/handstand and calisthenics/i.test(c.w.title || '') || wsKind(c.w) === wsKind(w) ? '' : c.w.title),
                 price: caliCode && c === caliNext ? `${gbp(offPrice)} with ${caliCode.c}` : c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-                left: c.left, full: c.left === 0, booked: c.who.has(e),
+                left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
                 href: caliCode && c === caliNext ? withCode(wsBookHref(c.w)) : wsBookHref(c.w) };
             }),
@@ -1085,7 +1087,7 @@ async function classNews(all, afterData, done) {
       dates: sat.map(c => { const [d0, ...t] = wsWhenTxt(c.w).split(', ');
         return { day: d0, time: t.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim(),
           price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-          left: c.left, full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
+          left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
       more: `${SITE}/handstand-class`,
       offers: !A.roster.has(e) && (await wantsEmail(e, 'offers')) ? A.prices : null });
     await email(e, 'Saturdays have changed: every week at 11', M.html, 'offers', { text: M.text });
@@ -1158,7 +1160,7 @@ async function intentMail(done) {
              it were not there. A continue here skipped them for the day. */
           if (!TE.off) {
             const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-              price: priceE, then: thenE, at: wsEarlyAtC(w), href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0 }, SITE));
+              price: priceE, then: thenE, at: wsEarlyAtC(w), href: wsBookHref(w), left: wsLeftShownC(w.places, Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0) }, SITE));
             if (!wentE) { done.held = (done.held || 0) + 1; continue; }
             done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
             await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
@@ -1187,7 +1189,7 @@ async function intentMail(done) {
         link: wsBookHref(w) });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, intentEmail(T, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-        price, href: wsBookHref(w), left: Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0, pair: pairPence, coach: w.coach || '',
+        price, href: wsBookHref(w), left: wsLeftShownC(w.places, Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0), pair: pairPence, coach: w.coach || '',
         early: wsEarlyLine(w) ? { day: wsEarlyByC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);
