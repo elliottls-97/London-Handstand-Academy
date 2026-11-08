@@ -4862,13 +4862,27 @@ function probeHls(){
    out of date asks for new ones and tries again. Each failure is counted,
    by film and where it happened, with nothing about who. */
 const filmTried = v => { try{ return JSON.parse(v.dataset.filmTried||'{}'); }catch(e){ return {}; } };
+/* 8 Nov 2026: reported only when a film is truly dead, after its retries. Every first
+   failure used to be reported, including a locked film that played a second later
+   once its pass arrived, so the dashboard showed films failing that had played.
+   The report now says what was tried, the browser's own reason and the device. */
+function filmDevice(){
+  const u=navigator.userAgent||'';
+  const os=/LHAiOS/.test(u)?'iPhone app':/iPhone/.test(u)?'iPhone':/iPad/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1)?'iPad':/Android/.test(u)?'Android':/Macintosh/.test(u)?'Mac':/Windows/.test(u)?'Windows':'other';
+  const br=/CriOS/.test(u)?'Chrome':/FxiOS/.test(u)?'Firefox':/EdgiOS|Edg\//.test(u)?'Edge':/Instagram/.test(u)?'Instagram':/FBAN|FBAV/.test(u)?'Facebook':/Chrome\//.test(u)?'Chrome':/Firefox\//.test(u)?'Firefox':/Safari\//.test(u)?'Safari':'other';
+  return os+', '+br;
+}
 function filmFail(v, what){
   const uid=v.dataset.cc||'', where=v.closest && v.closest('#player') ? 'pl' : 'sh';
   const key=where+'-'+what+'-'+uid.slice(0,8);
   if(filmFail.seen[key]) return; filmFail.seen[key]=1;
   try{ track('filmfail', null, key); }catch(e){}
   try{ const d=(typeof LIBRARY!=='undefined' ? LIBRARY : []).find(x=>x && String(x.url||'').indexOf(uid)>=0);
-    lhaErr('film', 'Film would not play'+(d?': '+d.n:'')+' ('+what+')', (where==='pl'?'follow along':'page')+' '+uid.slice(0,8)); }catch(e){}
+    const er=v.error, codes=['','aborted','network','decode','not supported'];
+    const why=er ? (codes[er.code]||('code '+er.code))+(er.message?': '+er.message:'') : 'no error given';
+    let locked='no pass'; try{ locked=sigUid(uid)!==uid ? 'had a pass' : 'no pass'; }catch(e){}
+    lhaErr('film', 'Film would not play: '+(d?d.n:uid.slice(0,8)), (where==='pl'?'follow along':'page')+' '+uid.slice(0,8),
+      'tried: '+what+' · reason: '+why+' · '+locked+' · device: '+filmDevice()+' · '+(navigator.onLine===false?'offline':'online')); }catch(e){}
 }
 filmFail.seen={};
 function filmRecover(v){
@@ -4878,20 +4892,23 @@ function filmRecover(v){
   /* it plays on its own again only if it was meant to be playing */
   const go=src=>{ v.src=src; try{ v.load(); }catch(e){}
     if((v.closest && v.closest('#player')) || v.autoplay || v.dataset.wantPlay) startFilm(v); };
-  if(cur.indexOf('lha=saved')>-1 && t.saved!==cur){ filmFail(v,'sav'); mark('saved');
+  if(cur.indexOf('lha=saved')>-1 && t.saved!==cur){ mark('saved');
     go(hlsUse() ? streamHls(uid) : streamMp4(uid)); return; }
-  if(cur.indexOf('/manifest/')>-1 && t.mp4!==cur){ filmFail(v,'hls'); mark('mp4'); go(streamMp4(uid)); return; }
+  if(cur.indexOf('/manifest/')>-1 && t.mp4!==cur){ mark('mp4'); go(streamMp4(uid)); return; }
   /* a locked film: the token in the address is the uid itself when there
      is none, so ask for a set and try the film once more when it lands */
-  if(!t.sign){ filmFail(v,'mp4'); mark('sign');
+  if(!t.sign){ mark('sign');
     const need = !(SIGN.exp>Date.now()) || !SIGN.t[uid];
     if(need){ try{ loadSign(); }catch(e){} }
     setTimeout(()=>{ if(!v.isConnected || v.dataset.cc!==uid) return;
       const next=hlsUse() ? streamHls(uid) : streamMp4(uid);
       if(next!==cur || need) go(next); }, need ? 2500 : 600);
     return; }
-  filmFail(v,'dead');
+  filmFail(v, Object.keys(t).join('+')||'once');
 }
+/* a tap on play that the browser refuses (NotSupportedError when the film cannot load)
+   goes to the same recovery instead of an error nobody catches (8 Nov 2026) */
+function filmPlay(v){ try{ const p=v.play(); if(p && p.catch) p.catch(err=>{ if(err && err.name==='NotSupportedError'){ try{ filmRecover(v); }catch(e){} } }); }catch(e){} }
 /* what to put in a video's src: the ladder where it plays, the file where
    it does not */
 function filmSrc(url){
@@ -5691,7 +5708,7 @@ function vpBar(v, theatre){
     dur.textContent=vpTime(v.duration);
     fill.style.width=(v.duration?(v.currentTime/v.duration*100):0).toFixed(2)+'%';
   };
-  play.onclick=e=>{ e.stopPropagation(); v.paused?v.play():v.pause(); paint(); };
+  play.onclick=e=>{ e.stopPropagation(); v.paused?filmPlay(v):v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
   /* ── a manifest that cannot play falls back to the file ──────────
      The test for native HLS is conservative, but a browser that says
@@ -5760,7 +5777,7 @@ function vpBuild(v){
   v.addEventListener('ended', show);
   show();
   /* tapping the picture plays and pauses, which is what everyone tries */
-  v.addEventListener('click',()=>{ v.paused?v.play():v.pause(); });
+  v.addEventListener('click',()=>{ v.paused?filmPlay(v):v.pause(); });
 }
 
 function vpTheatre(){
@@ -5827,7 +5844,7 @@ function vpKeys(e){
   if(e.key==='Escape'){ vpClose(); return; }
   if(!vpFrom) return;
   const v=vpFrom.wrap.querySelector('video'); if(!v) return;
-  if(e.key===' '){ e.preventDefault(); v.paused?v.play():v.pause(); }
+  if(e.key===' '){ e.preventDefault(); v.paused?filmPlay(v):v.pause(); }
   if(e.key==='ArrowRight') v.currentTime=Math.min(v.duration||0, v.currentTime+5);
   if(e.key==='ArrowLeft') v.currentTime=Math.max(0, v.currentTime-5);
 }
@@ -7501,7 +7518,7 @@ function cpPlay(k){
   if(!drill||!drill.url) return;
   box.innerHTML=drillFilm(drill.url,'16/10');
   mountCaptions();
-  const v=box.querySelector('video'); if(v){ try{ v.play(); }catch(e){} }
+  const v=box.querySelector('video'); if(v) filmPlay(v);
 }
 
 /* ── where their clip got to ──────────────────────────────────────

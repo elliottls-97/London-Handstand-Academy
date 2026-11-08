@@ -1324,11 +1324,11 @@ function journeyHTML(){
       return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
         + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
     <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}${ET.hidden?` <span class="muted" style="font-weight:400;letter-spacing:0;text-transform:none">· ${ET.hidden} row${ET.hidden===1?'':'s'} hidden: Instagram's in-app browser and lost signal</span>`:''}</div>
-    ${errs.length?errs.map(t=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div style="font:400 13.5px/1.5 var(--sans)">${errLine(t)}</div>
+    ${errs.length?(errGroups=errs, errs.map((t,ti)=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <div style="font:400 13.5px/1.5 var(--sans);cursor:pointer" onclick="errOpen(${ti})">${errLine(t)} <span class="ghostlink">Details</span></div>
         ${t.rows.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;margin-top:4px"><b style="font:600 12.5px/1.4 var(--sans);flex:1;min-width:0;color:var(--grey)">${esc(e.m)}</b>
           <span style="flex:none;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--grey)">${e.n}×</span></div>
-        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join('')
+        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join(''))
       :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
     ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(x.key)+' '+x.n).join(' · ')}</div>`:''}
     <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
@@ -9727,6 +9727,49 @@ function errLine(t){
   if(t.k==='api') return `The server failed: <b>${esc(t.m)}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
   return `<b>${esc(t.m.slice(0,80))}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
 }
+/* the detail behind a warning line (Elliott, 8 Nov 2026: "allow me to click on each one of these and
+   see more, eg: tuck take offs aren't playing ... how do I see a list of stuff related to this"):
+   every report in the group, where, which screens and devices, who, when, and the reason when the app
+   sent one; the people as names you can message; Clear once it is dealt with */
+let errGroups=[];
+function errClose(){ const el=document.getElementById('errSheet'); if(el) el.remove(); }
+function errOpen(i){
+  const t=errGroups[i]; if(!t) return; errClose();
+  const ago_=x=>x?ago(x):'';
+  const tally=o=>Object.entries(o||{}).sort((a,b)=>b[1]-a[1]).map(([k,n])=>esc(k)+' '+n).join(', ');
+  const rows=t.rows.slice().sort((a,b)=>(b.last||0)-(a.last||0)).map(e=>{
+    const where=String(e.w||'').replace(/\b([a-f0-9]{8})\b/,'').trim();
+    const det=String(e.stack||e.st||'').trim();
+    return `<div style="padding:10px 0;border-top:1px solid var(--line)">
+      <div style="display:flex;gap:10px;justify-content:space-between;font:600 14px/1.4 var(--sans)"><span>${esc(where||e.k)}</span><span style="color:var(--grey)">${Number(e.n)||1}×, last ${esc(ago_(e.last))}</span></div>
+      <div class="muted" style="font-size:12.5px;line-height:1.5;margin-top:2px">Screens: ${tally(e.screens||e.sc)||'not known'} · Devices: ${tally(e.devices||e.dv)||'not known'}${e.first?' · First '+esc(ago_(e.first)):''}</div>
+      ${det?`<div style="font:400 12.5px/1.5 var(--sans);margin-top:4px;color:var(--ink)">${esc(det.slice(0,400))}</div>`:''}
+    </div>`; }).join('');
+  const who=(t.who||[]).map(w=>`<button class="ghostlink" style="margin-right:10px" onclick="errClose();openClient&&openClient(${jsq(w)})">${esc(firstName(w)||String(w).split('@')[0])}</button>`).join('');
+  const film=t.k==='film';
+  const title=film ? esc(t.m.replace(/^Film would not play:\s*/,'')) : esc(String(t.m).slice(0,90));
+  const el=document.createElement('div'); el.id='errSheet'; el.className='dialog-backdrop';
+  el.onclick=e=>{ if(e.target===el) errClose(); };
+  el.innerHTML=`<div class="dialog" style="width:min(560px,100%)">
+    <div><div class="kick">${film?'Film would not play':t.k==='api'?'Server error':'App error'}</div>
+      <div class="dialog-title" style="margin-top:6px">${title}</div>
+      <div class="muted" style="font-size:13.5px;margin-top:6px">${t.n}× in all, last ${esc(ago_(t.last))}${t.first&&t.first!==Infinity?', first '+esc(ago_(t.first)):''}.</div></div>
+    ${who?`<div><div class="kick" style="margin-bottom:4px">Who it happened to</div>${who}</div>`:''}
+    ${film?`<div class="muted" style="font-size:12.5px;line-height:1.5">Until 8 November every first try was reported, including a locked film that played a moment later once its pass arrived. Reports from the next app update are only films that still failed after retrying, with the reason and the device.</div>`:''}
+    <div>${rows}</div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="errClear(${i})">Clear these</button>
+      <button class="btn btn-primary btn-sm" onclick="errClose()">Close</button></div>
+  </div>`;
+  document.body.appendChild(el);
+}
+function errClear(i){
+  const t=errGroups[i]; if(!t) return;
+  fetch(API+'/errs',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{
+    const ids=((d&&d.errs)||[]).filter(e=>t.rows.some(r=>r.k===e.k && r.m===e.m && (r.w||'')===(e.w||''))).map(e=>e.id);
+    return ids.reduce((p,id)=>p.then(()=>fetch(API+'/errs',{method:'POST',headers:hdr(),body:JSON.stringify({clear:id})})),Promise.resolve());
+  }).then(()=>{ errClose(); dg=null; dgAsked=false; loadDigest(); flash('Cleared'); }).catch(()=>flash('Could not clear'));
+}
 function errSummary(things){
   const n=k=>things.filter(t=>t.k===k).length, parts=[];
   if(n('film')) parts.push(n('film')+' film'+(n('film')===1?'':'s')+' not playing');
@@ -9768,7 +9811,8 @@ function digestHTML(){
   if(sk.length) L.push(line('»',`Most skipped: ${sk.map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n+'×').join(', ')}.`,"setTab='journey';go('settings')"));
   if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
-  errs.slice(0,3).forEach(t=>L.push(line('⚠',errLine(t),"setTab='journey';go('settings')")));
+  errGroups=errs;
+  errs.slice(0,3).forEach((t,i)=>L.push(line('⚠',errLine(t),'errOpen('+i+')')));
   if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
   const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="${esc(errs.map(t=>t.m).join(' · '))}">${errSummary(errs)}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
   return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
