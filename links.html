@@ -48,6 +48,7 @@ a.card:active{transform:scale(.985)}
 .card span{display:block;font:400 14px/1.35 var(--sans);color:var(--grey);margin-top:3px}
 .card i{flex:none;font-style:normal;color:var(--forest);font-size:20px}
 /* the next class: the one link most people tap */
+a.card[hidden]{display:none}
 a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden;border-radius:24px}
 .main img{width:100%;height:170px;object-fit:cover;object-position:center 60%;display:block}
 .main .in{padding:16px 18px 18px}
@@ -91,12 +92,21 @@ a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:h
   </div>
 
   <div class="list">
-    <a class="card main" href="/handstand-class">
+    <!-- both Saturday classes, each with its next date (Elliott, 8 Nov 2026) -->
+    <a class="card main" id="clsHs" href="/handstand-class">
       <img src="/assets/site/class-group-overgravity.jpg" alt="The group after a class at OverGravity" loading="eager">
       <div class="in">
         <b>All Levels Handstand Class</b>
-        <div class="when" id="when">Saturdays, 1:00 to 2:30pm &middot; OverGravity, Shadwell</div>
-        <div class="btn" id="cta">Book a place, &pound;25</div>
+        <div class="when" id="when">Saturdays, an hour &middot; OverGravity, Shadwell</div>
+        <div class="btn" id="cta">Book a place, &pound;20</div>
+      </div>
+    </a>
+    <a class="card main" id="clsCali" href="/handstand-class?class=calisthenics" hidden>
+      <img src="/assets/site/arch2-room-wide.jpg" alt="Arch 2 at OverGravity, the bars and rings" loading="lazy" style="object-position:center 55%">
+      <div class="in">
+        <b>Calisthenics Class</b>
+        <div class="when" id="whenCali">Saturdays, an hour &middot; OverGravity, Shadwell</div>
+        <div class="btn" id="ctaCali">Book a place, &pound;20</div>
       </div>
     </a>
     <!-- on an iPhone this goes to the App Store (in it since 28 Oct 2026);
@@ -129,21 +139,27 @@ a.card.main{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:h
     return day + ', ' + time;
   };
   fetch('/api/app/workshops').then(function (r) { return r.json(); }).then(function (d) {
-    var now = Date.now();
-    var up = ((d && d.workshops) || []).filter(function (w) {
-      return w && w.when && /all levels|handstand and calisthenics/i.test(w.title || '') && Date.parse(w.when) > now && !(w.places > 0 && w.left <= 0);
-    }).sort(function (a, b) { return Date.parse(a.when) - Date.parse(b.when); });
-    if (!up.length) return;
-    var w = up[0], el = document.getElementById('when'), more = up.length > 1 ? ' &middot; and ' + (up.length - 1) + ' more date' + (up.length > 2 ? 's' : '') : '';
-    var left = w.places > 0 && w.left > 0 && w.left <= 6 ? '<span class="left">' + w.left + ' place' + (w.left === 1 ? '' : 's') + ' left</span>' : '';
-    el.innerHTML = fmt(w.when) + ' &middot; OverGravity' + more + left;
-    if (w.price > 0) document.getElementById('cta').innerHTML = 'Book a place, &pound;' + (w.price / 100).toFixed(w.price % 100 ? 2 : 0);
-    /* an early bird: when it goes up, under the button */
-    if (w.early && w.early.day) {
-      var eb = document.createElement('div'); eb.className = 'early';
-      eb.textContent = w.priceLabel + ' until the end of ' + w.early.day + ', then ' + w.early.thenLabel;
-      document.getElementById('cta').insertAdjacentElement('afterend', eb);
-    }
+    var now = Date.now(), all = (d && d.workshops) || [];
+    var next = function (re) { return all.filter(function (w) {
+      return w && w.when && re.test(w.title || '') && Date.parse(w.when) > now && !(w.places > 0 && w.left <= 0);
+    }).sort(function (a, b) { return Date.parse(a.when) - Date.parse(b.when); }); };
+    var fill = function (up, whenId, ctaId) {
+      if (!up.length) return false;
+      var w = up[0], el = document.getElementById(whenId), more = up.length > 1 ? ' &middot; and ' + (up.length - 1) + ' more date' + (up.length > 2 ? 's' : '') : '';
+      /* places once a few are taken: three booked, or five or fewer left */
+      var left = w.places > 0 && w.left > 0 && (w.places - w.left >= 3 || w.left <= 5) ? '<span class="left">' + w.left + ' place' + (w.left === 1 ? '' : 's') + ' left</span>' : '';
+      el.innerHTML = fmt(w.when) + (w.room ? ' &middot; ' + w.room : '') + ' &middot; OverGravity' + more + left;
+      if (w.price > 0) document.getElementById(ctaId).innerHTML = 'Book a place, &pound;' + (w.price / 100).toFixed(w.price % 100 ? 2 : 0);
+      if (w.early && w.early.day) {
+        var eb = document.createElement('div'); eb.className = 'early';
+        eb.textContent = w.priceLabel + ' until the end of ' + w.early.day + ', then ' + w.early.thenLabel;
+        document.getElementById(ctaId).insertAdjacentElement('afterend', eb);
+      }
+      return true;
+    };
+    fill(next(/all levels|handstand and calisthenics/i), 'when', 'cta');
+    var cali = next(/calisthenic/i).filter(function (w) { return !/handstand and calisthenics/i.test(w.title || ''); });
+    if (fill(cali, 'whenCali', 'ctaCali')) document.getElementById('clsCali').hidden = false;
   }).catch(function () {});
 })();
 </script>
