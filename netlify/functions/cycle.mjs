@@ -865,7 +865,7 @@ async function workshopMail(done) {
         const key = `wsremind:${w.slug}:${p.email}`;
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '',
-            arch: 'Arch 2',
+            arch: (r => r === 'Arch 1' ? 'Arch 1 (the purple room)' : r)(String(w.room || '').trim() || (/calisthenic/i.test(w.title || '') ? 'Arch 2' : 'Arch 1')),
             directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Directions</a>.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           /* a reminder the booking promised is theirs, like a receipt; and it
@@ -1000,7 +1000,7 @@ async function workshopMail(done) {
           const nextPrice = caliNext ? Number(caliNext.w.price) || 0 : 0;
           const offPrice = caliCode ? Math.max(0, nextPrice - Math.round(Number(caliCode.d.pence) || 0)) : nextPrice;
           const caliLine = caliNext ? (() => {
-            const base = `Saturdays are at 11am in Arch 2 at OverGravity: an all levels handstand class one week, a calisthenics class the next.`;
+            const base = `Saturday classes at OverGravity: calisthenics and an all levels handstand class, an hour each. The dates are below.`;
             if (!caliCode) return base;
             const day = x => new Date(x).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' }).replace(',', '');
             const by = caliCode.d.until ? day(ms(caliCode.d.until)) : '';
@@ -1079,7 +1079,7 @@ async function classNews(all, afterData, done) {
     const M = afterClassEmail({ site: SITE, first, noReview: true,
       kicker: 'Saturday classes', title: 'Every Saturday at 11.',
       paras: ['Thanks for coming to one of my classes. A quick note, because Saturdays have changed.',
-        'Saturdays are at 11am in Arch 2 at OverGravity: an all levels handstand class one week, a calisthenics class the next.'],
+        'Saturday classes at OverGravity: calisthenics and an all levels handstand class, an hour each. The dates are below.'],
       cta: { href: wsBookHref(next.w), label: `Book ${dm(next)}` },
       headshot: '/assets/site/coach-elliott-headshot.jpg',
       preheader: `One class every Saturday, 11am to 12. Next: ${wsWhenTxt(next.w).split(', ')[0]}.`,

@@ -1117,7 +1117,7 @@ export function classAlertEmail(x, site) {
             <a href="${escH(c.href)}" style="font:600 13.5px/1.6 ${FS};color:#006663">${c.full ? 'Waiting list' : 'Book'}</a>${c.left && !c.full ? `<div style="font:400 12px/1.3 ${FS};color:${c.left <= 3 ? '#a4503c' : '#686868'}">${c.left} left</div>` : ''}</td></tr></table>`).join('')] }] : []),
       { t: 'card', kicker: 'Where', head: '', hi: 'OverGravity, Shadwell', appTone: true,
         paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Open in Google Maps</a>.',
-          'Every class is in <b>Arch 2</b>, with soft mats, wall, bars and rings. There are changing rooms, and a caf&eacute; to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
+          'Calisthenics is in <b>Arch 2</b>, with the bars and rings. Handstands are in <b>Arch 1</b>, the purple room, unless the date says Arch 2. There are changing rooms, and a caf&eacute; to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
       ...(news.some(two) ? [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }] : []),
       { t: 'card', paras: [`Can't make ${one ? 'this one' : 'these'} either? Book a <a href="${S}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${S}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
           `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },

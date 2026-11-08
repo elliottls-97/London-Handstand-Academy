@@ -323,7 +323,10 @@ async function wsManageLink(slug, addr, session, until) {
 const WS_MAP = 'https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB';
 /* the handstand class is in Arch 1, the purple room; calisthenics in Arch 2
    with the bars and rings (Elliott, 25 Oct 2026) */
-const wsArch = w => 'Arch 2';   /* every class in Arch 2 (Elliott, 7 Nov 2026) */
+/* each class's own room when it has one (8 Nov 2026: November's alternate weeks in Arch 2, December's
+   handstands at 12 in Arch 1); otherwise calisthenics in Arch 2 and handstands in Arch 1 */
+const wsRoomOf = w => { const r = String((w && w.room) || '').trim(); if (r) return r; return /calisthenic/i.test((w && w.title) || '') ? 'Arch 2' : 'Arch 1'; };
+const wsArch = w => { const r = wsRoomOf(w); return r === 'Arch 1' ? 'Arch 1 (the purple room)' : r; };
 function wsWhereHTML(w) {
   if (w && w.place && !/overgravity/i.test(w.place)) return `<b>Where:</b> ${esc(w.place)}.`;
   return `<b>Where:</b> OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
@@ -671,7 +674,7 @@ async function caSendDue() {
     const { due, onSale } = await caWhoDue();
     if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
-    const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : 'Arch 2',
+    const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : wsRoomOf(o.c),
       price: pl(o.c), left: wsLeftShown(o.c.places, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
     for (const { e, x, fresh } of due.slice(0, 90)) {
       const newSet = new Set(fresh.map(o => o.c.slug));
@@ -7347,7 +7350,7 @@ const handle = async (request) => {
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
     places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
-    desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '', mins: wsMins(w), topic: w.topic || '',
+    desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '', mins: wsMins(w), topic: w.topic || '', room: wsRoomOf(w),
     early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
       thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w) } : null });
   if (path === '/workshops' && request.method === 'GET') {
@@ -8484,7 +8487,7 @@ const handle = async (request) => {
         when: whenMs ? new Date(whenMs).toISOString() : '',
         place: str(f.place, 120), desc: str(f.desc, 600), who: str(f.who, 80), coach: str(f.coach, 60).trim(),
         /* the week's topic and the class's length in minutes (7 Nov 2026); no length keeps the old one by title */
-        topic: str(f.topic, 80).trim(), mins: Math.max(0, Math.min(480, Math.round(Number(f.mins) || 0))) || undefined,
+        topic: str(f.topic, 80).trim(), room: ['Arch 1', 'Arch 2'].includes(str(f.room, 20).trim()) ? str(f.room, 20).trim() : '', mins: Math.max(0, Math.min(480, Math.round(Number(f.mins) || 0))) || undefined,
         /* on a rename the stored record is under the old slug, and reading
            the new one would quietly make the workshop free */
         price: owner ? Math.max(0, Math.round(Number(f.price) || 0))
