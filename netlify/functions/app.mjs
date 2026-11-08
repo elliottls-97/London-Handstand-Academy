@@ -8291,7 +8291,7 @@ const handle = async (request) => {
         preheader: coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
         dates: coming.map(c => {
           const [d0, ...tt] = wsWhenTxt(c.w).split(', ');
-          return { day: d0, time: tt.join(', '), place: c.w.place || '', what: wsKindOf(c.w) === wsKindOf(w) ? '' : c.w.title,
+          return { day: d0, time: tt.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
             price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.w.places, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
         }),
         more: `${SITE}/handstand-class`, offers: pitch ? prices : null });

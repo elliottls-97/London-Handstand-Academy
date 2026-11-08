@@ -1021,7 +1021,8 @@ async function workshopMail(done) {
               const [d0, ...t] = wsWhenTxt(c.w).split(', ');
               return { day: d0, time: t.join(', '), place: c.w.place || '',
                 /* one Saturday class now: a date shows its topic, never the class name again (7 Nov 2026) */
-                what: String(c.w.topic || '').trim() || (/handstand and calisthenics/i.test(c.w.title || '') || wsKind(c.w) === wsKind(w) ? '' : c.w.title),
+                /* every row names its class: one Saturday can have both (8 Nov 2026) */
+                what: String(c.w.topic || '').trim() || c.w.title,
                 price: caliCode && c === caliNext ? `${gbp(offPrice)} with ${caliCode.c}` : c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
                 left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
@@ -1085,7 +1086,7 @@ async function classNews(all, afterData, done) {
       preheader: `One class every Saturday, 11am to 12. Next: ${wsWhenTxt(next.w).split(', ')[0]}.`,
       footnote: 'You are getting this because you came to one of my classes.',
       dates: sat.map(c => { const [d0, ...t] = wsWhenTxt(c.w).split(', ');
-        return { day: d0, time: t.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim(),
+        return { day: d0, time: t.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
           price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
           left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
       more: `${SITE}/handstand-class`,
