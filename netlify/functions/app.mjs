@@ -11953,7 +11953,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             || (amt ? '£' + (amt % 1 ? amt.toFixed(2) : amt) + ' a ' + (rec.interval_count > 1 ? rec.interval_count + ' ' + (rec.interval || 'month') + 's' : (rec.interval || 'month')) : 'Subscription');
           const qty = Number(it.quantity) || 1;
           rows.push({ how: 'stripe', email, name: roster[email] || cu.name || '', what: prod,
-            coaching: !!roster[email] || ['online', 'inner'].includes(TIER[plan]) || /coach|inner|programme/i.test(prod),
+            /* a payment link sale carries no plan, and the Ladder is never near £50 a month */
+            coaching: !!roster[email] || ['online', 'inner'].includes(TIER[plan]) || /coach|inner|programme/i.test(prod)
+              || monthly((pr.unit_amount || 0) * qty, rec.interval, rec.interval_count) >= 50,
             status: x.status, cancelling: !!x.cancel_at_period_end,
             pm: x.status === 'trialing' ? 0 : Math.round(monthly((pr.unit_amount || 0) * qty, rec.interval, rec.interval_count) * 100) / 100,
             price: (pr.unit_amount || 0) / 100, every: (rec.interval_count > 1 ? rec.interval_count + ' ' : '') + (rec.interval || ''),
