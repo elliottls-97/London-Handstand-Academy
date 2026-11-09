@@ -21,13 +21,12 @@ const CHECKPOINTS={
   1:[
     /* 9 Nov 2026, Elliott, as seen on screen. The app draws this list bottom up, so the first here is the
        bottom row. On screen, top to bottom: chest to wall bail outs first, chest to wall handstand, chair
-       assisted scapula shrugs (added 9 Nov), kick ups, pike push ups, wall removals (4th from bottom),
-       lateral slide outs (3rd), step ups, nose to toes last. Single leg tuck slides and wall scapula
-       shrugs went to Pushing More. */
+       assisted scapula shrugs, kick ups, pike push ups, lateral slide outs (3rd from bottom), step ups,
+       nose to toes last. Single leg tuck slides, wall scapula shrugs and single leg wall removals went
+       to Pushing More (removals need a solid chest to wall hold first). */
     {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
     {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
     {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.'},
-    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     /* 9 Nov 2026 (Elliott): "make the pike push ups recommended but not essential to move on ... merge to 1
        checkpoint ... with levels of difficulty in the same one". extra: shown, never holds the stage back */
     {k:'pike-levels', n:'Pike push-ups',            kind:'face', extra:true, demo:'pike-press-ups', goal:'Negatives, then 5 full reps',
@@ -45,6 +44,8 @@ const CHECKPOINTS={
     {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
     /* moved from Wall Work, 9 Nov 2026 (Elliott); Coming off the wall removed the same day */
     {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
+    /* moved from Wall Work, 9 Nov 2026 (Elliott: "it basically requires chest to wall"); above single leg tuck slides on screen */
+    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     {k:'slide-count', n:'Slide aways',              kind:'count', target:10, demo:'slide-away'},
     {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'},
     {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
