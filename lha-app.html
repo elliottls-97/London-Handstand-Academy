@@ -357,6 +357,25 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .lc-r.ex .lc-t b::after{content:'Recommended';margin-left:7px;font:700 9px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:999px;background:rgba(243,169,73,.18);color:#8a5a12;vertical-align:2px;white-space:nowrap}
 .hcps .lc.cl .lc-r.ex .lc-p{border:0!important;border-top:1px solid rgba(0,64,61,.08)!important;background:rgba(243,169,73,.07)!important}
 .lc-r.ex .lc-ring svg.pg circle:first-child{stroke-dasharray:3 3.2}
+.pf-pic{display:block;position:relative;aspect-ratio:16/9;background:#1d2b29;overflow:hidden}
+.pf-s{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .9s ease}
+.pf-s.on{opacity:1}
+.pf-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,24,22,.62),rgba(10,24,22,.18) 52%,transparent 75%),
+ linear-gradient(0deg,rgba(10,24,22,.66),transparent 34%)}
+.pf-ttl{position:absolute;left:5.5%;top:9%;display:flex;flex-direction:column;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.25)}
+.pf-ttl small{font:600 10px/1 var(--sans);letter-spacing:.2em;color:#8fe3d6}
+.pf-ttl b{font:700 clamp(26px,8vw,40px)/.95 var(--sans);letter-spacing:-.035em;margin-top:6px;max-width:4.1em}   /* two lines on the left, clear of his face */
+.pf-ttl.long b{font-size:clamp(23px,7.2vw,36px)}
+.pf-ttl em{font:italic 400 clamp(14px,4vw,20px)/.98 var(--serif);color:#8fe3d6;margin-top:4px}
+.pf-figs{position:absolute;left:3%;right:3%;bottom:4.5%;display:flex;justify-content:space-between;
+ border-bottom:1.5px solid rgba(143,227,214,.55);padding-bottom:5px}
+.pf-figs>span{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(168,214,224,.9)}
+.pf-figs>span.on{color:#f3a949}
+.pf-figs i{display:block;width:clamp(16px,5vw,26px);height:clamp(20px,6.4vw,33px)}
+.pf-figs i svg{width:100%;height:100%;display:block}
+.pf-figs small{font:600 clamp(6.5px,1.9vw,9.5px)/1 var(--sans);color:#fff;white-space:nowrap}
+.pf-play{position:absolute;right:14px;top:50%;transform:translateY(-62%);width:52px;height:52px;border-radius:50%;
+ background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 8px 20px rgba(0,64,61,.22)}
 .lc-lv{display:flex;gap:4px;padding:4px;margin-bottom:10px;border-radius:14px;background:rgba(0,64,61,.08)}
 .lc-lv button{flex:1;min-height:36px;border:0;border-radius:10px;background:transparent;color:var(--grey);font:600 13px/1 var(--sans);cursor:pointer}
 .lc-lv button.on{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
@@ -20044,6 +20063,50 @@ function openTheatreFilm(u){
   startFilm(v);
 }
 function phaseFilmHide(){ st.phaseFilm=Object.assign({}, st.phaseFilm, {[curStage()]:'hidden'}); save(); render(); }
+/* The picture on the card (Elliott, 9 Nov 2026: "not the best shot of me,
+   I'm mid talking"): it opens on him smiling, from the film itself, then
+   moves through stills of the phase's own check point drills, under the
+   film's title and the six figures, as the film opens. */
+/* t: the moment he smiles; z: a little zoom from the left edge, which moves
+   him right, clear of a longer phase name */
+const PHASE_SMILE = {'694fce7c0221a03611d801f782bc2d80':{t:'370.5s'}, '6b31bda28932030f284de4ef2afb5554':{t:'52.6s', z:1.12}};
+const PHASE_WORDS = ['ONE','TWO','THREE','FOUR','FIVE','SIX'];
+const PHASE_SLIDES = {
+  1: ['chest-to-wall-bailouts','chest-to-wall-handstand','wall-walks','lateral-slide-outs','wall-step-ups'],
+  2: ['tuck-slides','single-leg-tuck-slides','slide-away','knees-on-box','knees-on-box-single-leg-lifts'] };
+function phaseFilmPic(u){
+  const i=curStage(), S=STAGES[i];
+  const sm=PHASE_SMILE[u]||{}, smile=STREAM_CDN+u+'/thumbnails/thumbnail.jpg?time='+(sm.t||'3s')+'&height=540';
+  /* chosen by hand, all on the turf in front of the black wall: the chair
+     drills and the wooden floor ones have busy rooms behind them (Elliott,
+     9 Nov 2026). A phase without a list takes its check point films. */
+  const pick=PHASE_SLIDES[i];
+  const seen={}, drills=(pick ? pick.map(v=>drillById(v)) : (cpFor(i)||[]).slice().reverse().map(c=>c && c.demo && drillById(c.demo)))
+    .filter(d=>{ const id=d && d.url && uidOfUrl(d.url); if(!id || seen[id] || portraitUid(id)) return false; seen[id]=1; return true; }).slice(0,5);
+  const img=(src, k, uid)=>`<img class="pf-s${k?'':' on'}" src="${esc(src)}" alt="" ${k?'loading="lazy"':(sm.z?`style="transform:scale(${sm.z});transform-origin:0 0"`:'')}
+      onerror="${uid?`if(!this.dataset.f){this.dataset.f=1;this.src='/api/app/story/still?uid=${uid}'}else `:''}this.remove()">`;
+  const slides=[img(smile,0,'')].concat(drills.map((d,k)=>{ const id=uidOfUrl(d.url);
+    return img(STREAM_CDN+sigUid(id)+'/thumbnails/thumbnail.jpg?time=3s&height=540', k+1, id); })).join('');
+  setTimeout(pfRotate,0);
+  return `<span class="pf-pic">${slides}<span class="pf-shade"></span>
+    <span class="pf-ttl${S.n.length>9?' long':''}"><small>PHASE ${PHASE_WORDS[i]||''}</small><b>${esc(S.n)}</b><em>of the<br>handstand ladder</em></span>
+    <span class="pf-figs">${STAGES.map((x,k)=>`<span class="${k===i?'on':''}"><i>${lwFigSVG(k)}</i><small>${esc(x.n)}</small></span>`).join('')}</span>
+    <span class="pf-play"><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663">
+      <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></span>`;
+}
+/* one timer for whichever card is on screen; a still that failed to load
+   has gone from the card, so it is never waited on */
+let pfTimer=null;
+function pfRotate(){
+  if(pfTimer) return;
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(e){}
+  pfTimer=setInterval(()=>{
+    const box=document.querySelector('.pf-pic'); if(!box){ clearInterval(pfTimer); pfTimer=null; return; }
+    const all=[...box.querySelectorAll('.pf-s')].filter(x=>x.complete && x.naturalWidth); if(all.length<2) return;
+    const at=all.findIndex(x=>x.classList.contains('on')), nx=all[(at+1)%all.length];
+    all.forEach(x=>x.classList.toggle('on', x===nx));
+  }, 3200);
+}
 function phaseFilmHTML(){
   if(!phaseFilmShown()) return '';
   const S=STAGES[curStage()], u=phaseFilmUid(), len=PHASE_FILM_LEN[u];
@@ -20052,16 +20115,9 @@ function phaseFilmHTML(){
       border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
       <button onclick="openPhaseFilm()" aria-label="Play ${esc(S.n)}, explained"
         style="display:block;width:100%;border:0;padding:0;margin:0;background:none;cursor:pointer;text-align:left;color:var(--ink)">
-        <span style="display:block;position:relative;aspect-ratio:16/9;background:var(--sand)">
-          <img src="${streamThumb(u)}" alt="" loading="lazy" onerror="this.remove()"
-            style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
-          <span style="position:absolute;right:14px;bottom:14px;width:52px;height:52px;
-            border-radius:50%;background:rgba(255,255,255,.94);display:grid;place-items:center;
-            box-shadow:0 8px 20px rgba(0,64,61,.22)"><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663">
-            <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
-        </span>
+        ${phaseFilmPic(u)}
         <span style="display:block;padding:14px 18px 17px">
-          <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">${esc(S.n.toUpperCase())}, EXPLAINED${len?' &middot; '+esc(len.toUpperCase()):''}</span>
+          <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">WATCH THIS FIRST${len?' &middot; '+esc(len.toUpperCase()):''}</span>
           <span style="display:block;font:400 26px/1.1 var(--serif);margin-top:8px">What we do here, and
             <em style="color:var(--forest);font-style:normal">why.</em></span>
         </span>
