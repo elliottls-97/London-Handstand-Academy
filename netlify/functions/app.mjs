@@ -11934,15 +11934,26 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     try {
       let after = '';
       for (let page = 0; page < 5; page++) {
-        const got = await stripe(`/subscriptions?status=all&limit=100&expand[]=data.customer&expand[]=data.items.data.price.product${after ? '&starting_after=' + after : ''}`, null, 'GET');
+        /* the product is one level deeper than Stripe will expand in a list
+           (9 Nov 2026: "cannot expand more than 4 levels"), and the key has no
+           Products permission anyway, so the plan's name comes from what the
+           checkout wrote on the subscription, then the price, then the amount */
+        const got = await stripe(`/subscriptions?status=all&limit=100&expand[]=data.customer${after ? '&starting_after=' + after : ''}`, null, 'GET');
         for (const x of (got.data || [])) {
           if (!['active', 'trialing', 'past_due', 'unpaid'].includes(x.status)) continue;
           const cu = x.customer || {}, it = ((x.items || {}).data || [])[0] || {}, pr = it.price || {}, rec = pr.recurring || {};
           const email = String(cu.email || (x.metadata || {}).email || '').toLowerCase();
-          const prod = (pr.product && pr.product.name) || pr.nickname || 'Subscription';
+          const plan = String((x.metadata || {}).plan || '');
+          const PLAN_NAME = { plus: 'The Handstand Ladder', plusq: 'The Handstand Ladder, quarterly', plusy: 'The Handstand Ladder, yearly',
+            check: 'A form check', checks: 'Form checks with the Ladder', online: 'Coaching, custom programme',
+            inperson: 'Coaching with a London session', inperson2: 'Coaching with two London sessions', inperson4: 'Coaching with four London sessions',
+            inner: 'Inner Circle', inneronline: 'Inner Circle, online' };
+          const amt = (pr.unit_amount || 0) / 100;
+          const prod = PLAN_NAME[plan] || (pr.product && pr.product.name) || pr.nickname
+            || (amt ? '£' + (amt % 1 ? amt.toFixed(2) : amt) + ' a ' + (rec.interval_count > 1 ? rec.interval_count + ' ' + (rec.interval || 'month') + 's' : (rec.interval || 'month')) : 'Subscription');
           const qty = Number(it.quantity) || 1;
           rows.push({ how: 'stripe', email, name: roster[email] || cu.name || '', what: prod,
-            coaching: !!roster[email] || /coach|inner|programme/i.test(prod),
+            coaching: !!roster[email] || ['online', 'inner'].includes(TIER[plan]) || /coach|inner|programme/i.test(prod),
             status: x.status, cancelling: !!x.cancel_at_period_end,
             pm: x.status === 'trialing' ? 0 : Math.round(monthly((pr.unit_amount || 0) * qty, rec.interval, rec.interval_count) * 100) / 100,
             price: (pr.unit_amount || 0) / 100, every: (rec.interval_count > 1 ? rec.interval_count + ' ' : '') + (rec.interval || ''),
