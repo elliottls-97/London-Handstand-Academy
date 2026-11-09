@@ -475,6 +475,7 @@ const POOL = {
     {v:'kick-up-bounces',              g:'Kick ups',       L:1},
     {v:'bunny-hops',                   g:'Kick ups',       L:2},
     {v:'knee-to-chest-kick-ups',       g:'Kick ups',       L:2},
+    {v:'knee-to-chest-entry-foam-block', g:'Kick ups',     L:2},   /* 9 Nov 2026, Elliott's film of 8 Nov */
     {v:'wall-kick-ups',                g:'Kick ups',       L:3},
     {v:'fear-of-falling-cartwheel',    g:'Falling',        L:1},
     {v:'proper-cartwheel',             g:'Falling',        L:2},
@@ -514,6 +515,7 @@ const POOL = {
     {v:'p-tuck-handstand',             g:'Chest to wall',  L:4},
     {v:'pike-press-ups',               g:'Strength',       L:2},
     {v:'knee-to-nose-bounces',         g:'Entries',        L:1},
+    {v:'knee-to-chest-entry-foam-block', g:'Entries',      L:2},   /* 9 Nov 2026 */
     {v:'slow-entries',                 g:'Entries',        L:2},
     {v:'wall-kick-ups-progressions',   g:'Entries',        L:2},
     {v:'chair-assisted-knee-lifts',    g:'Chair assisted', L:1},
