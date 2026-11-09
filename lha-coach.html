@@ -1522,6 +1522,92 @@ function loadPaying(force){
   fetch(API+'/paying',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
     .then(d=>{ paying=d; payingErr=''; draw(); }).catch(e=>{ payingErr=String(e); draw(); });
 }
+/* ══ Members ══════════════════════════════════════════════════════════
+   Elliott, 9 Nov 2026: "an easy way to see who and the number of people
+   using the app in the last week, 2 weeks or month, as well as a list of
+   people on trial and actually paid". Active means opened the app in the
+   window; trained means finished or started a session in it. Who pays and
+   who is on a free week is Stripe's and Apple's word, from /paying. */
+let members=null, memErr='', memAsked=false, memDays=7, memShow='active';
+function loadMembers(force){
+  if(memAsked && !force) return; memAsked=true;
+  fetch(API+'/members',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ members=d; memErr=''; draw(); }).catch(e=>{ memErr=String(e); draw(); });
+}
+function memSet(k,v){ if(k==='d') memDays=v; else memShow=v; draw(); }
+function memWhen(t){
+  if(!t) return 'never';
+  const d=Math.floor((Date.now()-t)/864e5);
+  if(d<=0) return 'today'; if(d===1) return 'yesterday'; if(d<7) return d+' days ago';
+  return new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+function membersHTML(){
+  loadMembers(); loadPaying();
+  const err=memErr||payingErr;
+  if(err) return `<div class="card"><div class="kick">MEMBERS</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load them. ${esc(err)}.</div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="memErr='';payingErr='';loadMembers(true);loadPaying(true)">Try again</button></div>`;
+  if(!members || !paying) return `<div class="card"><div class="kick">MEMBERS</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Loading…</div></div>`;
+  const D=memDays, now=Date.now(), win=D*864e5, ppl=members.people||[];
+  const pay={}; (paying.rows||[]).forEach(r=>{ if(r.email) pay[r.email]=r; });
+  const day=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  const statusOf=p=>{ const r=pay[p.email];
+    if(r && (r.status==='past_due'||r.status==='unpaid')) return {k:'late', t:'Payment failed'};
+    if(r && r.status==='trialing') return {k:'trial', t:'Free week to '+day(r.trialEnd)};
+    if(r && r.coaching) return {k:'paid', t:'Coaching'};
+    if(r && r.how==='apple') return {k:'paid', t:'Paid · Apple'};
+    if(r && r.how==='stripe') return {k:'paid', t:'Paid'+(r.cancelling?' · ends '+day(r.next):'')};
+    if(r && r.how==='comp') return {k:'code', t:'Free on a code'};
+    if(p.coached) return {k:'paid', t:'Coaching'};
+    if(p.plus) return {k:'paid', t:'Paid'};
+    return {k:'free', t:'Free'}; };
+  const active=ppl.filter(p=>p.seen && now-p.seen<win), trained=ppl.filter(p=>(p.n||{})[D]>0), fresh=ppl.filter(p=>p.joined && now-p.joined<win);
+  /* paid and free week are who they are today, so they list everyone, with
+     an account or not (a Stripe customer may never have opened the app) */
+  const byMail=Object.fromEntries(ppl.map(p=>[p.email,p]));
+  const fromPay=pred=>(paying.rows||[]).filter(pred).map(r=>byMail[r.email]||{email:r.email, name:r.name||'', seen:0, n:{}, stage:null});
+  const paid=fromPay(r=>r.status!=='trialing' && r.how!=='comp' && r.status!=='past_due' && r.status!=='unpaid');
+  const trial=fromPay(r=>r.status==='trialing');
+  const sets={active, trained, new:fresh, paid, trial, all:ppl};
+  const list=(sets[memShow]||active).slice().sort((a,b)=>(b.seen||0)-(a.seen||0));
+  const seg=(k,v,label,on)=>`<button onclick="memSet('${k}',${typeof v==='number'?v:`'${v}'`})" style="flex:1;min-width:0;border:0;border-radius:10px;padding:9px 10px;cursor:pointer;
+    font:600 13px/1 var(--sans);background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};${on?'box-shadow:0 1px 2px rgba(17,17,17,.08)':''}">${label}</button>`;
+  const stat=(k,n,label,note)=>`<button onclick="memSet('s','${k}')" style="flex:1;min-width:112px;text-align:left;cursor:pointer;padding:12px 14px;border-radius:14px;
+    background:#fff;border:1.5px solid ${memShow===k?'var(--forest)':'var(--line)'}">
+    <div style="font:600 26px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--ink)">${n}</div>
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:7px">${label}</div>
+    ${note?`<div style="font:400 11px/1.35 var(--sans);color:var(--grey2);margin-top:5px">${note}</div>`:''}</button>`;
+  const pill=x=>{ const c={paid:['#e3f1ef','var(--deep)'],trial:['rgba(243,169,73,.18)','#8a5a12'],code:['#eef2f2','var(--grey)'],late:['rgba(164,80,60,.12)','#a4503c'],free:['#f3f3f4','var(--grey2)']}[x.k];
+    return `<span style="display:inline-block;padding:4px 9px;border-radius:999px;background:${c[0]};color:${c[1]};font:600 11.5px/1 var(--sans);white-space:nowrap">${esc(x.t)}</span>`; };
+  const stg=k=>k==null?'':((typeof STAGES!=='undefined'&&STAGES[k])?STAGES[k].n:'Stage '+(k+1));
+  const showName={active:'Opened the app', trained:'Trained', new:'Joined', paid:'Paying now', trial:'On a free week now', all:'Everyone'}[memShow];
+  return `<div class="card">
+    <div class="kick">MEMBERS</div>
+    <div style="font:400 34px/1.05 var(--serif);margin-top:8px">Who is using <em style="color:var(--forest);font-style:normal">the app.</em></div>
+    <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08);margin-top:16px;max-width:460px">
+      ${seg('d',7,'7 days',D===7)}${seg('d',14,'2 weeks',D===14)}${seg('d',30,'Month',D===30)}${seg('d',90,'3 months',D===90)}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+      ${stat('active',active.length,'OPENED THE APP','')}
+      ${stat('trained',trained.length,'TRAINED','did a session')}
+      ${stat('new',fresh.length,'JOINED','')}
+      ${stat('paid',paid.length,'PAYING NOW','')}
+      ${stat('trial',trial.length,'ON A FREE WEEK','')}
+      ${stat('all',ppl.length,'ALL ACCOUNTS','')}
+    </div>
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:20px">${esc(showName.toUpperCase())}${['active','trained','new'].includes(memShow)?' &middot; LAST '+(D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'):''} &middot; ${list.length}</div>
+    ${list.length?`<div style="margin-top:8px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font:400 13px/1.4 var(--sans)">
+      <tr style="text-align:left;color:var(--grey2);font:600 9.5px/1 var(--sans);letter-spacing:.1em">
+        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">STAGE</th><th style="padding:6px 8px 8px">LAST IN</th>
+        <th style="padding:6px 8px 8px;text-align:right">SESSIONS</th><th style="padding:6px 0 8px 8px">STATUS</th></tr>
+      ${list.map(p=>`<tr style="border-top:1px solid var(--line);cursor:pointer" onclick="openAcct(${jsq(p.email)})">
+        <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(p.name||p.email.split('@')[0])}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(p.email)}</div></td>
+        <td style="padding:9px 8px;white-space:nowrap">${esc(stg(p.stage))}</td>
+        <td style="padding:9px 8px;white-space:nowrap">${esc(memWhen(p.seen))}</td>
+        <td style="padding:9px 8px;text-align:right;font-variant-numeric:tabular-nums" title="in the last ${D} days, of ${p.sessions||0} in all">${(p.n||{})[D]||0}</td>
+        <td style="padding:9px 0 9px 8px">${pill(statusOf(p))}</td></tr>`).join('')}
+    </table></div>`:`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody here.</div>`}
+    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Test accounts and coaches are left out. Sessions counts the window chosen above. Press a row for the account.</div>
+  </div>`;
+}
 function payingHTML(){
   loadPaying();
   if(payingErr) return `<div class="card"><div class="kick">PAYING</div>
@@ -8893,8 +8979,8 @@ function headerHTML(){
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
                ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Bookings',0],
-               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0]]
-    .filter(([id])=>owner || !['bookings','site','news'].includes(id));
+               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0]]
+    .filter(([id])=>owner || !['bookings','site','news','members'].includes(id));
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -14443,6 +14529,7 @@ function drawNow(){
     : view==='review'   ? reviewHTML()
     : view==='bookings' ? bookingsPageHTML()
     : view==='news'     ? newsHTML()
+    : view==='members'  ? membersHTML()
     : view==='mu'       ? muHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`

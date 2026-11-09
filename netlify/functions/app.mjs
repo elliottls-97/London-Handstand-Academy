@@ -11891,6 +11891,39 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      Stripe's live subscriptions, Apple's (the App Store's, not TestFlight's
      sandbox), and anyone on a code or comped by hand, each with what it is,
      what it brings in a month and when it next bills or ends. */
+  /* ── who is using the app ─────────────────────────────────────────
+     Elliott, 9 Nov 2026: "an easy way to see who and the number of people
+     using the app in the last week, two weeks or month". Every real account
+     (test addresses, the testers list and the coaches left out), when it was
+     last opened and how many sessions it did in each window. Who pays and
+     who is on a free week comes from /coach/paying beside it. */
+  if (path === '/coach/members') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const [accts, prog, marked] = await Promise.all([
+      supa.rows('accounts', 'select=email,name,plus,stage,first_seen,last_seen').catch(() => []),
+      supa.rows('progress', 'select=email,sessions').catch(() => []),
+      getSetting('testers').catch(() => ({})) ]);
+    const untils = await plusUntilAll().catch(() => ({}));
+    const roster = clients(), co = coaches(), now = Date.now();
+    const when = x => ms(x && (x.at || x.t || x.when)) || 0;
+    const sess = Object.fromEntries((prog || []).map(p => [p.email, Array.isArray(p.sessions) ? p.sessions : []]));
+    const W = [7, 14, 30, 90];
+    const people = [];
+    for (const a of (accts || [])) {
+      const e = norm(a.email);
+      if (!e || (marked || {})[e] || TEST_EMAIL.test(e) || co[e]) continue;
+      const list = (sess[a.email] || []).map(when).filter(Boolean);
+      const lastSession = list.length ? Math.max(...list) : 0;
+      const n = {}; for (const d of W) n[d] = list.filter(t => now - t < d * DAY).length;
+      if (untils[a.email]) a.plus_until = untils[a.email];
+      people.push({ email: e, name: a.name || '', stage: Number.isInteger(a.stage) ? a.stage : null,
+        joined: ms(a.first_seen), seen: Math.max(ms(a.last_seen), lastSession), lastSession, sessions: list.length, n,
+        plus: plusNow(a), coached: !!roster[e] });
+    }
+    people.sort((x, y) => (y.seen || 0) - (x.seen || 0));
+    return json({ ok: true, people, at: now });
+  }
   if (path === '/coach/paying') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     if (!(await isOwner())) return json(ownerOnly, 403);
