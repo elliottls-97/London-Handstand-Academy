@@ -452,6 +452,7 @@ const EXPLAIN = {
 const PHASE_INTRO = {
   0: 'f71dd8d48affa0aa92c1e574c3240100',   /* how the handstand ladder works: the split-screen cut of 4 Oct 2026, captions in the film (none on Stream); the first cut was ca0c240d... */
   1: '694fce7c0221a03611d801f782bc2d80',   /* Wall Work intro, the sofa talk with his films, 9 Nov 2026 (6:12); before it 99806cf5, the September explainer */
+  2: '6b31bda28932030f284de4ef2afb5554',   /* Pushing More intro, the sofa talk with his films, 9 Nov 2026 (8:32) */
 };
 
 const BAND_MIX = {
