@@ -5858,7 +5858,7 @@ function vpClose(){
   /* a phase film lives only in the theatre: stop it, and if it has now
      been watched, its card goes */
   if(parent && parent.id==='phaseFilmHost'){ if(v) v.pause(); parent.innerHTML='';
-    if((st.phaseFilm||{})[curStage()]) render(); }
+    if(parent.dataset.was!==JSON.stringify([st.phaseFilm||{}, st.howGone||''])) render(); }
 }
 function vpKeys(e){
   if(e.key==='Escape'){ vpClose(); return; }
@@ -18329,7 +18329,7 @@ function screenOriented(){
         </div>`;})():''}
       <!-- the film about the app, after what the stage teaches, as a row:
            at the size of a film it pushed the page past one screen -->
-      ${LADDER_INTRO_VIDEO?`<button class="app-film" onclick="st.introKind='app';st.introOpen=true;save();openOv('intro')"
+      ${LADDER_INTRO_VIDEO?`<button class="app-film" onclick="openHowFilm()"
         style="display:flex;align-items:center;gap:13px;width:100%;margin-top:16px;padding:8px 14px 8px 8px;
         border:1px solid rgba(0,64,61,.12);border-radius:18px;background:#fff;cursor:pointer;text-align:left;
         font:inherit;color:inherit;box-shadow:0 1px 2px rgba(0,64,61,.05)">
@@ -20001,7 +20001,6 @@ function howBigHTML(){
         stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div></section>`;
 }
-function openHowFilm(){ st.introKind='app'; st.introOpen=true; save(); openOv('intro'); }
 function howHide(){ st.howGone='hidden'; save(); render(); }
 /* watched means most of it, not a tap: opened and closed in ten seconds is
    not seen. Any way in counts, the card, the menu or the library. */
@@ -20026,11 +20025,14 @@ const phaseFilmShown = () => !!phaseFilmUid() && !(st.phaseFilm||{})[curStage()]
    not the sheet that slides up (Elliott, 9 Nov 2026: "a proper player").
    The film is built in a holder off the page so the theatre has somewhere
    to hand it back to; closing stops it and empties the holder. */
-function openPhaseFilm(){
-  const u=phaseFilmUid(); if(!u) return;
+function openPhaseFilm(){ const u=phaseFilmUid(); if(u) openTheatreFilm(u); }
+/* the same for the how the app works film (Elliott, 9 Nov 2026: "do the same") */
+function openHowFilm(){ const u=HOW_URL(); if(u) openTheatreFilm(u); }
+function openTheatreFilm(u){
   let host=document.getElementById('phaseFilmHost');
   if(!host){ host=document.createElement('div'); host.id='phaseFilmHost';
     host.style.cssText='position:fixed;left:-10000px;top:0;width:640px;pointer-events:none'; document.body.appendChild(host); }
+  host.dataset.was=JSON.stringify([st.phaseFilm||{}, st.howGone||'']);
   host.innerHTML=ccWrap(`<video src="${hlsUse()?streamHls(u):streamMp4(u)}" playsinline preload="auto"
     poster="${streamThumb(u)}" data-cc="${u}" ontimeupdate="introTick(this)" onended="introTick(this,1)"
     style="width:100%;aspect-ratio:16/9;object-fit:contain;background:#11150f;display:block"></video>`);
