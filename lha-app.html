@@ -1509,11 +1509,25 @@ video{width:100%;display:block;background:#000}
  box-shadow:0 0 0 100vmax rgba(255,255,255,.22) inset}
 .vp-track{position:relative;border-radius:3px;background:rgba(255,255,255,.26);height:4px}
 .vp-track>i{height:4px}
+/* scrubbing (Elliott, 9 Nov 2026: "feels quite difficult"): the line stays
+   thin but a finger anywhere 22px above or below it catches it, and a
+   handle shows where you are; dragging thickens it */
+.vp-track::before{top:-22px;bottom:-22px;height:auto}
+.vp-track>i::after{content:'';position:absolute;right:-7px;top:50%;width:14px;height:14px;margin-top:-7px;
+ border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transition:transform .15s}
+.vp-track.drag{height:6px}.vp-track.drag>i{height:6px}.vp-track.drag>i::after{transform:scale(1.35)}
 #theatre{position:fixed;inset:0;z-index:1400;background:#000;display:none;
  align-items:center;justify-content:center;overflow:hidden;overscroll-behavior:contain}
 #theatre.on{display:flex}
 #vpRoom{position:relative;display:flex;align-items:center;justify-content:center;
- transform-origin:50% 50%}
+ transform-origin:50% 50%;flex:none}   /* flex:none: a turned room is wider than the screen, and shrinking it squeezed the bar to the film's width */
+/* watched sideways (the phone turned, or the turn button): the film fills the
+   screen and the controls float over its foot, fading while it plays; a tap
+   brings them back (Elliott, 9 Nov 2026: "doesn't work very well in landscape") */
+#theatre{touch-action:none}   /* the pinch is the player's, not the page's zoom */
+#theatre.over .vp-bar{background:linear-gradient(transparent,rgba(0,0,0,.62));transition:opacity .35s ease}
+#theatre.over.idle .vp-bar{opacity:0;pointer-events:none}
+#theatre .vp-btn[data-a="speed"]{width:auto;min-width:40px;padding:0 9px;font:700 12.5px/1 var(--sans);color:#fff}
 #vpStage{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 #theatre .vp-bar{background:none;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px)}
 #theatre .vp-btn{width:40px;height:40px}
@@ -5719,6 +5733,7 @@ function vpBar(v, theatre){
    +'<span class="vp-t" data-a="now">0:00</span>'
    +'<div class="vp-track" data-a="track"><i></i></div>'
    +'<span class="vp-t" data-a="dur">0:00</span>'
+   +(theatre?'<button class="vp-btn" data-a="speed" aria-label="Speed"></button>':'')
    +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
    /* a film you can keep watching while you carry on reading the page,
       or while you set yourself up on the floor */
@@ -5765,6 +5780,18 @@ function vpBar(v, theatre){
   const pip=q('pip');
   if(pip) pip.onclick=e=>{ e.stopPropagation(); pipToggle(v); };
   if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
+  /* speed, one setting for every film in the theatre, kept (9 Nov 2026:
+     "there is no way to speed up the video") */
+  const spd=q('speed');
+  if(spd){
+    const SP=[1,1.25,1.5,2];
+    const show=()=>{ const r=v.playbackRate||1; spd.textContent=(r%1?r:r+'')+'\u00d7'; spd.setAttribute('aria-label','Speed '+r+' times, change it'); };
+    try{ v.playbackRate=Number(st.vpSpeed)||1; }catch(e){}
+    v.addEventListener('ratechange', show);
+    spd.onclick=e=>{ e.stopPropagation(); const i=SP.indexOf(v.playbackRate||1); const nx=SP[(i+1)%SP.length];
+      try{ v.playbackRate=nx; }catch(err){} st.vpSpeed=nx; save(); show(); vpWake(); };
+    show();
+  }
   /* scrub by pointer, so a drag works as well as a tap */
   const seek=ev=>{
     const r=track.getBoundingClientRect();
@@ -5773,7 +5800,9 @@ function vpBar(v, theatre){
     paint();
   };
   track.addEventListener('pointerdown',ev=>{ ev.stopPropagation();
-    track.setPointerCapture(ev.pointerId); seek(ev); });
+    track.setPointerCapture(ev.pointerId); track.classList.add('drag'); seek(ev); });
+  const lift=()=>track.classList.remove('drag');
+  track.addEventListener('pointerup',lift); track.addEventListener('pointercancel',lift);
   track.addEventListener('pointermove',ev=>{ if(track.hasPointerCapture&&
     track.hasPointerCapture(ev.pointerId)) seek(ev); });
   ['timeupdate','play','pause','loadedmetadata','seeked','durationchange']
@@ -5849,11 +5878,11 @@ function vpOpen(v){
      is a 211px strip on a phone, and a bar pinned to the bottom of that
      strip lands exactly on top of the caption plate. */
   document.getElementById('vpRoom').appendChild(vpBar(v,true));
-  vpTurn=0; vpFit();
+  vpTurn=0; vpFill=false; vpFit();
   /* videoWidth is 0 until metadata lands, so a cold open would size to 16/9
      and then sit wrong for the rest of the film */
   v.addEventListener('loadedmetadata', vpFit);
-  t.classList.add('on');
+  t.classList.add('on'); vpWake();
   document.body.style.overflow='hidden';
   document.addEventListener('keydown', vpKeys);
 }
@@ -5873,7 +5902,7 @@ function vpClose(){
   const t=document.getElementById('theatre'); if(t) t.classList.remove('on');
   document.body.style.overflow='';
   document.removeEventListener('keydown', vpKeys);
-  vpFrom=null; vpMark=null; vpTurn=0;
+  vpFrom=null; vpMark=null; vpTurn=0; vpFill=false;
   /* a phase film lives only in the theatre: stop it, and if it has now
      been watched, its card goes */
   if(parent && parent.id==='phaseFilmHost'){ if(v) v.pause(); parent.innerHTML='';
@@ -5887,7 +5916,64 @@ function vpKeys(e){
   if(e.key==='ArrowRight') v.currentTime=Math.min(v.duration||0, v.currentTime+5);
   if(e.key==='ArrowLeft') v.currentTime=Math.max(0, v.currentTime-5);
 }
-function vpRotate(){ vpTurn=(vpTurn+90)%180; vpFit(); }
+function vpRotate(){ vpTurn=(vpTurn+90)%180; vpFit(); vpWake(); }
+/* Pinch out, or double tap: bigger. Held upright, a wide film first turns
+   sideways, which is most of the screen; sideways, it then fills the
+   screen. Pinch in, or double tap again, steps back the same way.
+   (Elliott, 9 Nov 2026: "no way to pinch and make it more full screen,
+   it has big black bars") */
+let vpFill=false;
+function vpBigger(){
+  const v=document.querySelector('#theatre video');
+  const wide=!v || !v.videoWidth || v.videoWidth>=v.videoHeight;
+  if(wide && vpTurn===0 && window.innerHeight>window.innerWidth){ vpTurn=90; }
+  else vpFill=true;
+  vpFit();
+}
+function vpSmaller(){
+  if(vpFill) vpFill=false; else if(vpTurn) vpTurn=0;
+  vpFit();
+}
+(function(){
+  let d0=0, done=false, lastTap=0;
+  const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+  document.addEventListener('touchstart', e=>{
+    if(!e.target.closest || !e.target.closest('#theatre.on')) return;
+    if(e.touches.length===2){ d0=dist(e.touches); done=false; }
+  }, {passive:true});
+  document.addEventListener('touchmove', e=>{
+    if(!d0 || done || e.touches.length!==2) return;
+    const r=dist(e.touches)/d0;
+    if(r>1.18){ done=true; vpBigger(); } else if(r<0.85){ done=true; vpSmaller(); }
+  }, {passive:true});
+  document.addEventListener('touchend', e=>{ if(e.touches.length<2) d0=0; }, {passive:true});
+  /* a double tap on the picture, not on the controls */
+  document.addEventListener('pointerup', e=>{
+    if(!e.target.closest || !e.target.closest('#theatre.on') || e.target.closest('.vp-bar')) return;
+    if(e.pointerType==='mouse') return;
+    const now=Date.now();
+    if(now-lastTap<320){ lastTap=0; vpFill ? vpSmaller() : vpBigger(); }
+    else lastTap=now;
+  });
+  document.addEventListener('dblclick', e=>{
+    if(!e.target.closest || !e.target.closest('#theatre.on') || e.target.closest('.vp-bar')) return;
+    vpFill ? vpSmaller() : vpBigger();
+  });
+})();
+/* the floating controls: shown on any touch, gone 2.5 s into playing */
+let vpIdleT=0;
+function vpWake(){
+  const th=document.getElementById('theatre'); if(!th) return;
+  th.classList.remove('idle'); clearTimeout(vpIdleT);
+  const v=th.querySelector('video');
+  vpIdleT=setTimeout(()=>{ const vv=th.querySelector('video');
+    if(vv && !vv.paused && th.classList.contains('over')) th.classList.add('idle'); }, 2500);
+}
+['pointerdown','pointermove','touchstart','keydown'].forEach(ev=>document.addEventListener(ev, ()=>{
+  const th=document.getElementById('theatre'); if(th && th.classList.contains('on')) vpWake(); }, {passive:true, capture:true}));
+document.addEventListener('play', e=>{ if(e.target && e.target.closest && e.target.closest('#theatre')) vpWake(); }, true);
+document.addEventListener('pause', e=>{ const th=document.getElementById('theatre');
+  if(th && e.target && e.target.closest && e.target.closest('#theatre')){ th.classList.remove('idle'); clearTimeout(vpIdleT); } }, true);
 /* size the stage to whichever way round it is, so the film is as large as
    the screen allows and the plate, which is inside it, scales with it */
 function vpFit(){
@@ -5910,14 +5996,19 @@ function vpFit(){
   const ar=(v && v.videoWidth && v.videoHeight) ? v.videoWidth/v.videoHeight : 16/9;
   /* leave the bar its own room at the foot rather than letting it sit on
      the picture, which on a wide film is where the captions are */
-  const barH=68;
+  const side=availW>availH;
+  const th=document.getElementById('theatre'); if(th) th.classList.toggle('over', side);
+  const barH=side?0:68;
   let w=availW, h=Math.round(availW/ar);
   if(h>availH-barH){ h=availH-barH; w=Math.round(h*ar); }
+  /* pinched out or double tapped: the film fills the screen, its edges
+     cropped, as a phone's own player does */
+  if(vpFill){ w=availW; h=availH-barH; }
   wrap.style.width=w+'px';
   wrap.style.height=h+'px';
   /* the room does the turning; the film only has to fit inside it */
   wrap.style.transform='';
-  if(v){ v.style.width='100%'; v.style.height='100%'; v.style.objectFit='contain'; }
+  if(v){ v.style.width='100%'; v.style.height='100%'; v.style.objectFit=vpFill?'cover':'contain'; }
   /* the plate measures the video, so let it measure again */
   const el=document.getElementById('ccPlate'); if(el) el.dataset.fit='';
 }
