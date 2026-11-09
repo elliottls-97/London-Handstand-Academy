@@ -31,7 +31,9 @@ const CHECKPOINTS={
     /* 9 Nov 2026 (Elliott): "make the pike push ups recommended but not essential to move on ... merge to 1
        checkpoint ... with levels of difficulty in the same one". extra: shown, never holds the stage back */
     {k:'pike-levels', n:'Pike push-ups',            kind:'face', extra:true, demo:'pike-press-ups', goal:'Negatives, then 5 full reps',
-      faces:['Not yet','8 slow negatives','5 full reps'], note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
+      faces:['Not yet','8 slow negatives','5 full reps'],
+      /* a film for each level, picked above the film (9 Nov 2026, Elliott: "you also have videos for pike push ups") */
+      levels:[{n:'On knees', demo:'p-pike-pushups-knees'},{n:'Negatives', demo:'p-pike-pushup-negs'},{n:'Full reps', demo:'pike-press-ups'}], note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
     {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'}
   ],
   2:[
