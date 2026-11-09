@@ -18204,6 +18204,9 @@ function introOffer(kind){
   const i=curStage(), S=STAGES[i]||STAGES[0];
   /* kind 'app': the film about the app itself, asked for by name, rather
      than the stage film this offers once somebody is past Foundations */
+  /* kind 'phase': the phase's own intro, from its card on Train (9 Nov 2026) */
+  if(kind==='phase' && i>0 && stageFilm()) return {label:'Watch this first', title:S.n+', explained',
+                    url:stageFilm(), len:PHASE_FILM_LEN[stageFilm()]||'A few minutes'};
   if(kind==='app' || i===0 || firstVisit()) return {label:'New here? Watch this first', title:'How the handstand ladder works',
                     url:stageIntroUid(0)||LADDER_INTRO_VIDEO, len:'2 min'};
   const own=stageFilm();
@@ -19996,8 +19999,52 @@ function howHide(){ st.howGone='hidden'; save(); render(); }
 /* watched means most of it, not a tap: opened and closed in ten seconds is
    not seen. Any way in counts, the card, the menu or the library. */
 function introTick(v, ended){
-  if(st.howGone || !v || v.dataset.cc!==HOW_URL()) return;
-  if(ended || (v.duration>0 && v.currentTime >= v.duration*0.8)){ st.howGone='watched'; save(); }
+  if(!v || !(ended || (v.duration>0 && v.currentTime >= v.duration*0.8))) return;
+  const i=curStage();
+  if(i>0 && v.dataset.cc===stageIntroUid(i) && !(st.phaseFilm||{})[i]){ st.phaseFilm=Object.assign({}, st.phaseFilm, {[i]:'watched'}); save(); }
+  if(st.howGone || v.dataset.cc!==HOW_URL()) return;
+  st.howGone='watched'; save();
+}
+/* ── the phase's own film, at the top of Train ──────────────────────
+   Elliott, 9 Nov 2026: the Wall Work and Pushing More intros say what the
+   phase is for and why, so they are treated like the how the app works film
+   in Foundations: open at the size of a film, for people arriving at the
+   phase and for people already on it, until it has been watched or put
+   away. Kept per phase, so the next phase's film shows in its turn, and it
+   stays in the phase's sheet afterwards. */
+const PHASE_FILM_LEN = {'694fce7c0221a03611d801f782bc2d80':'6 min'};
+function phaseFilmUid(){ const i=curStage(); return (i>0 && !isMU() && !coachedView()) ? stageIntroUid(i) : ''; }
+const phaseFilmShown = () => !!phaseFilmUid() && !(st.phaseFilm||{})[curStage()];
+function openPhaseFilm(){ st.introKind='phase'; st.introOpen=true; save(); openOv('intro'); }
+function phaseFilmHide(){ st.phaseFilm=Object.assign({}, st.phaseFilm, {[curStage()]:'hidden'}); save(); render(); }
+function phaseFilmHTML(){
+  if(!phaseFilmShown()) return '';
+  const S=STAGES[curStage()], u=phaseFilmUid(), len=PHASE_FILM_LEN[u];
+  return `<section class="rise rise-2" style="padding:${wide()?22:16}px 20px 0">
+    <div class="howbig phasefilm" style="position:relative;background:#fff;border-radius:24px;overflow:hidden;
+      border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
+      <button onclick="openPhaseFilm()" aria-label="Play ${esc(S.n)}, explained"
+        style="display:block;width:100%;border:0;padding:0;margin:0;background:none;cursor:pointer;text-align:left;color:var(--ink)">
+        <span style="display:block;position:relative;aspect-ratio:16/9;background:var(--sand)">
+          <img src="${streamThumb(u)}" alt="" loading="lazy" onerror="this.remove()"
+            style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+          <span style="position:absolute;right:14px;bottom:14px;width:52px;height:52px;
+            border-radius:50%;background:rgba(255,255,255,.94);display:grid;place-items:center;
+            box-shadow:0 8px 20px rgba(0,64,61,.22)"><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663">
+            <path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span>
+        </span>
+        <span style="display:block;padding:14px 18px 17px">
+          <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">${esc(S.n.toUpperCase())}, EXPLAINED${len?' &middot; '+esc(len.toUpperCase()):''}</span>
+          <span style="display:block;font:400 26px/1.1 var(--serif);margin-top:8px">What we do here, and
+            <em style="color:var(--forest);font-style:normal">why.</em></span>
+        </span>
+      </button>
+      <button onclick="phaseFilmHide()" aria-label="Hide the ${esc(S.n)} film" title="Hide"
+        style="position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;border:0;cursor:pointer;
+        background:rgba(255,255,255,.92);color:var(--deep);display:grid;place-items:center;padding:0;
+        box-shadow:0 2px 8px rgba(0,0,0,.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div></section>`;
 }
 const xBtn = (go, label) => `<button onclick="event.stopPropagation();${go}" aria-label="${label}" title="Hide"
     style="position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;cursor:pointer;
@@ -20243,6 +20290,8 @@ function screenHome(){
     ${/* the week is in the bar at the top (18 Oct 2026) */''}
     ${sessionLineHTML()}
     ${obBannerHTML()}
+    <!-- the phase's own film first, until it is watched or put away (9 Nov 2026) -->
+    ${trialPending() ? '' : phaseFilmHTML()}
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
 
     <!-- ── build today's session ──────────────────────────────────
