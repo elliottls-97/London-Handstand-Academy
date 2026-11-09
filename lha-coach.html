@@ -1528,13 +1528,13 @@ function loadPaying(force){
    people on trial and actually paid". Active means opened the app in the
    window; trained means finished or started a session in it. Who pays and
    who is on a free week is Stripe's and Apple's word, from /paying. */
-let members=null, memErr='', memAsked=false, memDays=7, memShow='active';
+let members=null, memErr='', memAsked=false, memDays=7, memShow='active', memMine=false;
 function loadMembers(force){
   if(memAsked && !force) return; memAsked=true;
   fetch(API+'/members',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
     .then(d=>{ members=d; memErr=''; draw(); }).catch(e=>{ memErr=String(e); draw(); });
 }
-function memSet(k,v){ if(k==='d') memDays=v; else memShow=v; draw(); }
+function memSet(k,v){ if(k==='d') memDays=v; else if(k==='m') memMine=!!v; else memShow=v; draw(); }
 function memWhen(t){
   if(!t) return 'never';
   const d=Math.floor((Date.now()-t)/864e5);
@@ -1547,8 +1547,12 @@ function membersHTML(){
   if(err) return `<div class="card"><div class="kick">MEMBERS</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load them. ${esc(err)}.</div>
     <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="memErr='';payingErr='';loadMembers(true);loadPaying(true)">Try again</button></div>`;
   if(!members || !paying) return `<div class="card"><div class="kick">MEMBERS</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Loading…</div></div>`;
-  const D=memDays, now=Date.now(), win=D*864e5, ppl=members.people||[];
-  const pay={}; (paying.rows||[]).forEach(r=>{ if(r.email) pay[r.email]=r; });
+  const D=memDays, now=Date.now(), win=D*864e5;
+  /* your own and test accounts are left out unless the switch says otherwise */
+  const ppl=(members.people||[]).filter(p=>memMine || !p.mine);
+  const payRows=(paying.rows||[]).filter(r=>memMine || !r.mine);
+  const mineN=(members.people||[]).filter(p=>p.mine).length;
+  const pay={}; payRows.forEach(r=>{ if(r.email) pay[r.email]=r; });
   const day=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
   const statusOf=p=>{ const r=pay[p.email];
     if(r && (r.status==='past_due'||r.status==='unpaid')) return {k:'late', t:'Payment failed'};
@@ -1564,7 +1568,7 @@ function membersHTML(){
   /* paid and free week are who they are today, so they list everyone, with
      an account or not (a Stripe customer may never have opened the app) */
   const byMail=Object.fromEntries(ppl.map(p=>[p.email,p]));
-  const fromPay=pred=>(paying.rows||[]).filter(pred).map(r=>byMail[r.email]||{email:r.email, name:r.name||'', seen:0, n:{}, stage:null});
+  const fromPay=pred=>payRows.filter(pred).map(r=>byMail[r.email]||{email:r.email, name:r.name||'', seen:0, n:{}, stage:null});
   const paid=fromPay(r=>r.status!=='trialing' && r.how!=='comp' && r.status!=='past_due' && r.status!=='unpaid');
   const trial=fromPay(r=>r.status==='trialing');
   const sets={active, trained, new:fresh, paid, trial, all:ppl};
@@ -1593,19 +1597,22 @@ function membersHTML(){
       ${stat('trial',trial.length,'ON A FREE WEEK','')}
       ${stat('all',ppl.length,'ALL ACCOUNTS','')}
     </div>
-    <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:20px">${esc(showName.toUpperCase())}${['active','trained','new'].includes(memShow)?' &middot; LAST '+(D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'):''} &middot; ${list.length}</div>
+    <label style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;font:400 13px/1.3 var(--sans);color:var(--grey)">
+      <input type="checkbox" ${memMine?'checked':''} onchange="memSet('m',this.checked)" style="width:16px;height:16px;accent-color:var(--forest)">
+      Include my own and test accounts${mineN?' ('+mineN+')':''}</label>
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:18px">${esc(showName.toUpperCase())}${['active','trained','new'].includes(memShow)?' &middot; LAST '+(D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'):''} &middot; ${list.length}</div>
     ${list.length?`<div style="margin-top:8px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font:400 13px/1.4 var(--sans)">
       <tr style="text-align:left;color:var(--grey2);font:600 9.5px/1 var(--sans);letter-spacing:.1em">
         <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">STAGE</th><th style="padding:6px 8px 8px">LAST IN</th>
         <th style="padding:6px 8px 8px;text-align:right">SESSIONS</th><th style="padding:6px 0 8px 8px">STATUS</th></tr>
       ${list.map(p=>`<tr style="border-top:1px solid var(--line);cursor:pointer" onclick="openAcct(${jsq(p.email)})">
-        <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(p.name||p.email.split('@')[0])}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(p.email)}</div></td>
+        <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(p.name||p.email.split('@')[0])}${p.mine||(pay[p.email]||{}).mine?' <span style="font:600 10px/1 var(--sans);letter-spacing:.08em;color:var(--grey2)">YOURS</span>':''}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(p.email)}</div></td>
         <td style="padding:9px 8px;white-space:nowrap">${esc(stg(p.stage))}</td>
         <td style="padding:9px 8px;white-space:nowrap">${esc(memWhen(p.seen))}</td>
         <td style="padding:9px 8px;text-align:right;font-variant-numeric:tabular-nums" title="in the last ${D} days, of ${p.sessions||0} in all">${(p.n||{})[D]||0}</td>
         <td style="padding:9px 0 9px 8px">${pill(statusOf(p))}</td></tr>`).join('')}
     </table></div>`:`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody here.</div>`}
-    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Test accounts and coaches are left out. Sessions counts the window chosen above. Press a row for the account.</div>
+    <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">${memMine?'Your own and test accounts are included.':'Your own and test accounts are left out.'} Sessions counts the window chosen above. Press a row for the account.</div>
   </div>`;
 }
 function payingHTML(){

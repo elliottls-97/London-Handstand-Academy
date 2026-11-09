@@ -11900,10 +11900,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/coach/members') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     if (!(await isOwner())) return json(ownerOnly, 403);
-    const [accts, prog, marked] = await Promise.all([
+    const [accts, prog, marked, nc] = await Promise.all([
       supa.rows('accounts', 'select=email,name,plus,stage,first_seen,last_seen').catch(() => []),
       supa.rows('progress', 'select=email,sessions').catch(() => []),
-      getSetting('testers').catch(() => ({})) ]);
+      getSetting('testers').catch(() => ({})), getSetting('notcounted').catch(() => ({})) ]);
     const untils = await plusUntilAll().catch(() => ({}));
     const roster = clients(), co = coaches(), now = Date.now();
     const when = x => ms(x && (x.at || x.t || x.when)) || 0;
@@ -11912,14 +11912,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const people = [];
     for (const a of (accts || [])) {
       const e = norm(a.email);
-      if (!e || (marked || {})[e] || TEST_EMAIL.test(e) || co[e]) continue;
+      if (!e) continue;
+      /* Elliott's own and test accounts are sent, marked, so the page can
+         leave them out or put them back (9 Nov 2026: "exclude mine own but
+         have an option to include it") */
+      const mine = !!((marked || {})[e] || (nc || {})[e] || TEST_EMAIL.test(e) || co[e] || /@londonhandstandacademy\.com$/.test(e));
       const list = (sess[a.email] || []).map(when).filter(Boolean);
       const lastSession = list.length ? Math.max(...list) : 0;
       const n = {}; for (const d of W) n[d] = list.filter(t => now - t < d * DAY).length;
       if (untils[a.email]) a.plus_until = untils[a.email];
       people.push({ email: e, name: a.name || '', stage: Number.isInteger(a.stage) ? a.stage : null,
         joined: ms(a.first_seen), seen: Math.max(ms(a.last_seen), lastSession), lastSession, sessions: list.length, n,
-        plus: plusNow(a), coached: !!roster[e] });
+        plus: plusNow(a), coached: !!roster[e], ...(mine ? { mine: true } : {}) });
     }
     people.sort((x, y) => (y.seen || 0) - (x.seen || 0));
     return json({ ok: true, people, at: now });
@@ -11989,6 +11993,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           status: 'active', cancelling: false, pm: 0, price: 0, every: '', since: 0, next: t, trialEnd: 0 });
       }
     } catch {}
+    /* Elliott's own and test subscriptions, marked so Members can leave
+       them out by default (9 Nov 2026) */
+    { const marked = (await getSetting('testers').catch(() => ({}))) || {}, nc = (await getSetting('notcounted').catch(() => ({}))) || {}, co = coaches();
+      for (const r of rows) { const e = norm(r.email);
+        if (e && (marked[e] || nc[e] || TEST_EMAIL.test(e) || co[e] || /@londonhandstandacademy\.com$/.test(e))) r.mine = true; } }
     rows.sort((a, b) => (b.pm - a.pm) || ((b.since || 0) - (a.since || 0)));
     return json({ rows, problems, at: Date.now() });
   }
