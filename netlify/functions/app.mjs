@@ -112,7 +112,7 @@ const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort'
   'sl-tuck':'Single-leg tuck slides','pike-neg':'Pike push-up negatives','pike-full':'Pike push-ups, full reps',
   'nose-toes':'Nose to toes','assist-entry':'Assisted freestanding entries','tuck-depth':'Tuck slides',
   'slide-count':'Slide aways','slide-off':'Coming off the wall','box-dist':'Knees on box, distance',
-  'box-time':'Knees on box, hold','step-ups':'Step ups','entry-clean':'Entries to eight clean' };
+  'box-time':'Knees on box, hold','ctw-bail':'Chest to wall bail outs','pike-levels':'Pike push-ups','lat-slide':'Lateral slide outs','sl-removal':'Single leg wall removals','wall-steps':'Wall step ups','step-ups':'Step ups','entry-clean':'Entries to eight clean' };
 /* Who is actually holding a place: cancelled and refunded rows stay in the
    list so the history is readable. This lived further down the handler than
    two of the things that call it, and a const is not hoisted, so asking for

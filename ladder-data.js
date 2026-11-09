@@ -20,9 +20,9 @@ const CHECKPOINTS={
   ],
   1:[
     /* 9 Nov 2026, Elliott, as seen on screen. The app draws this list bottom up, so the first here is the
-       bottom row. On screen, top to bottom: chest to wall handstand, then wall scapula shrugs after it, tuck
-       slides, kick ups, pike push ups, wall removals (4th from bottom), lateral slide outs (3rd), step ups,
-       nose to toes last */
+       bottom row. On screen, top to bottom: chest to wall handstand, wall scapula shrugs, chest to wall
+       bail outs (moved here, 9 Nov), kick ups, pike push ups, wall removals (4th from bottom), lateral
+       slide outs (3rd), step ups, nose to toes last. Single leg tuck slides went to Pushing More. */
     {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
     {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
     {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.'},
@@ -36,14 +36,15 @@ const CHECKPOINTS={
       /* the 4 Oct reel that walks through every level, as its own option under them (9 Nov 2026) */
       explain:{n:'Full explainer, every level', uid:'4af0eaba89d9c837a9b9b632756a1227'}, note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
     {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups'},
-    {k:'sl-tuck',     n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
+    {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.'},
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'},
     {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'}
   ],
   2:[
     {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
+    /* moved from Wall Work, 9 Nov 2026 (Elliott); Coming off the wall removed the same day */
+    {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
     {k:'slide-count', n:'Slide aways',              kind:'count', target:10, demo:'slide-away'},
-    {k:'slide-off',   n:'Coming off the wall',      kind:'face',  demo:'slide-away', note:'Do you leave it on purpose, or slide and stay?', faces:['Still stuck','Sometimes','I leave it']},
     {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'},
     {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
     {k:'step-ups',    n:'Step ups',                 kind:'count', target:10, demo:'chair-assisted-step-ups'},
@@ -863,10 +864,10 @@ const STAGE_STORY = {
      STORY_TEASERS in app.mjs. */
   1:[{t:'Owning the wall',               k:'ctw-hold', teaser:1},
      {t:'Pushing through the shoulders', k:'scap-shrugs'},
-     {t:'Taking weight off the wall',    k:'sl-tuck', teaser:1},
-     {t:'Building pressing strength',    k:'pike-full', teaser:1}],
+     {t:'Bailing out safely',            k:'ctw-bail', teaser:1},
+     {t:'Building pressing strength',    k:'pike-levels', teaser:1}],
   2:[{t:'Stacking the shoulders',        k:'tuck-depth', teaser:1},
-     {t:'Leaving the wall on purpose',   k:'slide-off'},
+     {t:'Taking weight off the wall',    k:'sl-tuck'},
      {t:'Balancing on the box',          k:'box-time', teaser:1},
      {t:'Cleaning up your entries',      k:'entry-clean', teaser:1}],
   3:[{t:'Sliding away',                  k:'side-away', teaser:1},
