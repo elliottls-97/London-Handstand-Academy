@@ -20,9 +20,9 @@ const CHECKPOINTS={
   ],
   1:[
     /* 9 Nov 2026, Elliott, as seen on screen. The app draws this list bottom up, so the first here is the
-       bottom row. On screen, top to bottom: chest to wall handstand, wall scapula shrugs, chest to wall
-       bail outs (moved here, 9 Nov), kick ups, pike push ups, wall removals (4th from bottom), lateral
-       slide outs (3rd), step ups, nose to toes last. Single leg tuck slides went to Pushing More. */
+       bottom row. On screen, top to bottom: chest to wall bail outs first, chest to wall handstand, wall
+       scapula shrugs, kick ups, pike push ups, wall removals (4th from bottom), lateral slide outs (3rd),
+       step ups, nose to toes last. Single leg tuck slides went to Pushing More. */
     {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
     {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
     {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.'},
@@ -36,9 +36,9 @@ const CHECKPOINTS={
       /* the 4 Oct reel that walks through every level, as its own option under them (9 Nov 2026) */
       explain:{n:'Full explainer, every level', uid:'4af0eaba89d9c837a9b9b632756a1227'}, note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
     {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups'},
-    {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.'},
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'},
-    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'}
+    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'},
+    {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.'}
   ],
   2:[
     {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
