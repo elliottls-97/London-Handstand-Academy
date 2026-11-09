@@ -360,6 +360,11 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .lc-lv{display:flex;gap:4px;padding:4px;margin-bottom:10px;border-radius:14px;background:rgba(0,64,61,.08)}
 .lc-lv button{flex:1;min-height:36px;border:0;border-radius:10px;background:transparent;color:var(--grey);font:600 13px/1 var(--sans);cursor:pointer}
 .lc-lv button.on{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
+.lc-ex{display:flex;align-items:center;gap:9px;width:100%;min-height:40px;margin:-2px 0 10px;padding:0 12px;border-radius:12px;cursor:pointer;
+ border:1.5px dashed rgba(0,102,99,.35);background:transparent;color:var(--forest);font:600 13px/1.2 var(--sans);text-align:left}
+.lc-exp{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(0,102,99,.12);padding-left:2px;flex:none}
+.lc-ex.on{border-style:solid;border-color:var(--forest);background:#fff;box-shadow:0 1px 2px rgba(17,17,17,.08)}
+.lc-ex.on .lc-exp{background:var(--forest);color:#fff}
 .hcps .lc.cl .lc-r.on .lc-p{background:transparent}
 .hcps-fold{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;margin-top:4px;border:0;background:none;
  cursor:pointer;font:600 14px/1 var(--sans);color:var(--forest)}
@@ -8705,19 +8710,26 @@ function rungFilm(drill){
     : (drill && drill.url ? `<div class="lc-none">The film opens with the whole ladder.</div>` : '');
 }
 function rungLevels(c){ return (c.levels||[]).filter(l=>l && l.demo && (drillById(l.demo)||{}).url); }
+function rungExplain(c){ const x=c && c.explain; return x && /^[a-f0-9]{32}$/.test(x.uid||'') ? {v:'', n:x.n, url:STREAM_CDN+x.uid+'/downloads/default.mp4'} : null; }
+/* i is a level's place, or 'x' for the explainer under them */
 function cpLevelPick(k, i, b){
-  const c=cpDef(k), ls=c?rungLevels(c):[], l=ls[i]; if(!l) return;
+  const c=cpDef(k), ls=c?rungLevels(c):[], x=i==='x'?rungExplain(c):null, l=x?null:ls[i]; if(!l && !x) return;
   lcLevel[k]=i;
-  const box=document.getElementById('cplvf-'+k); if(box) box.innerHTML=rungFilm(drillById(l.demo));
-  const bar=b && b.parentNode; if(bar) [...bar.children].forEach((x,j)=>{ x.classList.toggle('on', j===i); x.setAttribute('aria-pressed', j===i); });
+  const box=document.getElementById('cplvf-'+k); if(box) box.innerHTML=rungFilm(x || drillById(l.demo));
+  const card=document.getElementById('cpcard-'+k) || (b && b.closest('.lc-xi'));
+  if(card) card.querySelectorAll('[data-lv]').forEach(e=>{ const on=e.dataset.lv===String(i); e.classList.toggle('on', on); e.setAttribute('aria-pressed', on); });
 }
 function rungBody(c, i, total, use, noteFirst){
-  const lv=rungLevels(c), li=Math.min(lcLevel[c.k]||0, Math.max(0,lv.length-1));
-  const drill=lv.length ? drillById(lv[li].demo) : c.demo ? (drillById(c.demo) || cpPlanDrill(c)) : cpPlanDrill(c);
+  const lv=rungLevels(c), ex=rungExplain(c);
+  const li=lcLevel[c.k]==='x' && ex ? 'x' : Math.min(lcLevel[c.k]||0, Math.max(0,lv.length-1));
+  const drill=li==='x' ? ex : lv.length ? drillById(lv[li].demo) : c.demo ? (drillById(c.demo) || cpPlanDrill(c)) : cpPlanDrill(c);
   const one=rungFilm(drill);
   const film = lv.length>1
-    ? `<div class="lc-lv" role="group" aria-label="Level">${lv.map((l,j)=>`<button type="button" class="${j===li?'on':''}" aria-pressed="${j===li}"
-        onclick="event.stopPropagation();cpLevelPick(${jsq(c.k)},${j},this)">${esc(l.n)}</button>`).join('')}</div>
+    ? `<div class="lc-lv" role="group" aria-label="Level">${lv.map((l,j)=>`<button type="button" data-lv="${j}" class="${j===li?'on':''}" aria-pressed="${j===li}"
+        onclick="event.stopPropagation();cpLevelPick(${jsq(c.k)},${j},this)">${esc(l.n)}</button>`).join('')}</div>${ex?`
+       <button type="button" class="lc-ex${li==='x'?' on':''}" data-lv="x" aria-pressed="${li==='x'}"
+         onclick="event.stopPropagation();cpLevelPick(${jsq(c.k)},'x',this)"><span class="lc-exp"><svg width="9" height="10" viewBox="0 0 17 19" fill="currentColor" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
+           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>${esc(ex.n)}</button>`:''}
        <div class="lc-film" id="cplvf-${c.k}">${one}</div>`
     : one ? (one.indexOf('lc-none')>-1 ? one : `<div class="lc-film">${one}</div>`) : '';
   const note=c.note ? `<div class="lc-note">${esc(c.note)}</div>` : '';

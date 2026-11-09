@@ -23,7 +23,7 @@ const CHECKPOINTS={
        bottom row): nose to toes last, lateral slide outs 3rd from bottom, single leg wall removals 4th */
     {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
     {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'},
-    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:6,  demo:'lateral-slide-outs', goal:'6 each side', note:'Each side.'},
+    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.'},
     {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'},
     {k:'sl-tuck',     n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
@@ -33,7 +33,9 @@ const CHECKPOINTS={
     {k:'pike-levels', n:'Pike push-ups',            kind:'face', extra:true, demo:'pike-press-ups', goal:'Negatives, then 5 full reps',
       faces:['Not yet','8 slow negatives','5 full reps'],
       /* a film for each level, picked above the film (9 Nov 2026, Elliott: "you also have videos for pike push ups") */
-      levels:[{n:'On knees', demo:'p-pike-pushups-knees'},{n:'Negatives', demo:'p-pike-pushup-negs'},{n:'Full reps', demo:'pike-press-ups'}], note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
+      levels:[{n:'On knees', demo:'p-pike-pushups-knees'},{n:'Negatives', demo:'p-pike-pushup-negs'},{n:'Full reps', demo:'pike-press-ups'}],
+      /* the 4 Oct reel that walks through every level, as its own option under them (9 Nov 2026) */
+      explain:{n:'Full explainer, every level', uid:'4af0eaba89d9c837a9b9b632756a1227'}, note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
     {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'}
   ],
   2:[
