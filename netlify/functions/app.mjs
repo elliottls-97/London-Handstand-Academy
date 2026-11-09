@@ -15279,6 +15279,49 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         body: 'This is how a message from a client will arrive.', url: '/lha-coach.html#today', tag: 'test' }, 'pushcoach'));
     }
 
+    /* ── a notification to everyone on given phases ─────────────────
+       Elliott, 9 Nov 2026: tell the people on Wall Work and Pushing More
+       with notifications on where the new phase films are. Anyone with a
+       phone allowed (push:<email>), not a coached client, whose saved
+       stage is one of `stages`; `msgs` holds the words per stage. `dry`
+       only counts. Each person gets a given `id` once, however often this
+       is pressed. */
+    if (path === '/coach/push/stage' && request.method === 'POST') {
+      const id = String(body.id || '').replace(/[^a-z0-9-]/gi, '').slice(0, 40);
+      const stages = (Array.isArray(body.stages) ? body.stages : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 5);
+      const msgs = body.msgs && typeof body.msgs === 'object' ? body.msgs : {};
+      if (!id || !stages.length) return json({ error: 'Which phases, and a name for this message?' }, 400);
+      const roster = new Set(rosterList().map(c => norm(c.email)));
+      const rows = (await supa.rows('settings', `key=like.${enc('push:')}*&select=key,value&limit=2000`).catch(() => [])) || [];
+      const per = {}, who = [];
+      let withPhone = 0;
+      for (const r of rows) {
+        const e = norm(String(r.key || '').slice(5)); const v = r.value || {};
+        if (!e || roster.has(e)) continue;
+        if (!((Array.isArray(v.subs) && v.subs.length) || (Array.isArray(v.apns) && v.apns.length))) continue;
+        withPhone++;
+        const stt = (await getSetting(`state:${e}`)) || {};
+        if (stt.ladder === 'mu' || stt.mu) continue;
+        const sg = Math.max(0, Math.min(5, Number(stt.stage) || 0));
+        if (!stages.includes(sg)) continue;
+        per[sg] = (per[sg] || 0) + 1; who.push([e, sg]);
+      }
+      if (body.dry) return json({ ok: true, dry: true, withPhone, per, total: who.length });
+      let sent = 0, phones = 0, skipped = 0;
+      for (const [e, sg] of who) {
+        const m = msgs[String(sg)] || {};
+        const title = String(m.title || '').slice(0, 80), text = String(m.body || '').slice(0, 180);
+        if (!title) { skipped++; continue; }
+        const nk = `announce:${id}:${e}`;
+        if (await supa.row('nudges', `key=eq.${enc(nk)}&select=key`).catch(() => null)) { skipped++; continue; }
+        const res = await pushSend(e, { title, body: text, url: String(m.url || '/lha-app.html?go=phasefilm').slice(0, 120), tag: 'phase-' + sg })
+          .catch(err => ({ sent: 0, why: String(err && err.message || err) }));
+        await supa.upsert('nudges', { key: nk, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+        if (res.sent) { sent++; phones += res.sent; }
+      }
+      return json({ ok: true, per, total: who.length, sent, phones, skipped });
+    }
+
     /* ── take a reply back ──────────────────────────────────────────
        The message goes from their chat, the check points it answered go
        back to how they were before it, and the clips it closed go back to
