@@ -19,18 +19,20 @@ const CHECKPOINTS={
     {k:'kickup-rate', n:'Kick up to the wall',      kind:'count', target:8,  demo:'wall-kick-ups', note:'Out of ten attempts, how many landed?'}
   ],
   1:[
+    /* 9 Nov 2026, Elliott, as seen on screen (the app draws this list bottom up, so the first here is the
+       bottom row): nose to toes last, lateral slide outs 3rd from bottom, single leg wall removals 4th */
+    {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
     {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'},
+    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:6,  demo:'lateral-slide-outs', goal:'6 each side', note:'Each side.'},
+    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'},
     {k:'sl-tuck',     n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
+    {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups'},
     /* 9 Nov 2026 (Elliott): "make the pike push ups recommended but not essential to move on ... merge to 1
        checkpoint ... with levels of difficulty in the same one". extra: shown, never holds the stage back */
     {k:'pike-levels', n:'Pike push-ups',            kind:'face', extra:true, demo:'pike-press-ups', goal:'Negatives, then 5 full reps',
       faces:['Not yet','8 slow negatives','5 full reps'], note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
-    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:6,  demo:'lateral-slide-outs', goal:'6 each side', note:'Each side.'},
-    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
-    {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'chair-assisted-step-ups'},
-    {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, note:'The main drill for this stage.'},
-    {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups'}
+    {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'}
   ],
   2:[
     {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
