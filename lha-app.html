@@ -5855,6 +5855,10 @@ function vpClose(){
   document.body.style.overflow='';
   document.removeEventListener('keydown', vpKeys);
   vpFrom=null; vpMark=null; vpTurn=0;
+  /* a phase film lives only in the theatre: stop it, and if it has now
+     been watched, its card goes */
+  if(parent && parent.id==='phaseFilmHost'){ if(v) v.pause(); parent.innerHTML='';
+    if((st.phaseFilm||{})[curStage()]) render(); }
 }
 function vpKeys(e){
   if(e.key==='Escape'){ vpClose(); return; }
@@ -20018,7 +20022,23 @@ function introTick(v, ended){
 const PHASE_FILM_LEN = {'694fce7c0221a03611d801f782bc2d80':'6 min', '6b31bda28932030f284de4ef2afb5554':'9 min'};
 function phaseFilmUid(){ const i=curStage(); return (i>0 && !isMU() && !coachedView()) ? stageIntroUid(i) : ''; }
 const phaseFilmShown = () => !!phaseFilmUid() && !(st.phaseFilm||{})[curStage()];
-function openPhaseFilm(){ st.introKind='phase'; st.introOpen=true; save(); openOv('intro'); }
+/* straight into the theatre, the full screen player the drill films use,
+   not the sheet that slides up (Elliott, 9 Nov 2026: "a proper player").
+   The film is built in a holder off the page so the theatre has somewhere
+   to hand it back to; closing stops it and empties the holder. */
+function openPhaseFilm(){
+  const u=phaseFilmUid(); if(!u) return;
+  let host=document.getElementById('phaseFilmHost');
+  if(!host){ host=document.createElement('div'); host.id='phaseFilmHost';
+    host.style.cssText='position:fixed;left:-10000px;top:0;width:640px;pointer-events:none'; document.body.appendChild(host); }
+  host.innerHTML=ccWrap(`<video src="${hlsUse()?streamHls(u):streamMp4(u)}" playsinline preload="auto"
+    poster="${streamThumb(u)}" data-cc="${u}" ontimeupdate="introTick(this)" onended="introTick(this,1)"
+    style="width:100%;aspect-ratio:16/9;object-fit:contain;background:#11150f;display:block"></video>`);
+  const v=host.querySelector('video');
+  mountCaptions();
+  vpOpen(v);
+  startFilm(v);
+}
 function phaseFilmHide(){ st.phaseFilm=Object.assign({}, st.phaseFilm, {[curStage()]:'hidden'}); save(); render(); }
 function phaseFilmHTML(){
   if(!phaseFilmShown()) return '';
