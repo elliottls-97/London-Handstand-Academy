@@ -24977,7 +24977,7 @@ function screenJoin(){
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
       : second ? `Your first one is <em style="color:var(--forest);font-style:normal">done.</em>`
-      : clip ? `An account, for my <em style="color:var(--forest);font-style:normal">reply.</em>`
+      : clip ? `Where should I send your <em style="color:var(--forest);font-style:normal">reply?</em>`
       : track ? `Keep your <em style="color:var(--forest);font-style:normal">progress.</em>`
       : plan ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
       : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
@@ -24989,7 +24989,7 @@ function screenJoin(){
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
       : second ? ''
-      : clip ? 'Your clip goes in on the next screen. My video reply comes back to this account within 48 hours. Free, and no card.'
+      : clip ? 'An email and a password, so my video reply has somewhere to land.'
       : track ? 'Every session and check point, kept on any phone you sign in on. Free, and no card.'
       : plan ? 'Your coaching lives on an account, so this takes a moment and then the payment page opens.'
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
@@ -25007,6 +25007,12 @@ function screenJoin(){
        : taste ? 'Your first session there is free, and no card is asked for. '
                  +esc((PSJ.goal||'').replace(/\.$/,''))+'.'
            : esc(s.goal||'')}</div>
+    ${clip?`<div class="card" style="margin-top:20px;padding:16px;display:flex;gap:14px;align-items:center">
+      <img src="/assets/site/coach-elliott-headshot.jpg" alt="" width="56" height="56" style="flex:none;width:56px;height:56px;border-radius:50%;object-fit:cover">
+      <div style="min-width:0">
+        ${['Elliott watches it himself','A video reply within 48 hours','Free. No card'].map(t=>`<div style="display:flex;gap:8px;align-items:center;font:500 14px/1.5 var(--sans);color:var(--ink)">
+          <span style="flex:none;width:16px;height:16px;border-radius:50%;background:var(--forest);color:#fff;display:grid;place-items:center;font:700 9px/1 var(--sans)">&check;</span>${t}</div>`).join('')}
+      </div></div>`:''}
     ${st.pendingCode?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;
       background:rgba(0,102,99,.08);font:400 13.5px/1.5 var(--sans)">
       <b style="letter-spacing:.06em">${esc(st.pendingCode)}</b> is held and goes on
@@ -25065,7 +25071,7 @@ function screenJoin(){
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">
           ${trial ? 'Create it and start the free '+trialDays
             : track ? 'Save my progress'
-            : clip ? 'Make my account'
+            : clip ? 'Continue'
             : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
@@ -25173,6 +25179,57 @@ function resumeSave(){
       toast('Saving it for no signal now.'); dlStart(k); }
     else toast('You are in. Tap Save again to keep it on this phone.'); }, 400);
 }
+/* ── the free form check from the website: two questions, then the clip ──
+   What they are after and what is in the way go to the coach with the
+   clip, as its question. The button opens the phone's own picker and the
+   clip goes through the same upload as every other form check. */
+const CLIP_GOALS=['My first handstand','Getting off the wall','Holding it for longer','A press or a one arm'];
+function screenClipQ(){
+  const g=st.clipGoal||'';
+  return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
+    padding:calc(env(safe-area-inset-top) + 40px) 24px calc(env(safe-area-inset-bottom) + 30px);display:flex;flex-direction:column">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Your free form check</div>
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">Two things, then your
+      <em style="color:var(--forest);font-style:normal">clip.</em></div>
+    <div style="font:600 15px/1.3 var(--sans);margin-top:28px">What are you working towards?</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+      ${CLIP_GOALS.map(x=>`<button type="button" onclick="clipGoal(this)" data-g="${esc(x)}" aria-pressed="${g===x}"
+        style="min-height:52px;padding:10px 12px;border-radius:14px;cursor:pointer;text-align:left;font:600 14px/1.25 var(--sans);
+        background:#fff;color:var(--deep);border:1.5px solid ${g===x?'var(--forest)':'rgba(0,64,61,.14)'};
+        ${g===x?'box-shadow:0 0 0 3px rgba(0,102,99,.1)':''}">${esc(x)}</button>`).join('')}
+    </div>
+    <label for="clipWhy" style="display:block;font:600 15px/1.3 var(--sans);margin-top:24px">What are you struggling with?</label>
+    <textarea id="clipWhy" rows="3" maxlength="400" placeholder="For example: I fall over as soon as my feet leave the wall"
+      oninput="st.clipWhy=this.value;save()"
+      style="margin-top:10px;width:100%;background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:16px;
+      font:400 15px/1.5 var(--sans);color:var(--ink);outline:none;resize:none">${esc(st.clipWhy||'')}</textarea>
+    <div style="margin-top:auto;padding-top:28px">
+      <div class="card" style="padding:14px 16px;font:400 13.5px/1.5 var(--sans);color:var(--grey)">
+        <b style="color:var(--ink);font-weight:600">Filming it:</b> side on, phone upright, whole body in frame, hands included.</div>
+      <button class="btn" type="button" onclick="clipSend()" style="width:100%;margin-top:12px;
+        background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
+        box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">Upload my clip</button>
+      <button type="button" onclick="st.coTab='check';st.tab='coaching';save();render()" style="width:100%;background:none;border:none;margin-top:4px;
+        font:500 13px/1 var(--sans);color:var(--grey);cursor:pointer;padding:14px">I will film it later</button>
+    </div></div>`;
+}
+/* one button changes, so only it is repainted: a redraw would lose the words being typed */
+function clipGoal(b){
+  st.clipGoal=b.dataset.g; save();
+  [...b.parentNode.children].forEach(x=>{ const on=x===b; x.setAttribute('aria-pressed', on);
+    x.style.borderColor = on ? 'var(--forest)' : 'rgba(0,64,61,.14)'; x.style.boxShadow = on ? '0 0 0 3px rgba(0,102,99,.1)' : 'none'; });
+}
+function clipSend(){
+  const why=String(st.clipWhy||'').trim(), q=[st.clipGoal?'Working towards: '+st.clipGoal+'.':'', why?'Struggling with: '+why:''].filter(Boolean).join(' ');
+  st.fcDraft={mode:'one', q, clips:{}};
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*,image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    st.coTab='check'; st.tab='coaching'; save(); render(); sendAssessment(f, q); };
+  inp.click();
+  save();
+}
 function skipJoin(){
   st.joinSkipped=true;
   if(st.joinFor==='save'){ st.joinFor=''; st.saveKey=''; st.saveFrom=''; }
@@ -25189,6 +25246,7 @@ function joinLand(){
   const back = st.joinBack;
   st.joinBack=''; st.joinNext=null;
   if(st.joinFor==='taste' || st.joinFor==='next'){ st.joinFor=''; st.tab='home'; }
+  else if(st.joinFor==='clip' && st.token){ st.joinFor=''; st.coTab='check'; st.tab='clipq'; }
   else { st.tab = JOIN_BACK.includes(back) ? back : 'home'; if(st.joinFor==='track' || st.joinFor==='clip') st.joinFor=''; }
   return next;
 }
@@ -27134,7 +27192,7 @@ function render(){
     const onWelcome = !outside && !st.mode;
     /* (10 Nov 2026) not while the free form check is open ahead of the questions */
     const onQuiz = !outside && st.mode==='free' && !st.quizDone
-      && !(st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree'));
+      && !(st.tab==='clipq' || (st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree')));
     const qb = onQuiz ? quizBg() : null;
     /* a portrait picture on a monitor would be cut to a strip, so there the
        tall panels carry on instead */
@@ -27166,11 +27224,12 @@ function render(){
      that only showed for an account whose mode was free, so anywhere else
      the button did nothing */
   if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')
-     && !(st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree'))){ st.tab='quiz'; swap(st.introNext ? screenIntro() : screenQuiz()); return; }
+     && !(st.tab==='clipq' || (st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree')))){ st.tab='quiz'; swap(st.introNext ? screenIntro() : screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
     swap(screenOriented()); return; }
   if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
+  if(st.tab==='clipq' && !st.in){ if(st.token){ swap(screenClipQ()); return; } st.tab='coaching'; }
   /* ── one workout first, then the address ─────────────────────────
      The quiz used to hand straight over to a sign-up form, so a stranger
      who had answered three questions honestly was asked for an email
@@ -27279,8 +27338,15 @@ document.addEventListener('DOMContentLoaded',function(){
        form check. The questions wait until they go to train: st.checkFirst
        lets Coaching and the sign up screen through before the quiz is done. */
     if(q.get('start')==='check' && !st.in){
-      if(!st.token){ st.viewChosen='app'; st.inPerson=false; if(!st.mode) st.mode='free'; st.checkFirst=true; }
-      st.coTab='check'; st.tab='coaching'; save(); }
+      st.coTab='check'; st.tab='coaching';
+      /* nobody signed in: straight to the account the reply lands on, then
+         two questions, then the clip (Elliott, 10 Nov 2026: "just ask for
+         email and password ... what their goals are, and what they are
+         struggling with. And give them an upload link") */
+      if(!st.token){ st.viewChosen='app'; st.inPerson=false; if(!st.mode) st.mode='free'; st.checkFirst=true;
+        joinErr=''; st.joinFor='clip'; st.joinBack='coaching'; st.wantUpgrade=null; st.wantPlan=null; st.tab='joinFree'; }
+      else if(!st.freeCheckUsed && !st.checkOpen && !st.awaitingReview) st.tab='clipq';
+      save(); }
   }catch(e){}
   /* cache first so a signed-in client sees their plan instantly, then
      refresh in the background in case it changed since last time */
