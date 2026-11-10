@@ -3510,11 +3510,209 @@ function assessHTML(){
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Assessments</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">Know where you <em style="color:var(--forest);font-style:normal">are.</em></div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-top:22px">
-      ${strSummaryHTML(true)}
-      ${soon('Shoulders')}
+      ${strengthOn()?strSummaryHTML(true):''}
+      ${shoulderOn()?shSummaryHTML():soon('Shoulders')}
       ${soon('Fear of falling')}
     </div></div>
     <div style="height:40px"></div>`;
+}
+/* ── the shoulder check ──────────────────────────────────────────────
+   Beth, a physio, took Elliott through her shoulder assessment on 10 Nov
+   2026 (the film is "Shoulder assessment" in ~/lha-reels). Her version for
+   someone checking themselves: first, is it one for a physio; then the
+   range overhead (160 to 180 degrees is normal, more is hypermobile) and
+   turning out (about 90); then how the shoulder blades move, watched from
+   behind on the way up and slowly on the way down, where weakness shows;
+   then whether the range holds under load. Four answers come out of it:
+   Elliott's three kinds of student and her "snuggle shoulder". Closed
+   shoulders (stiff), range without strength in it (her "sad scapula"),
+   lots of range and little control (hypermobile), and a shoulder blade
+   that tips forward as the arm turns in. Her prescription is two or three
+   drills, about three rounds each until tired: control work at the start
+   of a session, stretches after. Off unless ?shoulder=1, like the pushing
+   assessment, until Elliott and Beth have been through it. */
+const SHOULDER_ON=(()=>{ try{ const q=new URLSearchParams(location.search).get('shoulder');
+  if(q==='1') localStorage.setItem('lha_shoulder','1'); if(q==='0') localStorage.removeItem('lha_shoulder');
+  return localStorage.getItem('lha_shoulder')==='1'; }catch(e){ return false; } })();
+const shoulderOn=()=>SHOULDER_ON && !isMU() && !coachedView();
+const SH_TESTS=[
+  {id:'pain', n:'Does it hurt?', axis:'First',
+   how:'The first thing a physio asks: is this one for training, or one to get looked at?',
+   opts:[{l:'No pain', note:'Tight or tired after training counts as no', f:''},
+         {l:'It aches when I train', note:'At the front or top of the shoulder, settling afterwards', f:'pain'},
+         {l:'One of these', note:'Pain and weakness since a fall or an injury. Suddenly unable to lift the arm. Pins and needles or numbness down the arm.', f:'red'}]},
+  {id:'reach', n:'Arms overhead', axis:'Range',
+   how:'Lie on your back, knees bent, lower back pressed into the floor. Take straight arms up and over towards the floor behind your head, without the back lifting.',
+   film:'from the side, with your arms and your lower back both in the picture.',
+   opts:[{l:'They stop short, or my back lifts to get there', f:'stiff'},
+         {l:'They reach the floor with my back down', note:'The range a handstand needs', f:''},
+         {l:'They reach easily and could keep going', note:'More range than most', f:'bendy'}]},
+  {id:'turn', n:'Turning out', axis:'Range',
+   how:'Still on your back. Upper arm out to the side at shoulder height, elbow bent to a right angle, hand pointing at the ceiling. Let the back of the hand fall back towards the floor.',
+   opts:[{l:'My forearm reaches the floor', note:'About 90 degrees, which is normal', f:''},
+         {l:'It stops well short of the floor', f:'tilt'}]},
+  {id:'blades', n:'Your shoulder blades', axis:'Control',
+   how:'Top off or a vest, back to the camera. Lift both arms forward and up as high as they go, then lower them slowly, over three seconds. Watch the shoulder blades, most of all on the way down.',
+   film:'from behind, with the phone at shoulder height.',
+   opts:[{l:'Smooth, up and down', f:''},
+         {l:'A blade sticks out or tips on the way down', note:'It lifts off the ribs instead of wrapping round them', f:'tilt'},
+         {l:'I cannot tell', note:'Send the clip for a form check and a coach will look', f:''}]},
+  {id:'load', n:'Under load', axis:'Strength',
+   how:'Go into a downward dog, or a chest to wall handstand if you have one, and push tall through your hands.',
+   film:'from the side.',
+   opts:[{l:'My arms stay by my ears', f:''},
+         {l:'My shoulders sink and my elbows want to bend', f:'weak'},
+         {l:'My chest sinks through and my shoulders go past my hands', f:'bendy'}]}
+];
+const SH_FOCUS={
+  stiff:{n:'Closed shoulders', why:'Your lats, chest or upper back hold your arms short of overhead. Range comes from stretching with time and load: about 30 seconds a stretch, most days, after you train.',
+    when:'After you train', d:'3 × 30s', drills:['heart-melting-pose','wall-front-side-opener','wall-shoulder-opener']},
+  weak:{n:'Range without the strength', why:'The range is there lying down, but with your weight on it the shoulders sink and the elbows bend. They need strength at the end of their range: push tall, and hold it there.',
+    when:'At the start of a session', d:'3 rounds, hold the top for 3s', drills:['downward-dog-pulses','wall-scapula-shrugs','chair-assisted-handstand-scapula-shrugs']},
+  bendy:{n:'Lots of range, less control', why:'You have more range than you can hold, so the muscles round the shoulder work harder to keep it in place. Slow work with a light band, and a strong middle, builds control at the ends of that range.',
+    when:'At the start of a session', d:'3 rounds, slowly', drills:['plank-pose','banded-shoulder-engagement','banded-external-rotations']},
+  tilt:{n:'Turned in', why:'Your arm turns in and the shoulder blade tips forward instead of wrapping round the ribs. Turning the arms out lets the muscles that hold the shoulder blade do their job.',
+    when:'At the start of a session', d:'3 rounds, until they tire', drills:['banded-external-rotations','floor-scapula-push-ups','ytws']}
+};
+const SH_ORDER=['stiff','weak','bendy','tilt'];
+const SH_RETEST=28*864e5;
+let shStep=-1, shAns={}, shTimer=null;
+const shN=()=>SH_TESTS.length;
+const shDone=a=>!!a && (SH_TESTS[0].opts[a.pain]||{}).f==='red' || !!a && SH_TESTS.every(t=>Number.isInteger(a[t.id]));
+/* what the answers add up to: the focuses in order (most answers first,
+   then stiff, weak, bendy, turned in), and two or three drills in all,
+   three from one focus or two from the first and one from the second */
+function shResult(a){
+  const votes={}; let pain=false, red=false;
+  SH_TESTS.forEach(t=>{ const o=t.opts[a[t.id]]; if(!o || !o.f) return;
+    if(o.f==='red') red=true; else if(o.f==='pain') pain=true; else votes[o.f]=(votes[o.f]||0)+1; });
+  const ranked=SH_ORDER.filter(k=>votes[k]).sort((x,y)=>votes[y]-votes[x] || SH_ORDER.indexOf(x)-SH_ORDER.indexOf(y));
+  const plan=[], seen=new Set();
+  const take=(k,n)=>{ for(const v of SH_FOCUS[k].drills){ if(n<=0) break; if(seen.has(v) || !drillById(v)) continue;
+    seen.add(v); plan.push({v, k, d:SH_FOCUS[k].d, when:SH_FOCUS[k].when}); n--; } };
+  if(ranked.length===1) take(ranked[0], 3); else if(ranked.length>1){ take(ranked[0], 2); take(ranked[1], 1); }
+  return {red, pain, ranked, plan};
+}
+const shDue=()=>!!(st.shoulderTest && st.shoulderTest.at && Date.now()-st.shoulderTest.at > SH_RETEST);
+function openShoulder(){
+  clearTimeout(shTimer);
+  const p=st.shoulderTest;
+  if(p && shDone(p.a)){ shAns=Object.assign({}, p.a); shStep=shN(); } else { shAns={}; shStep=-1; }
+  openOv('shoulder');
+}
+function shoulderBody(){ return `<div id="shb">${shHTML()}</div>`; }
+function shPaint(){
+  const el=document.getElementById('shb'); if(!el){ drawOv(); return; }
+  el.innerHTML=shHTML();
+  const sh=el.closest('.sheet'); if(sh) sh.scrollTop=0;
+}
+function shGo(i){ clearTimeout(shTimer); shStep=Math.max(-1, Math.min(shN(), i)); shPaint(); }
+function shStart(){ shAns={}; shGo(0); }
+function shPick(i){
+  const t=SH_TESTS[shStep]; if(!t) return;
+  shAns[t.id]=i; shPaint();
+  clearTimeout(shTimer); shTimer=setTimeout(shNext, 320);
+}
+function shNext(){
+  const t=SH_TESTS[shStep]; if(!t || !Number.isInteger(shAns[t.id])) return;
+  /* a red flag ends it: the rest is for a physio to look at */
+  const red=(t.opts[shAns[t.id]]||{}).f==='red';
+  if(!red && shStep<shN()-1){ shGo(shStep+1); return; }
+  if(!red && !shDone(shAns)){ shGo(SH_TESTS.findIndex(x=>!Number.isInteger(shAns[x.id]))); return; }
+  const a=red ? {pain:shAns.pain} : Object.assign({}, shAns), r=shResult(a), was=st.shoulderTest||{}, at=Date.now();
+  st.shoulderTest={a, at, hist:(Array.isArray(was.hist)?was.hist:[]).concat([{at, f:r.red?['red']:r.ranked}]).slice(-12)};
+  save(); saveState(); track('shouldertest', null, r.red ? 'red' : (r.ranked[0]||'clear'));
+  shAns=a; shGo(shN());
+}
+const shHead=t=>{ const w=String(t).split(' '), last=w.pop(); return esc(w.join(' '))+(w.length?' ':'')+`<em>${esc(last)}</em>`; };
+function shHTML(){ return shStep<0 ? shIntroHTML() : shStep<shN() ? shStepHTML() : shResultHTML(); }
+function shIntroHTML(){
+  const had=st.shoulderTest && shDone(st.shoulderTest.a);
+  return `<div class="pt">
+    <div class="pt-k">Shoulder check &middot; 5 checks &middot; 5 minutes</div>
+    <div class="pt-h">How do your shoulders <em>move?</em></div>
+    <p class="pt-p">The checks Beth, a physio, starts with: your range, how your shoulder blades move, and what happens with your weight on them. Then two or three drills for what they find.</p>
+    <div class="pt-card"><div class="pt-k" style="color:var(--grey)">Before you start</div>
+      <p class="pt-p">A mat, a wall and your phone. Film the checks that say so and watch them back: the film is for you, it goes nowhere.</p>
+      <p class="pt-s">Answer for today, not your best day.</p></div>
+    <button class="btn pt-go" onclick="shStart()">Start</button>
+    ${had?`<button class="pt-link" onclick="shGo(shN())">See your last result</button>`:''}
+  </div>`;
+}
+function shStepHTML(){
+  const N=shN(), t=SH_TESTS[shStep], sc=shAns[t.id], has=Number.isInteger(sc);
+  const open=SH_TESTS.findIndex(x=>!Number.isInteger(shAns[x.id]));
+  return `<div class="pt">
+    <div class="pt-k">Check ${shStep+1} of ${N} &middot; ${esc(t.axis)}</div>
+    <div class="pt-dots">${SH_TESTS.map((x,i)=>{ const d=Number.isInteger(shAns[x.id]), can=d||i===open;
+      return `<button class="${i===shStep?'cur':d?'done':''}"${can&&i!==shStep?` onclick="shGo(${i})"`:' disabled'} aria-label="Check ${i+1}"></button>`; }).join('')}</div>
+    <div class="pt-h" style="font-size:30px">${esc(t.n)}</div>
+    <p class="pt-p">${esc(t.how)}</p>
+    ${t.film?`<p class="pt-s"><b style="color:var(--ink)">Film it:</b> ${esc(t.film)}</p>`:''}
+    <div class="pt-lvs">${t.opts.map((o,i)=>`<button class="pt-lv${sc===i?' on':''}" onclick="shPick(${i})"><span class="pt-lt"><b>${esc(o.l)}</b>${
+      o.note?`<span>${esc(o.note)}</span>`:''}</span></button>`).join('')}</div>
+    <div class="pt-nav"><button class="pt-link" style="margin:0" onclick="shGo(${shStep-1})">&larr; Back</button>
+      <button class="btn pt-go" style="margin:0;flex:1"${has?'':' disabled'} onclick="shNext()">${shStep===N-1?'See my result':'Next'}</button></div>
+  </div>`;
+}
+function shResultHTML(){
+  const r=shResult(shAns), again=`<button class="pt-link" onclick="shStart()">Take it again</button>`;
+  const done=`<button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>`;
+  if(r.red) return `<div class="pt">
+    <div class="pt-k">Your shoulder check</div>
+    <div class="pt-h">See a physio <em>first.</em></div>
+    <p class="pt-p">Pain and weakness after an injury, an arm that suddenly will not lift, or pins and needles and numbness need a physio to look at them before you put weight on the shoulder upside down.</p>
+    <p class="pt-s">Once you have been seen and you are cleared to train, come back and take the check.</p>
+    ${done}${again}</div>`;
+  const pain=r.pain ? `<div class="pt-gate"><div class="pt-k" style="color:var(--red)">It aches when you train</div>
+    <p class="pt-p">Get it looked at by a physio. It can be how you train: shoulders turned in, or a lot of training without rest. Until then, turn your arms out as they go overhead and keep your rest days.</p></div>` : '';
+  if(!r.ranked.length) return `<div class="pt">
+    <div class="pt-k">Your shoulder check</div>
+    <div class="pt-h">Your shoulders <em>move well.</em></div>
+    <p class="pt-p">Full range overhead, turning out, shoulder blades that move smoothly, and it holds with your weight on it. Keep training your stage as it is written.</p>
+    ${pain}<p class="pt-s">Take it again in a few months, or if anything changes.</p>${done}${again}</div>`;
+  const F=SH_FOCUS[r.ranked[0]], also=r.ranked.slice(1).map(k=>SH_FOCUS[k].n);
+  const due=shDue();
+  const rows=r.plan.map(x=>{ const d=drillById(x.v)||{};
+    return `<button class="pt-lv" onclick="pgDrill(${jsq(x.v)})" style="padding:10px 12px 10px 10px">
+      <span style="flex:none;width:72px;height:48px;border-radius:12px;overflow:hidden;background:rgba(0,64,61,.07)">${strImg(x.v)}</span>
+      <span class="pt-lt"><b>${esc(d.n||x.v)}</b><span>${esc(x.d)} &middot; ${esc(x.when.toLowerCase())}</span></span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`; }).join('');
+  return `<div class="pt">
+    <div class="pt-k">Your shoulder check</div>
+    <div class="pt-h">${shHead(F.n)}</div>
+    <p class="pt-p">${esc(F.why)}</p>
+    ${also.length?`<p class="pt-s">Also: ${esc(also.join(', ').toLowerCase())}. ${also.length>1?'They are':'It is'} next once this one moves.</p>`:''}
+    ${pain}
+    ${due?`<div class="pt-gate" style="background:rgba(243,169,73,.10);border-color:rgba(243,169,73,.4)">
+      <p class="pt-p" style="margin:0"><b>Four weeks since your check.</b> Take it again to see what has moved.</p></div>`:''}
+    <div class="pt-sec">Your drills</div>
+    <div class="pt-lvs" style="margin-top:10px">${rows}</div>
+    <p class="pt-s" style="margin-top:12px">Two or three drills, about three rounds each until they tire, most days. The control work wakes the right muscles up at the start of a session; stretches go after it.</p>
+    ${done}${again}
+  </div>`;
+}
+/* the card on Assessments */
+function shSummaryHTML(){
+  const p=st.shoulderTest, r=p && shDone(p.a) ? shResult(p.a) : null;
+  const em=t=>`<em style="color:var(--forest);font-style:normal">${t}</em>`;
+  const line=!r ? 'How do your shoulders '+em('move?') : r.red ? 'See a physio '+em('first.') : !r.ranked.length ? 'Moving '+em('well.')
+    : esc(SH_FOCUS[r.ranked[0]].n);
+  const sub=!r ? '5 checks, 5 minutes. Then two or three drills for what they find.'
+    : shDue() ? '<b style="color:var(--deep)">Four weeks on: time to check again</b>'
+    : r.red ? 'Come back once you are cleared to train' : r.plan.length ? r.plan.map(x=>esc(strName(x.v))).join(', ') : 'Your stage as it is written';
+  return `<button onclick="openShoulder()" class="strcard big">
+      <span style="flex:none;width:64px;height:64px;border-radius:50%;background:rgba(0,102,99,.08);display:grid;place-items:center">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="4.6" r="2"/><path d="M12 7v8M12 15l-3 6M12 15l3 6M6 3.5l3.4 5.5L12 9l2.6 0L18 3.5"/></svg></span>
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Shoulders</span>
+        <span style="display:block;font:400 21px/1.25 var(--serif);color:var(--ink);margin-top:6px">${line}</span>
+        <span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:4px">${sub}</span>
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg>
+    </button>`;
 }
 /* ── find your limiting factor ──────────────────────────────────────
    The press masterclass's test, inside the Press stage (10 Oct 2026). Two
@@ -11143,7 +11341,7 @@ let stateQueued=null;
    the list held twelve of them, and a call moved or a press test logged on
    another phone was stored and not shown until something else redrew */
 const stateSnap=()=>JSON.stringify([st.ladder,st.dayMap,st.secs,st.time,st.perWeek,st.intake,st.quizDone,st.taste,st.fixDone,st.stage,
-  st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pushTest,st.pressRung,st.lvl]);
+  st.ladderDone,st.callBooked,st.callDone,st.callBy,st.callAt,st.callHere,st.wcall,st.welcomeCall,st.youInSeen,st.pressTest,st.pushTest,st.shoulderTest,st.pressRung,st.lvl]);
 function loadState(){
   if(!st.token) return Promise.resolve();
   return fetch(AUTH.state,{headers:authed()})
@@ -11177,6 +11375,7 @@ function loadState(){
       if(d.pressTest && d.pressTest.at && (!st.pressTest || d.pressTest.at>st.pressTest.at)) st.pressTest=d.pressTest;
       if(d.pressRung && d.pressRung.at && (!st.pressRung || d.pressRung.at>st.pressRung.at)) st.pressRung=d.pressRung;
       if(d.pushTest && d.pushTest.at && (!st.pushTest || d.pushTest.at>st.pushTest.at)) st.pushTest=d.pushTest;
+      if(d.shoulderTest && d.shoulderTest.at && (!st.shoulderTest || d.shoulderTest.at>st.shoulderTest.at)) st.shoulderTest=d.shoulderTest;
       /* the cues kept from Elliott's replies, from whichever phone kept them */
       if(Array.isArray(d.cues)) st.cues=d.cues;
       /* Where they are on the ladder followed the phone, not the person. It
@@ -11260,6 +11459,7 @@ function saveState(now){
       ...(st.pressTest?{pressTest:st.pressTest}:{}),
       ...(st.pressRung?{pressRung:st.pressRung}:{}),
       ...(st.pushTest?{pushTest:st.pushTest}:{}),
+      ...(st.shoulderTest?{shoulderTest:st.shoulderTest}:{}),
       ...(stateIn?{cues:st.cues||[]}:{}),
       ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callBooked&&st.callBy?{callBy:st.callBy, callAt:st.callAt||0}:{}), ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
@@ -13749,9 +13949,10 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', shoulder:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
+  else if(st.ov==='shoulder'){ body=shoulderBody(); }
   else if(st.ov==='cpday'){ body=cpDayBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
@@ -21954,7 +22155,7 @@ function ladderTab(){
   /* Progress is Log and Over time since 18 Oct 2026 (Elliott's frames):
      the check points moved to Train, opened out of its capsule */
   if(!st.ladder3){ st.ladder3=1; save(); }
-  return st.ladderTab==='over' ? 'over' : (st.ladderTab==='tests' && strengthOn()) ? 'tests' : 'log';
+  return st.ladderTab==='over' ? 'over' : (st.ladderTab==='tests' && (strengthOn()||shoulderOn())) ? 'tests' : 'log';
 }
 function ladderSeg(){
   const on=ladderTab();
@@ -21963,7 +22164,7 @@ function ladderSeg(){
     background:${on===k?'#fff':'transparent'};box-shadow:${on===k?'0 1px 2px rgba(0,64,61,.08)':'none'};
     transition:background .25s">${l}</button>`;
   return `<div style="padding:0 20px"><div role="tablist" aria-label="Progress view" class="segrow"
-    data-tour="progseg" style="display:flex;padding:4px;border-radius:999px;background:rgba(0,64,61,.07)">${b('log','Log')}${b('over','Over time')}${strengthOn()?b('tests','Assessments'):''}</div></div>`;
+    data-tour="progseg" style="display:flex;padding:4px;border-radius:999px;background:rgba(0,64,61,.07)">${b('log','Log')}${b('over','Over time')}${(strengthOn()||shoulderOn())?b('tests','Assessments'):''}</div></div>`;
 }
 /* ── the six stages, along the top ─────────────────────────────────
    They were a list under the check points: done, the next one, then the

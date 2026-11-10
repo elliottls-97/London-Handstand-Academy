@@ -11262,6 +11262,19 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
               tat: Number(pu.tat) || Number(pu.at) || Date.now(), ...(pu.u ? { u: 1 } : {}), up, hist };
           }
         }
+        /* the shoulder check (10 Nov 2026): the answer to each of its five
+           checks, when they took it, and the last twelve results */
+        if (body.shoulderTest && typeof body.shoulderTest === 'object') {
+          const sh = body.shoulderTest, a = {}, F = ['stiff', 'weak', 'bendy', 'tilt', 'red'];
+          for (const k of ['pain', 'reach', 'turn', 'blades', 'load']) {
+            const v = Number((sh.a && typeof sh.a === 'object' ? sh.a : {})[k]);
+            if (Number.isInteger(v) && v >= 0 && v <= 3) a[k] = v;
+          }
+          const hist = (Array.isArray(sh.hist) ? sh.hist : []).slice(-12)
+            .filter(h => h && Number.isFinite(Number(h.at)))
+            .map(h => ({ at: Number(h.at), f: (Array.isArray(h.f) ? h.f : []).filter(x => F.includes(x)).slice(0, 5) }));
+          if (Object.keys(a).length) cur.shoulderTest = { a, at: Number(sh.at) || Date.now(), hist };
+        }
         /* the rung of the press ladder they are on, 1 (back to wall) to 10 (free) */
         if (body.pressRung && typeof body.pressRung === 'object') {
           const r = Number(body.pressRung.r);
@@ -11415,7 +11428,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, shoulderTest: out.shoulderTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
       cues: Array.isArray(out.cues) ? out.cues : [],
       /* the coach's own call link for a new client, where one is set */
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
