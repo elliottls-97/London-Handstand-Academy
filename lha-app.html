@@ -1892,6 +1892,10 @@ button.px-step{cursor:pointer}
 .pt-v.mid{color:var(--deep);background:var(--sand)}
 .pt-v.ok{color:var(--forest);background:rgba(0,102,99,.10)}
 .pt-gate{margin-top:12px;padding:14px 16px;border-radius:18px;background:rgba(164,80,60,.06);border:1px solid rgba(164,80,60,.22)}
+/* the shoulder check's animations (shoulder-anim.js): a white panel, the drawing on it */
+.shanim{position:relative;aspect-ratio:3/2;margin-top:16px;border-radius:26px;overflow:hidden;background:#fff;border:1px solid rgba(0,64,61,.10);
+ box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+.shanim canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .pt-nav{display:flex;align-items:center;gap:14px;margin-top:18px}
 .pt-sec{font:400 24px/1.1 var(--serif);margin-top:26px;color:var(--ink)}
 .pt-blk+.pt-blk{margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,64,61,.08)}
@@ -2287,6 +2291,7 @@ button.px-step{cursor:pointer}
 <script src="timing.js"></script>
 <!-- the animated page before the app, the iPhone app's first screen; shared with the website -->
 <script src="app-intro.js"></script>
+<script src="shoulder-anim.js"></script>
 <script src="voice.js"></script>
 <script src="vidshrink.js"></script>
 <script>
@@ -3541,23 +3546,23 @@ const SH_TESTS=[
    opts:[{l:'No pain', note:'Tight or tired after training counts as no', f:''},
          {l:'It aches when I train', note:'At the front or top of the shoulder, settling afterwards', f:'pain'},
          {l:'One of these', note:'Pain and weakness since a fall or an injury. Suddenly unable to lift the arm. Pins and needles or numbness down the arm.', f:'red'}]},
-  {id:'reach', n:'Arms overhead', axis:'Range',
+  {id:'reach', n:'Arms overhead', axis:'Range', anim:'reach',
    how:'Lie on your back, knees bent, lower back pressed into the floor. Take straight arms up and over towards the floor behind your head, without the back lifting.',
    film:'from the side, with your arms and your lower back both in the picture.',
    opts:[{l:'They stop short, or my back lifts to get there', f:'stiff'},
          {l:'They reach the floor with my back down', note:'The range a handstand needs', f:''},
          {l:'They reach easily and could keep going', note:'More range than most', f:'bendy'}]},
-  {id:'turn', n:'Turning out', axis:'Range',
+  {id:'turn', n:'Turning out', axis:'Range', anim:'turn',
    how:'Still on your back. Upper arm out to the side at shoulder height, elbow bent to a right angle, hand pointing at the ceiling. Let the back of the hand fall back towards the floor.',
    opts:[{l:'My forearm reaches the floor', note:'About 90 degrees, which is normal', f:''},
          {l:'It stops well short of the floor', f:'tilt'}]},
-  {id:'blades', n:'Your shoulder blades', axis:'Control',
+  {id:'blades', n:'Your shoulder blades', axis:'Control', anim:'blades',
    how:'Top off or a vest, back to the camera. Lift both arms forward and up as high as they go, then lower them slowly, over three seconds. Watch the shoulder blades, most of all on the way down.',
    film:'from behind, with the phone at shoulder height.',
    opts:[{l:'Smooth, up and down', f:''},
          {l:'A blade sticks out or tips on the way down', note:'It lifts off the ribs instead of wrapping round them', f:'tilt'},
          {l:'I cannot tell', note:'Send the clip for a form check and a coach will look', f:''}]},
-  {id:'load', n:'Under load', axis:'Strength',
+  {id:'load', n:'Under load', axis:'Strength', anim:'load',
    how:'Go into a downward dog, or a chest to wall handstand if you have one, and push tall through your hands.',
    film:'from the side.',
    opts:[{l:'My arms stay by my ears', f:''},
@@ -3594,24 +3599,60 @@ function shResult(a){
   return {red, pain, ranked, plan};
 }
 const shDue=()=>!!(st.shoulderTest && st.shoulderTest.at && Date.now()-st.shoulderTest.at > SH_RETEST);
+/* 10 Nov: a page of its own, sliding in like the pushing assessment (Elliott: "I want it to be a proper page not just
+   a slide up"), with an animation for each check that plays out the answer picked (shoulder-anim.js) */
 function openShoulder(){
   clearTimeout(shTimer);
   const p=st.shoulderTest;
   if(p && shDone(p.a)){ shAns=Object.assign({}, p.a); shStep=shN(); } else { shAns={}; shStep=-1; }
-  openOv('shoulder');
+  shDir='';
+  if(st.tab!=='shoulder') st.shFrom=st.tab;
+  st.tab='shoulder'; save(); render(); window.scrollTo(0,0);
 }
-function shoulderBody(){ return `<div id="shb">${shHTML()}</div>`; }
+let shDir='', shStopAnim=null;
+function shBack(){
+  if(shStopAnim){ shStopAnim(); shStopAnim=null; }
+  const pg=document.querySelector('.strpg'), to=st.shFrom||'ladder';
+  if(!pg || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)){ go(to); return; }
+  pg.classList.add('out'); setTimeout(()=>go(to), 240);
+}
+function screenShoulder(){
+  if(!shoulderOn()) return screenHome();
+  return `<div class="scroll s" style="overflow-x:hidden"><div class="strpg">
+    <button onclick="shBack()" style="background:none;border:0;padding:0;cursor:pointer;
+      font:500 13px/1.4 var(--sans);color:var(--forest)">&larr; Back</button>
+    <div id="shp" style="margin-top:10px"><div class="strstep">${shHTML()}</div></div>
+  </div></div>${(setTimeout(shMount, 0), '')}`;
+}
+/* the animation for what is on the page: a check's, the result's, or the intro's */
+function shScene(){
+  if(shStep<0) return 'intro';
+  if(shStep<shN()) return SH_TESTS[shStep].anim||'';
+  const r=shResult(shAns); return r.red ? '' : (r.ranked[0]||'intro');
+}
+function shMount(){
+  if(shStopAnim){ shStopAnim(); shStopAnim=null; }
+  const cv=document.getElementById('shcv'); if(!cv || !window.ShAnim) return;
+  const t=SH_TESTS[shStep];
+  shStopAnim=ShAnim.mount(cv, cv.dataset.scene, ()=> t && shStep<shN() ? shAns[t.id] : undefined);
+}
+const shAnimHTML=()=>{ const n=shScene(); return n && window.ShAnim ? `<div class="shanim"><canvas id="shcv" data-scene="${n}" aria-hidden="true"></canvas></div>` : ''; };
 function shPaint(){
-  const el=document.getElementById('shb'); if(!el){ drawOv(); return; }
-  el.innerHTML=shHTML();
-  const sh=el.closest('.sheet'); if(sh) sh.scrollTop=0;
+  const el=document.getElementById('shp'); if(!el){ render(); return; }
+  el.innerHTML=`<div class="strstep ${shDir}">${shHTML()}</div>`;
+  window.scrollTo(0,0); const sc=el.closest('.scroll'); if(sc) sc.scrollTop=0;
+  shMount();
 }
-function shGo(i){ clearTimeout(shTimer); shStep=Math.max(-1, Math.min(shN(), i)); shPaint(); }
+function shGo(i){ clearTimeout(shTimer); const n=Math.max(-1, Math.min(shN(), i)); shDir=n<shStep?'b':'f'; shStep=n; shPaint(); }
 function shStart(){ shAns={}; shGo(0); }
+/* picked: the option lights and the animation plays it out; Next moves on (it no longer jumps on by itself, so the
+   answer can be seen) */
 function shPick(i){
   const t=SH_TESTS[shStep]; if(!t) return;
-  shAns[t.id]=i; shPaint();
-  clearTimeout(shTimer); shTimer=setTimeout(shNext, 320);
+  shAns[t.id]=i;
+  document.querySelectorAll('#shp .pt-lv').forEach((b,k)=>b.classList.toggle('on', k===i));
+  const nx=document.getElementById('shNx'); if(nx){ nx.disabled=false;
+    nx.textContent=(t.opts[i]||{}).f==='red' || shStep===shN()-1 ? 'See my result' : 'Next'; }
 }
 function shNext(){
   const t=SH_TESTS[shStep]; if(!t || !Number.isInteger(shAns[t.id])) return;
@@ -3630,12 +3671,13 @@ function shIntroHTML(){
   const had=st.shoulderTest && shDone(st.shoulderTest.a);
   return `<div class="pt">
     <div class="pt-k">Shoulder check &middot; 5 checks &middot; 5 minutes</div>
-    <div class="pt-h">How do your shoulders <em>move?</em></div>
+    <div class="pt-h" style="font-size:40px">How do your shoulders <em>move?</em></div>
+    ${shAnimHTML()}
     <p class="pt-p">The checks Beth, a physio, starts with: your range, how your shoulder blades move, and what happens with your weight on them. Then two or three drills for what they find.</p>
     <div class="pt-card"><div class="pt-k" style="color:var(--grey)">Before you start</div>
       <p class="pt-p">A mat, a wall and your phone. Film the checks that say so and watch them back: the film is for you, it goes nowhere.</p>
       <p class="pt-s">Answer for today, not your best day.</p></div>
-    <button class="btn pt-go" onclick="shStart()">Start</button>
+    <button class="btn pt-go" style="width:100%" onclick="shStart()">Start</button>
     ${had?`<button class="pt-link" onclick="shGo(shN())">See your last result</button>`:''}
   </div>`;
 }
@@ -3646,21 +3688,22 @@ function shStepHTML(){
     <div class="pt-k">Check ${shStep+1} of ${N} &middot; ${esc(t.axis)}</div>
     <div class="pt-dots">${SH_TESTS.map((x,i)=>{ const d=Number.isInteger(shAns[x.id]), can=d||i===open;
       return `<button class="${i===shStep?'cur':d?'done':''}"${can&&i!==shStep?` onclick="shGo(${i})"`:' disabled'} aria-label="Check ${i+1}"></button>`; }).join('')}</div>
-    <div class="pt-h" style="font-size:30px">${esc(t.n)}</div>
+    <div class="pt-h" style="font-size:36px">${esc(t.n)}</div>
+    ${shAnimHTML()}
     <p class="pt-p">${esc(t.how)}</p>
     ${t.film?`<p class="pt-s"><b style="color:var(--ink)">Film it:</b> ${esc(t.film)}</p>`:''}
     <div class="pt-lvs">${t.opts.map((o,i)=>`<button class="pt-lv${sc===i?' on':''}" onclick="shPick(${i})"><span class="pt-lt"><b>${esc(o.l)}</b>${
       o.note?`<span>${esc(o.note)}</span>`:''}</span></button>`).join('')}</div>
     <div class="pt-nav"><button class="pt-link" style="margin:0" onclick="shGo(${shStep-1})">&larr; Back</button>
-      <button class="btn pt-go" style="margin:0;flex:1"${has?'':' disabled'} onclick="shNext()">${shStep===N-1?'See my result':'Next'}</button></div>
+      <button class="btn pt-go" id="shNx" style="margin:0;flex:1"${has?'':' disabled'} onclick="shNext()">${shStep===N-1 || (has && (t.opts[sc]||{}).f==='red')?'See my result':'Next'}</button></div>
   </div>`;
 }
 function shResultHTML(){
   const r=shResult(shAns), again=`<button class="pt-link" onclick="shStart()">Take it again</button>`;
-  const done=`<button class="btn pt-go" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>`;
+  const done=`<button class="btn pt-go" style="width:100%;margin-top:16px" onclick="shBack()">Done</button>`;
   if(r.red) return `<div class="pt">
     <div class="pt-k">Your shoulder check</div>
-    <div class="pt-h">See a physio <em>first.</em></div>
+    <div class="pt-h" style="font-size:40px">See a physio <em>first.</em></div>
     <p class="pt-p">Pain and weakness after an injury, an arm that suddenly will not lift, or pins and needles and numbness need a physio to look at them before you put weight on the shoulder upside down.</p>
     <p class="pt-s">Once you have been seen and you are cleared to train, come back and take the check.</p>
     ${done}${again}</div>`;
@@ -3668,7 +3711,8 @@ function shResultHTML(){
     <p class="pt-p">Get it looked at by a physio. It can be how you train: shoulders turned in, or a lot of training without rest. Until then, turn your arms out as they go overhead and keep your rest days.</p></div>` : '';
   if(!r.ranked.length) return `<div class="pt">
     <div class="pt-k">Your shoulder check</div>
-    <div class="pt-h">Your shoulders <em>move well.</em></div>
+    <div class="pt-h" style="font-size:40px">Your shoulders <em>move well.</em></div>
+    ${shAnimHTML()}
     <p class="pt-p">Full range overhead, turning out, shoulder blades that move smoothly, and it holds with your weight on it. Keep training your stage as it is written.</p>
     ${pain}<p class="pt-s">Take it again in a few months, or if anything changes.</p>${done}${again}</div>`;
   const F=SH_FOCUS[r.ranked[0]], also=r.ranked.slice(1).map(k=>SH_FOCUS[k].n);
@@ -3680,7 +3724,8 @@ function shResultHTML(){
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`; }).join('');
   return `<div class="pt">
     <div class="pt-k">Your shoulder check</div>
-    <div class="pt-h">${shHead(F.n)}</div>
+    <div class="pt-h" style="font-size:40px">${shHead(F.n)}</div>
+    ${shAnimHTML()}
     <p class="pt-p">${esc(F.why)}</p>
     ${also.length?`<p class="pt-s">Also: ${esc(also.join(', ').toLowerCase())}. ${also.length>1?'They are':'It is'} next once this one moves.</p>`:''}
     ${pain}
@@ -13949,10 +13994,9 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', shoulder:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='limiter'){ body=limiterBody(); }
-  else if(st.ov==='shoulder'){ body=shoulderBody(); }
   else if(st.ov==='cpday'){ body=cpDayBody(); }
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
@@ -27450,8 +27494,8 @@ function render(){
     ? {classes:screenClasses,bookings:screenBookings,sessions:screenSessions,more:screenMore,fix:screenFix}
     : coached
     ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
-    : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength}
-    : {home:screenHome,ladder:screenLadder,classes:screenClasses,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength};
+    : onboarding ? {start:screenStart,home:screenHome,ladder:screenLadder,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength,shoulder:screenShoulder}
+    : {home:screenHome,ladder:screenLadder,classes:screenClasses,coaching:screenCoaching,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength,shoulder:screenShoulder};
   /* coaching paused until they pay (22 Oct 2026): the programme waits
      behind one screen; the chat and More still work */
   if(coached && st.paused) ['today','plan','progress','fix','press'].forEach(k=>{ screens[k]=screenPaused; });

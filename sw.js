@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v275';
+const CACHE_VERSION = 'lha-v276';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -30,6 +30,8 @@ const SHELL = [
   '/timing.js',
   /* and the first screen of the iPhone app (5 Nov 2026) */
   '/app-intro.js',
+  /* the shoulder check's animations (10 Nov 2026) */
+  '/shoulder-anim.js',
   /* voice notes in the chat, recorded and played by the same file both ends */
   '/voice.js',
   /* shrinking a clip over 200MB before it is sent */
