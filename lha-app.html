@@ -15014,6 +15014,15 @@ function drawOv(){
             onclick="closeOv();climbGo()">Log it now</button>
         </div>`;
       })()}
+      <!-- the free form check, said at the moment it is useful (10 Nov 2026):
+           from the second session, to anybody who has not used theirs -->
+      ${(!st.in && !st.coached && !st.freeCheckUsed && !st.checkOpen && !st.awaitingReview && (st.nDone|0)>=2 && !tasteHeld()) ? `<div class="card" style="margin-top:18px;padding:16px">
+          <div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}YOUR FREE FORM CHECK</div>
+          <div style="font:400 20px/1.25 var(--serif);margin-top:8px">Film a set next time. I reply on video.</div>
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">The one thing to change, shown on your own clip, within 48 hours.</div>
+          <button class="btn2" style="width:100%;margin-top:13px"
+            onclick="closeOv();st.coTab='check';save();go('coaching')">See how to send one</button>
+        </div>` : ''}
       <div class="kick2" style="margin-top:18px">HOW DID IT FEEL?</div>
       <div style="display:flex;gap:9px;margin-top:12px">
       ${['Too easy','About right','Too hard'].map(f=>`<button class="btn2" style="flex:1"
@@ -23899,8 +23908,8 @@ const CO_PLANS = [
        adjusted every 6 weeks") */
     feats:['A questionnaire to see where you are',
            'Your own programme, every drill filmed',
-           'Video feedback every two weeks',
-           'Programme adjusted every six weeks'],
+           'Send clips every two weeks, my video reply within 48 hours',
+           'A new block every six weeks'],
     note:'The full ladder app included. Cancel any time in the app.' },
   /* Weekly coaching, £300 (Elliott, 31 Oct 2026): what he thinks it takes
      to progress, modelled on Ulrik's 1-2-1 (assessment, a call to start,
@@ -24215,7 +24224,7 @@ function screenCoaching(){
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month for up to 3 clips reviewed every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
-          onclick="goJoin()">Make an account and send one</button>
+          onclick="goJoin('clip')">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           Already have one? <button onclick="st.tab='signin';save();render()" style="background:none;border:0;
             padding:0;color:var(--forest);font:600 12px/1 var(--sans);cursor:pointer;text-decoration:underline">Sign in</button></div></div>`
@@ -24946,6 +24955,8 @@ function screenJoin(){
   const second = !want && !trial && !plan && !saving && st.joinFor==='next';
   /* from a Track your progress card: a session or a check point to keep */
   const track = !want && !trial && !plan && !saving && st.joinFor==='track';
+  /* from the free form check: the account is where the video reply lands (10 Nov 2026) */
+  const clip = !want && !trial && !plan && !saving && st.joinFor==='clip';
   const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
@@ -24957,6 +24968,7 @@ function screenJoin(){
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
       color:var(--forest)">${saving?'Saving for no signal'
         :second?'Session two'
+        :clip?'Your free form check'
         :track?'Track your progress'
         :plan?'Coaching'
         :trial?'Your free '+esc(trialDays)
@@ -24965,6 +24977,7 @@ function screenJoin(){
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
       saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
       : second ? `Your first one is <em style="color:var(--forest);font-style:normal">done.</em>`
+      : clip ? `An account, for my <em style="color:var(--forest);font-style:normal">reply.</em>`
       : track ? `Keep your <em style="color:var(--forest);font-style:normal">progress.</em>`
       : plan ? `An account <em style="color:var(--forest);font-style:normal">first.</em>`
       : trial ? `The first ${esc(trialDays)} is <em style="color:var(--forest);font-style:normal">free.</em>`
@@ -24976,6 +24989,7 @@ function screenJoin(){
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
       saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
       : second ? ''
+      : clip ? 'Your clip goes in on the next screen. My video reply comes back to this account within 48 hours. Free, and no card.'
       : track ? 'Every session and check point, kept on any phone you sign in on. Free, and no card.'
       : plan ? 'Your coaching lives on an account, so this takes a moment and then the payment page opens.'
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
@@ -25008,7 +25022,7 @@ function screenJoin(){
           ? 'The account is what holds the free session, so it is still there on any phone you sign in on.'
           : saving
           ? 'It also keeps your progress, so it is there on any phone you sign in on.'
-          : track ? ''
+          : (track || clip) ? ''
           : emailOptional()
           ? '<b style="display:block;font:400 22px/1.2 var(--serif);color:var(--ink);margin-bottom:6px">Save your progress? <span style="color:var(--grey)">Optional.</span></b>It keeps your training on any phone, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
@@ -25051,6 +25065,7 @@ function screenJoin(){
           box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35)">
           ${trial ? 'Create it and start the free '+trialDays
             : track ? 'Save my progress'
+            : clip ? 'Make my account'
             : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
@@ -25061,7 +25076,7 @@ function screenJoin(){
            at the foot of the screen and the form read as required -->
       ${emailOptional()&&!trial&&!want&&!saving?`<button onclick="skipJoin()" style="width:100%;height:52px;margin-top:12px;border-radius:14px;
         border:1.5px solid rgba(0,102,99,.35);background:#fff;color:var(--forest);cursor:pointer;
-        font:600 15px/1 var(--sans)">${st.joinFor==='track'?'Not now':'Start training without an account'}</button>`:''}
+        font:600 15px/1 var(--sans)">${(st.joinFor==='track'||st.joinFor==='clip')?'Not now':'Start training without an account'}</button>`:''}
       <!-- Somebody who already has an account had no way off this screen but
            to type it in and be told it exists. -->
       <button onclick="joinToSignIn()" style="width:100%;height:50px;margin-top:14px;border-radius:14px;
@@ -25174,7 +25189,7 @@ function joinLand(){
   const back = st.joinBack;
   st.joinBack=''; st.joinNext=null;
   if(st.joinFor==='taste' || st.joinFor==='next'){ st.joinFor=''; st.tab='home'; }
-  else { st.tab = JOIN_BACK.includes(back) ? back : 'home'; if(st.joinFor==='track') st.joinFor=''; }
+  else { st.tab = JOIN_BACK.includes(back) ? back : 'home'; if(st.joinFor==='track' || st.joinFor==='clip') st.joinFor=''; }
   return next;
 }
 /* The ask for an address comes when somebody goes back for a second
@@ -27117,7 +27132,9 @@ function render(){
     const onSignin = st.tab==='signin' && !st.in;
     const outside = st.tab==='reset' || onSignin || st.in;
     const onWelcome = !outside && !st.mode;
-    const onQuiz = !outside && st.mode==='free' && !st.quizDone;
+    /* (10 Nov 2026) not while the free form check is open ahead of the questions */
+    const onQuiz = !outside && st.mode==='free' && !st.quizDone
+      && !(st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree'));
     const qb = onQuiz ? quizBg() : null;
     /* a portrait picture on a monitor would be cut to a strip, so there the
        tall panels carry on instead */
@@ -27148,7 +27165,8 @@ function render(){
   /* or when the questions were asked for (Retake, the card on Progress):
      that only showed for an account whose mode was free, so anywhere else
      the button did nothing */
-  if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')){ st.tab='quiz'; swap(st.introNext ? screenIntro() : screenQuiz()); return; }
+  if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')
+     && !(st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree'))){ st.tab='quiz'; swap(st.introNext ? screenIntro() : screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
     swap(screenOriented()); return; }
@@ -27257,6 +27275,12 @@ document.addEventListener('DOMContentLoaded',function(){
          question, app or in person, is answered for them */
       const a=intake(); a.how='app'; st.inPerson=false; st.viewChosen='app';
       st.mode='free'; st.tab='quiz'; st.quizStep=1; st.quizAns=[]; st.introNext=true; save(); }
+    /* the website's "Send me a clip" (10 Nov 2026): straight to the free
+       form check. The questions wait until they go to train: st.checkFirst
+       lets Coaching and the sign up screen through before the quiz is done. */
+    if(q.get('start')==='check' && !st.in){
+      if(!st.token){ st.viewChosen='app'; st.inPerson=false; if(!st.mode) st.mode='free'; st.checkFirst=true; }
+      st.coTab='check'; st.tab='coaching'; save(); }
   }catch(e){}
   /* cache first so a signed-in client sees their plan instantly, then
      refresh in the background in case it changed since last time */

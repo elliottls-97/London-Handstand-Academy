@@ -11695,6 +11695,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      picked, I'm interested opened and sent, and Start now
                      pressed after the email went in */
                   'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter', 'sitecalllead',
+                  /* "Send me a clip" pressed on the website (10 Nov 2026) */
+                  'sitecheck',
                   /* the same in the app: I'm interested pressed, one tap when signed in */
                   'appinterest',
                   'siteleave', 'siteleavesend',
