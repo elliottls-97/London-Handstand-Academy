@@ -770,13 +770,15 @@ async function journeyReport(days, full) {
     step('subscribed', 'Paid for the app', n(cur, 'subscribed'), n(prev, 'subscribed')),
     step('ret7', 'Back a week after first opening', n(cur, 'ret7'), n(prev, 'ret7')),
   ];
-  const pv = t => ['pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'pvgroup', 'pvcall', 'pvworkshop'].reduce((a, k) => a + n(t, k), 0);
+  const pv = t => ['pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'pvgroup', 'pvcall', 'pvworkshop', 'pvcoaching', 'pvcheck'].reduce((a, k) => a + n(t, k), 0);
   const site = [
     step('pv', 'Website page views', pv(cur), pv(prev)),
     step('pvhome', 'Home page', n(cur, 'pvhome'), n(prev, 'pvhome')),
     step('pvclass', 'Class page', n(cur, 'pvclass'), n(prev, 'pvclass')),
     step('pvlearn', 'Learn pages', n(cur, 'pvlearn'), n(prev, 'pvlearn')),
     step('pvlinks', 'Instagram links page', n(cur, 'pvlinks'), n(prev, 'pvlinks')),
+    step('pvcoaching', 'Coaching page', n(cur, 'pvcoaching'), n(prev, 'pvcoaching')),
+    step('pvcheck', 'Free form check page', n(cur, 'pvcheck'), n(prev, 'pvcheck')),
     step('pvgroup', 'Six week group page', n(cur, 'pvgroup'), n(prev, 'pvgroup')),
     step('pvcall', 'Free call page', n(cur, 'pvcall'), n(prev, 'pvcall')),
     step('pvworkshop', 'A workshop page', n(cur, 'pvworkshop'), n(prev, 'pvworkshop')),
@@ -11683,6 +11685,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'pvhome', 'pvclass', 'pvclasses', 'pvlearn', 'pvsession', 'pvlinks', 'tobook',
                   /* the six week group, the free call and a workshop's page (30 Oct 2026) */
                   'pvgroup', 'pvcall', 'pvworkshop',
+                  /* the coaching page and the free form check page (10 Nov 2026) */
+                  'pvcoaching', 'pvcheck',
                   /* the homepage's way in: a door picked, the fit check
                      started and finished, what they did about it, and the
                      prompt on the way out */
