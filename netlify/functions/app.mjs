@@ -2289,7 +2289,12 @@ const FC_CLIPS = 3;
    from its opening is up, whichever is first. */
 const fcExpired = cur => !!(cur && cur.open && Number(cur.openedAt)
   && londonDayNo(Date.now()) >= londonDayNo(Number(cur.openedAt)) + FC_EVERY_DAYS);
-const fcFull = used => used >= FC_CLIPS
+/* the free form check is one clip and closes when it is answered (Elliott,
+   11 Nov 2026: "free one clip"); the paid ones hold up to FC_CLIPS */
+const fcMax = cur => (cur && cur.openedWith === 'free') ? 1 : FC_CLIPS;
+const fcFull = (used, max = FC_CLIPS) => max === 1
+  ? `Your free form check is one clip, and it is in. After that, form checks are ${checksLabel()} a month: up to ${FC_CLIPS} clips every fortnight.`
+  : used >= FC_CLIPS
   ? `This form check has its ${FC_CLIPS} clips. Elliott answers them, then your next one opens.`
   : `This form check has room for ${FC_CLIPS - used} more clip${FC_CLIPS - used === 1 ? '' : 's'}. Send ${FC_CLIPS - used === 1 ? 'one' : 'up to ' + (FC_CLIPS - used)} at a time.`;
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -2337,14 +2342,16 @@ async function fcGate(who, n = 1) {
        take the last place */
     let res = null;
     await changeSetting(ck, c => {
-      const x = Object.assign({}, c || {}), used = Number(x.clips) || 0;
-      if (used + n > FC_CLIPS) { res = { ok: false, full: true, error: fcFull(used) }; return undefined; }
+      const x = Object.assign({}, c || {}), used = Number(x.clips) || 0, mx = fcMax(x);
+      if (used + n > mx) { res = { ok: false, full: true, error: fcFull(used, mx) }; return undefined; }
       x.clips = used + n; res = { ok: true, open: true, clips: x.clips }; return x;
     });
     return res || { ok: true, open: true };
   }
   if (n > FC_CLIPS) return { ok: false, full: true, error: `Up to ${FC_CLIPS} clips in one form check. Send your ${FC_CLIPS} best.` };
-  const won = await supa.insertIfAbsent('free_checks', { email: who }, 'email');
+  /* the free one is a single clip: more than one asked for here goes to the paid ones below, or is refused */
+  const freeLeft = n === 1 ? await supa.insertIfAbsent('free_checks', { email: who }, 'email') : false;
+  const won = freeLeft;
   /* The free one is claimed before the check is opened, so a write that
      failed in between spent it on nothing: the next try found it used and
      offered to sell them one. It is given back, and the next try wins it. */
@@ -2403,7 +2410,7 @@ async function closeCheck(e) {
      up; otherwise it stays open with the answer noted, for the clips left */
   await changeSetting(`fccredits:${e}`, cur => {
     if (!cur || !cur.open) return undefined;
-    if ((Number(cur.clips) || 0) >= FC_CLIPS || fcExpired(cur)) return Object.assign({}, cur, { open: false, closedAt: Date.now() });
+    if (cur.openedWith === 'free' || (Number(cur.clips) || 0) >= fcMax(cur) || fcExpired(cur)) return Object.assign({}, cur, { open: false, closedAt: Date.now() });
     return Object.assign({}, cur, { answeredAt: Date.now() });
   }).catch(() => {});
 }
@@ -6227,7 +6234,7 @@ const handle = async (request) => {
       freeCheckUsed: !coachedNow && usedCheck,
       /* checks bought one at a time and not yet sent */
       checkCredits: credits,
-      checkOpen, checkClips: checkOpen ? (Number(fcc.clips) || 0) : 0, checkMax: FC_CLIPS,
+      checkOpen, checkClips: checkOpen ? (Number(fcc.clips) || 0) : 0, checkMax: checkOpen ? fcMax(fcc) : FC_CLIPS,
       checks: subOn ? { on: true, next: subNext } : null,
       /* which price form checks are offered at: £25 on top of a Ladder
          already paid for, £35 with the Ladder in them */
@@ -12541,7 +12548,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const sender = (await getAcct(who)) || {};
     const them = clients()[who] || String(sender.name || '').split(' ')[0] || '';
     const cn = coachName(coachOf(who));
-    const T = await emailCopy('clipIn', { name: esc(them), coach: esc(cn), clips: clips.length === 1 ? 'that' : 'those' });
+    /* the free one comes back within 7 days, paid ones within 48 hours (11 Nov 2026) */
+    const freeOne = !clients()[who] && (((await getSetting(`fccredits:${who}`).catch(() => null)) || {}).openedWith === 'free');
+    const T = await emailCopy('clipIn', { name: esc(them), coach: esc(cn), clips: clips.length === 1 ? 'that' : 'those',
+      when: freeOne ? 'within 7 days' : 'within 48 hours' });
     await emailT(T, who, kind === 'assessment' ? T.subject : T.subject.replace(/clip/i, 'test'),
       mail({
         title: kind === 'assessment' ? T.title : T.title.replace(/clip/i, 'test'),
@@ -15924,7 +15934,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           mail({
             title: T.title,
             greeting: (clients()[e] || '').split(' ')[0] || '',
-            paras: T.paras,
+            /* not coached yet: the reply is the moment to say what comes next (11 Nov 2026) */
+            paras: clients()[e] ? T.paras : T.paras.concat([`Want me on this every fortnight? Form checks are ${esc(checksLabel())} a month, and coaching with your own programme is ${esc((PRICES_STORED && PRICES_STORED.online && PRICES_STORED.online.label) || '£120')} a month. Both are in the app, under the video.`]),
             /* a video reply opens on its own screen, the moment coaching is for */
             cta: video && added && added.id ? { href: `${SITE}/lha-app.html?go=reply&m=${enc(added.id)}`, label: 'Watch it' }
               : { href: `${SITE}/lha-app.html`, label: 'Open the app' },

@@ -256,7 +256,7 @@ export const EMAILS = {
     "subject": "Your answer is ready",
     "title": "Your answer is ready.",
     "paras": [
-      "{coach} has been through what you sent and written it up. It is waiting in the app."
+      "{coach} has watched what you sent. Your answer is waiting in the app."
     ]
   },
   "cpSigned": {
@@ -428,12 +428,13 @@ export const EMAILS = {
     "vars": [
       "name",
       "coach",
-      "clips"
+      "clips",
+      "when"
     ],
     "subject": "Your clip is in",
     "title": "Your clip is in.",
     "paras": [
-      "Thanks for sending {clips} over. {coach} watches every one personally. You will hear back within <b>48 hours</b>."
+      "Thanks for sending {clips} over. {coach} watches every one personally. You will hear back <b>{when}</b>."
     ],
     "footnote": "Sit tight. The next email from us is the one with your answer."
   },

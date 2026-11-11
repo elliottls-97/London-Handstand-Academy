@@ -2622,6 +2622,10 @@ const sells = () => !IOS_APP || IOS_SELL;
 /* what form checks cost here: the website's price, or Apple's in the
    iPhone app once StoreKit has answered, else nothing to sell */
 const checksPrice = () => sells() ? PRICE('checks') : (IOS_APP && iapChecks && iapChecks.displayPrice) || '';
+/* how soon a form check comes back: the free one within 7 days, paid ones and
+   coaching within 48 hours (Elliott, 11 Nov 2026: "maybe within 7 days?") */
+const fcPaid = () => !!(st.in || st.coached || (st.checks && st.checks.on) || st.checkCredits>0);
+const fcWhen = () => fcPaid() ? 'within 48 hours' : 'within 7 days';
 /* The Ladder is the one thing the iPhone app sells, through Apple, once the
    App Store has answered with its product. Coaching, sessions and form
    checks stay off the iPhone app's shelves (sells() above). */
@@ -8282,7 +8286,8 @@ function replyHTML(m){
     : 'Your video from <em style="color:var(--forest);font-style:normal">'+esc(who)+'.</em>';
   const size = !cue ? 34 : cue.length<=40 ? 34 : cue.length<=80 ? 27 : 22;
   const coached=coachedView();
-  const offer = !coached && sells() && (plansOn||[]).includes('online');
+  const offer = !coached && sells();
+  const offerChecks = offer && !(st.checks && st.checks.on) && !!checksPrice();
   const btn2=`border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:16px;min-height:52px;cursor:pointer;
     font:600 15px/1.2 var(--sans);color:var(--ink);padding:0 16px`;
   const link=`border:0;background:none;cursor:pointer;padding:10px 6px;font:600 14px/1 var(--sans);color:var(--forest)`;
@@ -8318,11 +8323,19 @@ function replyHTML(m){
         <button onclick="replyClose();goAsk()" style="${link}">Reply</button>
       </div>
       ${offer?`<div class="card" style="margin-top:20px;padding:20px">
-        <div class="kick2" style="color:var(--forest)">COACHING</div>
-        <div style="font:400 21px/1.2 var(--serif);margin-top:8px">Want this on every clip?</div>
-        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:7px">A plan written for you, and a video like this on
-          everything you send. ${esc(PRICE('online'))} a month.</div>
-        <button onclick="replyClose();seeCoaching()" style="width:100%;margin-top:14px;${btn2}">See coaching</button>
+        <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
+        <div style="font:400 22px/1.2 var(--serif);margin-top:8px">Want me on this every <em style="color:var(--forest);font-style:normal">fortnight?</em></div>
+        ${offerChecks?`<div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
+          <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Form checks</div>
+            <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">Up to 3 clips every fortnight, a video back on each, the whole Ladder.</div></div>
+          <div style="flex:none;font:400 20px/1 var(--serif);color:var(--deep)">${esc(checksPrice())}<span style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:3px">a month</span></div></div>
+        <button onclick="replyClose();buyPlan('checks')" style="width:100%;margin-top:12px;min-height:52px;border:0;border-radius:16px;cursor:pointer;
+          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1.2 var(--sans)">Start form checks</button>`:''}
+        <div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
+          <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Coaching</div>
+            <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">A programme written for you, changed when your video says it should.</div></div>
+          <div style="flex:none;font:400 20px/1 var(--serif);color:var(--deep)">${esc(PRICE('online'))}<span style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:3px">a month</span></div></div>
+        <button onclick="replyClose();seeCoaching()" style="width:100%;margin-top:12px;${btn2}">See how coaching works</button>
       </div>`:''}
     </div></div>`;
 }
@@ -10844,7 +10857,7 @@ function screenProgress(){
         ? `<div class="card" style="border:1.5px solid var(--amber);padding:18px">
             <div class="kick2" style="color:var(--forest)">IN REVIEW</div>
             <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
-              Sent ${esc(when(st.awaitingReview))}, an answer lands within 48 hours.</div></div>`
+              Sent ${esc(when(st.awaitingReview))}, an answer lands ${fcWhen()}.</div></div>`
         : reviewCardHTML()}
       ${/* CONSISTENCY, six weeks of bars, went (Elliott, 17 Oct 2026): the
             calendar under Training says the same */''}` : ''}
@@ -11366,7 +11379,7 @@ function sendAssessment(file, question){
         numbers:Object.assign({stage:curStage()+1}, question?{question:String(question).slice(0,600)}:{})})})
       .then(gateCheck);
   })
-  .then(()=>{ upBusy=false; upSay('Sent. Elliott replies on video within 48 hours.'); st.freeCheckUsed=true; st.awaitingReview=Date.now(); st.fcDraft=null; st.checkOpen=true;
+  .then(()=>{ upBusy=false; upSay('Sent. Elliott replies on video '+fcWhen()+'.'); st.freeCheckUsed=true; st.awaitingReview=Date.now(); st.fcDraft=null; st.checkOpen=true;
       /* a filmed clip is the baseline. Nothing used to set this, so the
          profile bar stopped at 85% with no way to move it. */
       st.intake=st.intake||{}; st.intake.baseline=Date.now();
@@ -15264,7 +15277,7 @@ function drawOv(){
       ${(!st.in && !st.coached && !st.freeCheckUsed && !st.checkOpen && !st.awaitingReview && (st.nDone|0)>=2 && !tasteHeld()) ? `<div class="card" style="margin-top:18px;padding:16px">
           <div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}YOUR FREE FORM CHECK</div>
           <div style="font:400 20px/1.25 var(--serif);margin-top:8px">Film a set next time. I reply on video.</div>
-          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">The one thing to change, shown on your own clip, within 48 hours.</div>
+          <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:7px">The one thing to change, shown on your own clip, within 7 days.</div>
           <button class="btn2" style="width:100%;margin-top:13px"
             onclick="closeOv();st.coTab='check';save();go('coaching')">See how to send one</button>
         </div>` : ''}
@@ -24465,7 +24478,7 @@ function screenCoaching(){
             font:600 11px/1 var(--sans);color:var(--deep)">ONE FREE</span>
         </div>
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
-          One clip. A video reply within 48 hours.</div>
+          One clip. A video reply ${fcWhen()}.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
           ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month for up to 3 clips reviewed every fortnight, with the whole Ladder.' : 'Free with an account.'}</div>
         <button class="btn" style="width:100%;margin-top:16px"
@@ -24518,7 +24531,7 @@ function screenCoaching(){
             : "He's watching it and picking the one thing to change.", true],
           ['Answer ready', done
             ? 'It is in the Chat tab.'
-            : 'Within 48 hours. You\'ll get an email the moment it lands.', done],
+            : (fcPaid()?'Within 48 hours':'Within 7 days')+'. You\'ll get an email the moment it lands.', done],
         ];
         return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--amber)'}">
           <div class="kick2" style="color:${done?'var(--forest)':'var(--amber)'}">
@@ -24751,7 +24764,7 @@ function screenCoaching(){
       ${hadFormCheck() ? '' : `
       <div class="card" style="padding:16px 14px">
         <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
-          ${['Film one attempt','I watch it myself','A video back in 48 hours']
+          ${['Film one attempt','I watch it myself',fcPaid()?'A video back in 48 hours':'A video back within 7 days']
             .map((t,i)=>`<div style="display:flex;flex-direction:column;gap:6px">
               <span style="font:400 20px/1 var(--serif);color:var(--forest)">${i+1}</span>
               <span style="font:500 13px/1.35 var(--sans)">${t}</span></div>`).join('')}
@@ -25255,7 +25268,7 @@ function screenJoin(){
     ${clip?`<div class="card" style="margin-top:20px;padding:16px;display:flex;gap:14px;align-items:center">
       <img src="/assets/site/coach-elliott-headshot.jpg" alt="" width="56" height="56" style="flex:none;width:56px;height:56px;border-radius:50%;object-fit:cover">
       <div style="min-width:0">
-        ${['Elliott watches it himself','A video reply within 48 hours','Free. No card'].map(t=>`<div style="display:flex;gap:8px;align-items:center;font:500 14px/1.5 var(--sans);color:var(--ink)">
+        ${['Elliott watches it himself','A video reply within 7 days','Free. No card'].map(t=>`<div style="display:flex;gap:8px;align-items:center;font:500 14px/1.5 var(--sans);color:var(--ink)">
           <span style="flex:none;width:16px;height:16px;border-radius:50%;background:var(--forest);color:#fff;display:grid;place-items:center;font:700 9px/1 var(--sans)">&check;</span>${t}</div>`).join('')}
       </div></div>`:''}
     ${st.pendingCode?`<div style="margin-top:14px;border-radius:14px;padding:12px 14px;

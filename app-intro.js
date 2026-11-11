@@ -109,7 +109,7 @@
     formcheck: function(){
       var steps = [['Film one attempt', '<rect x="7" y="3" width="10" height="18" rx="2.5"/><circle cx="12" cy="17.5" r="1.1" fill="currentColor" stroke="none"/>'],
         ['One of our coaches watches it', '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.8"/>'],
-        ['A video back in 48 hours', '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.5l4 2.5-4 2.5z" fill="currentColor"/>']];
+        ['A video back on your clip', '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.5l4 2.5-4 2.5z" fill="currentColor"/>']];
       scene.innerHTML = '<div class="sc-fc">' + teamHTML(TEAM)
         + '<div class="fc-steps">' + steps.map(function(s, i){ return '<div class="fcs" style="--i:' + i + '"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + s[1] + '</svg></i><b>' + (i + 1) + '</b><span>' + s[0] + '</span></div>'; }).join('') + '</div>'
         + '<div class="fc-free">The one thing to change, shown on your own video. <em>The first one is free.</em></div></div>';
