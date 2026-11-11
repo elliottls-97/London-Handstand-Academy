@@ -58,6 +58,10 @@ h1.sc-h{font-size:40px}
 .sc-d{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:2px}
 .sc-d span{height:30px;padding:0 12px;border-radius:999px;background:rgba(0,64,61,.08);color:#00403D;
   font:600 13px/30px Figtree,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sc-c{margin:4px 0 0;padding:0;list-style:none;counter-reset:c;display:grid;gap:6px;text-align:left;max-width:38ch;width:100%}
+.sc-c li{counter-increment:c;position:relative;padding-left:28px;font:400 14.5px/1.4 Figtree,system-ui,sans-serif;color:#111}
+.sc-c li::before{content:counter(c);position:absolute;left:0;top:0;width:20px;height:20px;border-radius:50%;background:#006663;color:#fff;
+  font:600 11.5px/20px Figtree,system-ui,sans-serif;text-align:center}
 .sc-go{display:inline-flex;align-items:center;gap:6px;font:600 13px/1 Figtree,system-ui,sans-serif;color:#5A5A5A;margin-top:2px}
 .sc-end .ph{border:1px solid rgba(0,64,61,.10);border-style:solid;background:#fff;gap:12px;padding:28px 22px;
   box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06);cursor:default}
@@ -221,8 +225,11 @@ def ph(glyph, k, solid=False, wide=False):
             f'<span class="ph-g">{glyph}</span><span class="ph-k">{k}</span></div>')
 
 
-def card(n, N, media, k, h, em, p, tag='h2', go='', dose=()):
+def card(n, N, media, k, h, em, p, tag='h2', go='', dose=(), cues=()):
     d = ('\n        <div class="sc-d">' + ''.join(f'<span>{x}</span>' for x in dose) + '</div>') if dose else ''
+    # a drill's cues, in order, as in the app (Elliott, 11 Nov 2026)
+    if cues:
+        d += '\n        <ol class="sc-c">' + ''.join(f'<li>{x}</li>' for x in cues) + '</ol>'
     w = ' wide' if 'data-wide' in media else ''
     return (f'    <section class="sc{w}{" on" if n == 1 else ""}" id="s{n}" aria-label="{n} of {N}">\n'
             f'      <div class="sc-m{w}">{media}</div>\n'
@@ -326,7 +333,7 @@ STORIES = {
         safe='Build up slowly, and stop if your wrists hurt.'),
 
     'the-kick-up': dict(
-        title='The kick up', published='2026-10-28', modified='2026-10-28', wide=True, site=HAND,
+        title='The kick up', published='2026-10-28', modified='2026-11-11', wide=True, site=HAND,
         desc=("How to kick up into a handstand: start stacked, then six steps from kick up bounces and bunny hops "
               "to knee to chest kick ups, the wall and a foam block, then leave the wall."),
         note='(Elliott, 28 Oct 2026, from the kick up article\n     on the learn-kick-up branch, in his words). Landscape films.',
@@ -341,11 +348,20 @@ STORIES = {
             (kf('bunny', 'Bunny hops: the hips going up and over the shoulders'), '3 of 6', 'Bunny', 'hops.',
              'Hips as far over the shoulders as you can. Harder: push up through the palms and the shoulders.'),
             (kf('chest', 'Knee to chest kick ups: the kicking knee pulled into the chest'), '4 of 6', 'Knee to chest', 'kick ups.',
-             "If your back arches, the hips haven't got over the shoulders. Pull the knee into your chest as you jump."),
+             "If your back arches, the hips haven't got over the shoulders.", 'h2', '', (),
+             ('Start with your shoulders stacked over your hands.',
+              'Your kicking foot is on the floor, close to your wrists.',
+              'The leg in the air is straight and engaged. It does nothing else.',
+              'As you kick up, pull the kicking knee into your chest.',
+              "Don't arch your back, and keep the straight leg straight.",
+              'Bring the hips further up and over each time.')),
             (kf('wall', 'Kicking up to the wall, hands a few inches from it'), '5 of 6', 'Kick up to the', 'wall.',
              'Hands 6 to 9 inches from the wall. Look between your hands, never back.'),
             (kf('block', 'Kicking up with a foam block held between hip and thigh'), '6 of 6', 'With a foam', 'block.',
-             "Block between your hip and the thigh of your kicking leg. It won't let the tuck go."),
+             "The block won't let the tuck go, so the knee stays in.", 'h2', '', (),
+             ('Block between your hip and the thigh of your kicking leg.',
+              'Pull the knee into your chest.',
+              'Keep the block held there as you go up.')),
             (ph('3', 'Faults to watch', solid=True, wide=True), 'What gets in the way', 'Three', 'faults.',
              'Turn the biceps forward before the hands go down, look between your hands, and learn to fall first.', 'h2', '',
              ('Bent arms', 'Looking at your feet', 'Fear of falling')),
