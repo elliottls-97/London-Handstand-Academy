@@ -453,7 +453,11 @@ const PHASE_INTRO = {
   0: 'f71dd8d48affa0aa92c1e574c3240100',   /* how the handstand ladder works: the split-screen cut of 4 Oct 2026, captions in the film (none on Stream); the first cut was ca0c240d... */
   1: '694fce7c0221a03611d801f782bc2d80',   /* Wall Work intro, the sofa talk with his films, 9 Nov 2026 (6:12); before it 99806cf5, the September explainer */
   2: '6b31bda28932030f284de4ef2afb5554',   /* Pushing More intro, the sofa talk with his films, 9 Nov 2026 (8:32) */
+  3: 'f2f1581e522de4f52fc130eb03249474',   /* Take-Off intro, the sofa talk with his films, 11 Nov 2026 (6:20); set live from the
+                                              dashboard the same night (the shipped one was the placeholder 'tucktakeoffexplainer') */
 };
+/* Foundations' phase film is set from the dashboard (11 Nov 2026: ba186666b6fc7c1890a17a03933d501f, the Foundations intro, short
+   version, 5:23); PHASE_INTRO[0] stays the ladder intro, which the app also plays as "how the handstand ladder works". */
 
 const BAND_MIX = {
   1: {1:55, 2:30, 3:15},          /* Easier: mostly level one, some two, a little three to finish on */
