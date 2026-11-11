@@ -779,6 +779,8 @@ async function journeyReport(days, full) {
     step('pvlinks', 'Instagram links page', n(cur, 'pvlinks'), n(prev, 'pvlinks')),
     step('pvcoaching', 'Coaching page', n(cur, 'pvcoaching'), n(prev, 'pvcoaching')),
     step('pvcheck', 'Free form check page', n(cur, 'pvcheck'), n(prev, 'pvcheck')),
+    step('pagecheckgo', 'Pressed Send my clip', n(cur, 'pagecheckgo'), n(prev, 'pagecheckgo')),
+    step('pagechecksent', 'Sent a free form check', n(cur, 'pagechecksent'), n(prev, 'pagechecksent')),
     step('pvgroup', 'Six week group page', n(cur, 'pvgroup'), n(prev, 'pvgroup')),
     step('pvcall', 'Free call page', n(cur, 'pvcall'), n(prev, 'pvcall')),
     step('pvworkshop', 'A workshop page', n(cur, 'pvworkshop'), n(prev, 'pvworkshop')),
@@ -11714,6 +11716,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'siteplans', 'siteplanweekly', 'siteinterest', 'siteinterestsent', 'sitestartafter', 'sitecalllead',
                   /* "Send me a clip" pressed on the website (10 Nov 2026) */
                   'sitecheck',
+                  /* the form check page's own form: Send pressed, and the clip filed (11 Nov 2026) */
+                  'pagecheckgo', 'pagechecksent',
                   /* the same in the app: I'm interested pressed, one tap when signed in */
                   'appinterest',
                   'siteleave', 'siteleavesend',
