@@ -49,8 +49,8 @@
       '/session': 'session', '/session.html': 'session', '/links': 'links', '/links.html': 'links',
       '/six-week-handstand-group': 'group', '/six-week-handstand-group.html': 'group', '/call': 'call', '/call.html': 'call',
       '/workshop': 'workshop', '/workshop.html': 'workshop',
-      /* the coaching page and the free form check page (10 Nov 2026) */
-      '/coaching': 'coaching', '/coaching.html': 'coaching', '/form-check': 'check', '/form-check.html': 'check' };
+      /* the free form check page (10 Nov 2026) */
+      '/form-check': 'check', '/form-check.html': 'check' };
     /* the app, which keeps the first source as its own (30 Oct 2026): the
        link into it dropped it, so an account from Instagram via the
        homepage was never known as one */
