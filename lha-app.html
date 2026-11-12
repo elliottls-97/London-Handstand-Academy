@@ -18258,7 +18258,12 @@ function stageIntroUid(si){
   if(typeof o==='string') return isUid(o) ? o : '';
   return STAGE_VIDEO[si] || (si===0 ? LADDER_INTRO_VIDEO : '');
 }
-const stageFilm = () => curStage()===0 ? '' : stageIntroUid(curStage());
+/* Foundations' own intro, set from the dashboard (12 Nov 2026). Its slot used
+   to stand in for the how the app works film, so setting it there swapped that
+   film out everywhere; now the two are separate, the how film is always the
+   ladder intro and this is the phase card on Foundations, as on every stage. */
+const foundIntro = () => { const o=((st&&st.stageIntro)||{})[0]; return (!isMU() && typeof o==='string' && isUid(o) && o!==LADDER_INTRO_VIDEO) ? o : ''; };
+const stageFilm = () => curStage()===0 ? foundIntro() : stageIntroUid(curStage());
 /* ── a picture or a film for a stage, set from the dashboard ────────────
    Nothing set, nothing drawn: every place that shows one checks first, so
    a stage without one looks exactly as it did. A film is its poster with a
@@ -18596,10 +18601,10 @@ function introOffer(kind){
   /* kind 'app': the film about the app itself, asked for by name, rather
      than the stage film this offers once somebody is past Foundations */
   /* kind 'phase': the phase's own intro, from its card on Train (9 Nov 2026) */
-  if(kind==='phase' && i>0 && stageFilm()) return {label:'Watch this first', title:S.n+', explained',
+  if(kind==='phase' && stageFilm()) return {label:'Watch this first', title:S.n+', explained',
                     url:stageFilm(), len:PHASE_FILM_LEN[stageFilm()]||'A few minutes'};
   if(kind==='app' || i===0 || firstVisit()) return {label:'New here? Watch this first', title:'How the handstand ladder works',
-                    url:stageIntroUid(0)||LADDER_INTRO_VIDEO, len:'2 min'};
+                    url:LADDER_INTRO_VIDEO, len:'2 min'};
   const own=stageFilm();
   return {label:'About '+S.n, title:S.n+', explained',
           url:own||LADDER_INTRO_VIDEO, len:'2 min'};
@@ -20353,12 +20358,13 @@ function homeLadderHTML(row){
    first session was done, watched or not. It sits beside Start now, under
    it on a phone, and goes once it has been watched or put away, and not
    before. The menu keeps it after that. */
-const HOW_URL = () => stageIntroUid(0)||LADDER_INTRO_VIDEO;
+const HOW_URL = () => LADDER_INTRO_VIDEO;
 const howShown = () => !coachedView() && !st.howGone && !!HOW_URL();
 /* the stage has a fixes rail: its own fixes, or the Press stage's test */
 const stageFixRail = P => stageFixes(P).length>0 || (P===5 && !isMU() && typeof PRESS_TEST!=='undefined');
 /* first time in, and nothing in the fixes rail: the film is shown open */
-const howBig = () => howShown() && firstVisit() && !trialPending() && !stageFixRail(curStage());
+/* not on Foundations while its own intro card is up: one film to start with, not two */
+const howBig = () => howShown() && firstVisit() && !trialPending() && !stageFixRail(curStage()) && !(curStage()===0 && phaseFilmShown());
 function howBigHTML(){
   return `<section class="rise rise-2" style="padding:${wide()?22:16}px 20px 0">
     <div class="howbig" style="position:relative;background:#fff;border-radius:24px;overflow:hidden;
@@ -20405,8 +20411,11 @@ function introTick(v, ended){
    phase and for people already on it, until it has been watched or put
    away. Kept per phase, so the next phase's film shows in its turn, and it
    stays in the phase's sheet afterwards. */
-const PHASE_FILM_LEN = {'694fce7c0221a03611d801f782bc2d80':'6 min', '6b31bda28932030f284de4ef2afb5554':'9 min'};
-function phaseFilmUid(){ const i=curStage(); return (i>0 && !isMU() && !coachedView()) ? stageIntroUid(i) : ''; }
+const PHASE_FILM_LEN = {'694fce7c0221a03611d801f782bc2d80':'6 min', '6b31bda28932030f284de4ef2afb5554':'9 min',
+  /* the films in sync, 11 Nov 2026: Foundations, Wall Work, Pushing More, Take-Off */
+  '3933d7757f6a2ba0910ffb16b689ae7f':'5 min', 'b90e4fc0f64dfc49a0c082b085e07cf5':'6 min',
+  '5e46c2d7886e6607d1cba4aebd67f33e':'9 min', '853b9e439c88ad2375f3b5d038406a43':'6 min'};
+function phaseFilmUid(){ const i=curStage(); return (!isMU() && !coachedView()) ? (i===0 ? foundIntro() : stageIntroUid(i)) : ''; }
 const phaseFilmShown = () => !!phaseFilmUid() && !(st.phaseFilm||{})[curStage()];
 /* straight into the theatre, the full screen player the drill films use,
    not the sheet that slides up (Elliott, 9 Nov 2026: "a proper player").
