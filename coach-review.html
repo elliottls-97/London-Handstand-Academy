@@ -1309,13 +1309,48 @@
     return audioCtx;
   }
 
+  /* iPhone Safari (12 Nov 2026): "No AVAudioSessionCaptureDevice device" when the microphone
+     is held, often by this page's own sound (the clip, the level meter) or a stream left over
+     from before it went to the background. So: let go of our own sound, then ask again with
+     plainer settings, before giving up. */
+  async function askForMedia() {
+    if (camStream) { try { camStream.getTracks().forEach(t => t.stop()); } catch (e) {} camStream = null; }
+    const tries = [
+      { video: { facingMode: 'user' }, audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } },
+      { video: { facingMode: 'user' }, audio: true },
+      { video: true, audio: true },
+    ];
+    let last;
+    for (let i = 0; i < tries.length; i++) {
+      try { return await navigator.mediaDevices.getUserMedia(tries[i]); }
+      catch (e) {
+        last = e;
+        if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) break;
+        if (i === 0) {
+          try { stopMeter(); } catch (_) {}
+          /* close our sound only if the clip's sound is not wired into it: an element fed
+             into one context cannot be wired again, so then it is only paused */
+          if (audioCtx && !srcAudioNode) { try { await audioCtx.close(); } catch (_) {} audioCtx = null; mixedDestNode = null; }
+          else if (audioCtx) { try { await audioCtx.suspend(); } catch (_) {} }
+        }
+        await new Promise(r => setTimeout(r, 700));
+      }
+    }
+    throw last;
+  }
+  function mediaError(err) {
+    const m = String((err && (err.message || err.name)) || '');
+    if (/AVAudioSession|NotReadable|Could not start|in use/i.test(m))
+      return 'The microphone is busy. Close anything else using it (a call, a voice note, another tab with the dashboard open), then press Record again. If it still says this, close Safari fully and open the dashboard again.';
+    if (/NotAllowed|denied|Permission/i.test(m))
+      return 'The camera or microphone is blocked for this site. In Settings, Safari, Camera and Microphone, choose Ask or Allow, then reload.';
+    return 'Could not access the camera or microphone: ' + m;
+  }
+
   async function enableCamera() {
     if (camEnabled) return true;
     try {
-      camStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-      });
+      camStream = await askForMedia();
       camVideo.srcObject = camStream;
       await camVideo.play();
       camEnabled = true;
@@ -1331,7 +1366,7 @@
       }
       return true;
     } catch (err) {
-      showStatus('Could not access the camera or microphone: ' + err.message, true);
+      showStatus(mediaError(err), true);
       return false;
     }
   }
@@ -1347,6 +1382,11 @@
 
   camToggleBtn.addEventListener('click', () => {
     if (camEnabled) disableCamera(); else enableCamera();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !camStream) return;
+    const dead = camStream.getTracks().some(t => t.readyState === 'ended');
+    if (dead && !(mediaRecorder && mediaRecorder.state === 'recording')) disableCamera();
   });
 
   // ---------- Mic level meter ----------
