@@ -60,6 +60,11 @@ html{scroll-behavior:smooth}
 .fc-chips button[aria-pressed="true"]{border-color:#006663;box-shadow:0 0 0 3px rgba(0,102,99,.12)}
 .fc-in{font-family:inherit;font-size:17px;height:52px;padding:0 14px;border-radius:12px;border:1px solid rgba(17,17,17,.3);background:#fff;color:#111;width:100%}
 .fc-in:focus{outline:2px solid #006663;outline-offset:1px;border-color:#006663}
+.fc-share{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.45;color:#444;cursor:pointer}.fc-share input{width:20px;height:20px;margin:1px 0 0;flex:none;accent-color:#006663}.fc-share em{font-style:normal;color:#777}
+.fc-stick{position:fixed;left:0;right:0;bottom:0;z-index:50;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));background:rgba(244,244,245,.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid rgba(17,17,17,.08);transform:translateY(0);transition:transform .25s}
+.fc-stick a{display:flex;align-items:center;justify-content:center;text-decoration:none;width:100%;box-sizing:border-box}
+.fc-stick.off{transform:translateY(110%)}
+@media (min-width:761px){.fc-stick{display:none!important}}
 .fc-go{background:#006663;color:#fff;border:none;font-family:inherit;font-weight:700;font-size:18px;min-height:58px;padding:0 28px;border-radius:14px;cursor:pointer;transition:background .2s,transform .2s}
 .fc-go:hover{background:#007a75;color:#fff}.fc-go:active{transform:scale(.98)}
 .fc-go[disabled]{opacity:.7;cursor:progress}
@@ -250,7 +255,7 @@ html{scroll-behavior:smooth}
 </section>
 
 <!-- WHAT'S NEXT -->
-<section style="background: #ffffff; padding: 80px 0">
+<section id="plans" style="background: #ffffff; padding: 80px 0">
 <div style="max-width: 1120px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px">
 <div style="display: flex; flex-direction: column; gap: 12px; max-width: 620px">
 <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #8A540A">After your free one</div>
@@ -327,6 +332,9 @@ html{scroll-behavior:smooth}
 </div>
 
 <!-- ── the free form check, one step at a time, over the page (11 Nov 2026) ── -->
+<!-- the button that stays (12 Nov 2026): on a phone, once the hero's button has gone by, a
+     bar at the foot of the screen; it steps aside whenever another send button is in view -->
+<div class="fc-stick" id="fcStick" hidden><a href="#send" class="fc-go">Send my clip, free</a></div>
 <dialog id="fcDlg" class="fc-dlg" aria-labelledby="fcH">
 <form id="fcForm" novalidate>
 <div class="fc-top">
@@ -379,6 +387,7 @@ html{scroll-behavior:smooth}
 <label for="fc-pw" class="fc-l">Pick a password</label>
 <input id="fc-pw" type="password" autocomplete="new-password" minlength="8" class="fc-in">
 <span class="fc-hint">8 characters or more. Already have an account? Use its password.</span>
+<label class="fc-share" for="fc-share"><input id="fc-share" type="checkbox"><span>You can share my clip and the reply on Instagram, to help other people stuck on the same thing. <em>Optional.</em></span></label>
 <button type="submit" id="fcGo" class="fc-go">Send my clip</button>
 <p class="fc-hint" style="text-align: center">Free. No card. By sending you agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>
 </section>
@@ -521,9 +530,11 @@ html{scroll-behavior:smooth}
         return vidShrink(f, function(p){ pct(Math.round(p*100)); });
       })
       .then(function(small){ stat('Uploading your clip…'); pct(0); return upload(small, token); })
-      .then(function(uid){ stat('Sending it to Elliott…');
-        var q=[stuck?'Struggling with: '+stuck+'.':'', note].filter(Boolean).join(' ');
-        return api('/submission',{kind:'assessment', clips:[{uid:uid,name:'Form check clip'}], numbers:q?{question:q.slice(0,600)}:{}}, token);
+      .then(function(uid){ stat('Sending it…');
+        var share=!!($('fc-share')||{}).checked;
+        var q=[stuck?'Struggling with: '+stuck+'.':'', note, share?'(Happy for it to be shared on Instagram.)':''].filter(Boolean).join(' ');
+        var nums=q?{question:q.slice(0,600)}:{}; if(share) nums.share='yes';
+        return api('/submission',{kind:'assessment', clips:[{uid:uid,name:'Form check clip'}], numbers:nums}, token);
       })
       .then(function(d){
         if(d._status===402) throw 'You have already had your free form check on this account. Open the app to send more with form checks.';
@@ -544,6 +555,17 @@ html{scroll-behavior:smooth}
 (function(){var v=document.querySelector('.fc-chat video');if(!v)return;
 if(!('IntersectionObserver' in window)){v.preload='auto';v.play&&v.play().catch(function(){});return;}
 new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){v.play().catch(function(){});}else{v.pause();}})},{threshold:.4}).observe(v);})();
+</script>
+<script>
+(function(){var bar=document.getElementById('fcStick');if(!bar||!('IntersectionObserver' in window))return;
+var cta=[].slice.call(document.querySelectorAll('a[href="#send"]')).filter(function(a){return !a.closest('header')&&!a.closest('#fcStick');});
+var seen=new Set(),past=false,hero=cta[0];
+var upd=function(){var dlg=document.getElementById('fcDlg');var open=dlg&&dlg.open;bar.hidden=false;bar.classList.toggle('off',!past||seen.size>0||open);};
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)seen.add(e.target);else seen.delete(e.target);
+ if(e.target===hero)past=!e.isIntersecting&&e.boundingClientRect.top<0;});upd();},{threshold:0});
+cta.forEach(function(a){io.observe(a);});
+var dlg=document.getElementById('fcDlg');if(dlg){dlg.addEventListener('close',upd);new MutationObserver(upd).observe(dlg,{attributes:true,attributeFilter:['open']});}
+bar.classList.add('off');bar.hidden=false;})();
 </script>
 </body>
 </html>
