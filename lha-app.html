@@ -1536,6 +1536,23 @@ video{width:100%;display:block;background:#000}
 #theatre .vp-bar{background:none;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px)}
 #theatre .vp-btn{width:40px;height:40px}
 #theatre .vp-t{font-size:12px}
+/* chapters on the line, the one you are in, and the drag bubble */
+.vp-tick{position:absolute;top:-1px;bottom:-1px;width:3px;margin-left:-1.5px;background:#111;border-radius:1px;pointer-events:none;z-index:2}
+.vp-chname{position:absolute;left:0;bottom:16px;font:600 12.5px/1 var(--sans);color:#fff;white-space:nowrap;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 6px rgba(0,0,0,.6);pointer-events:none}
+.vp-bub{position:absolute;bottom:22px;transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:3px;
+  padding:7px 10px;border-radius:10px;background:rgba(10,14,12,.86);color:#fff;font:700 13px/1 var(--sans);
+  font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none;z-index:3}
+.vp-bub b{font:600 11.5px/1 var(--sans);color:#8fe3d6}
+.vp-track.drag .vp-bub{display:flex}.vp-track.drag .vp-chname{opacity:0}
+#vpChaps{position:absolute;right:12px;bottom:76px;z-index:6;width:min(300px,calc(100% - 24px));max-height:calc(100% - 100px);overflow:auto;
+  background:rgba(14,18,16,.94);border-radius:16px;padding:6px 6px 8px;box-shadow:0 18px 44px -14px rgba(0,0,0,.7)}
+#vpChaps .vpc-h{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 6px;color:#fff;font:700 14px/1 var(--sans)}
+#vpChaps .vpc-h button{width:36px;height:36px;border:0;border-radius:999px;background:rgba(255,255,255,.12);color:#fff;font:400 20px/1 var(--sans);cursor:pointer}
+#vpChaps .vpc-r{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:8px 10px;border:0;border-radius:10px;background:none;
+  color:#fff;font:500 14.5px/1.25 var(--sans);text-align:left;cursor:pointer}
+#vpChaps .vpc-r span{flex:none;width:42px;font:600 12px/1 var(--sans);color:rgba(255,255,255,.6);font-variant-numeric:tabular-nums}
+#vpChaps .vpc-r.on{background:rgba(143,227,214,.16)}#vpChaps .vpc-r.on span{color:#8fe3d6}
 .row{padding:10px 16px;border-bottom:1px solid rgba(0,64,61,.08)}
 .row:last-child{border-bottom:none}
 /* ── a drill, on a phone ───────────────────────────────────────────
@@ -5947,6 +5964,7 @@ const VP_EXPAND='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" str
 const VP_CLOSE='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>';
 const VP_PIP='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><rect x="12" y="11" width="8" height="6.5" rx="1" fill="currentColor" stroke="none"/></svg>';
 const VP_TURN='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M8 3.5l2-2 2 2"/><path d="M10 1.5A7.5 7.5 0 0 1 17 7"/></svg>';
+const VP_CHAPS='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>';
 
 const vpTime = s => { s=Math.max(0,Math.floor(s||0));
   return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
@@ -5975,6 +5993,17 @@ function pipToggle(v){
     else { const r=v.requestPictureInPicture(); if(r&&r.catch) r.catch(()=>{}); }
   }catch(err){}
 }
+/* chapters in the phase intros, from the labels on screen in each film
+   (Elliott, 12 Nov 2026: "points on the video, like chapters on YouTube").
+   [seconds, name]; a film without a list plays as before. */
+const VP_CHAPTERS = {
+  '3933d7757f6a2ba0910ffb16b689ae7f': [[0, "Intro"], [28.2, "Getting started"], [85.0, "Learn"], [111.0, "Wrists"], [140.4, "Fear of falling"], [173.9, "Crow"], [190.4, "The kick up"], [216.3, "More support"]],
+  'b90e4fc0f64dfc49a0c082b085e07cf5': [[0, "Intro"], [21.1, "Before you start"], [48.5, "In this phase"], [59.3, "Falling out"], [95.5, "The shoulders"], [111.5, "Walking up the wall"], [133.5, "Chest to wall"], [205.9, "More variety"], [247.9, "Your sessions"], [309.1, "More support"]],
+  '5e46c2d7886e6607d1cba4aebd67f33e': [[0, "Intro"], [80.7, "Before you start"], [130.1, "Knees on box"], [230.2, "Breathing"], [275.9, "Tuck slides"], [318.0, "Wall shoulder leans"], [346.8, "Wall scapula shrugs"], [368.6, "Your sessions"], [409.5, "More support"]],
+  '853b9e439c88ad2375f3b5d038406a43': [[0, "Intro"], [12.9, "In this phase"], [50.8, "Before you start"], [85.6, "Tuck take-offs"], [145.1, "Full slide away"], [208.8, "Knees on box"], [247.0, "Shape changes"], [297.4, "Attempts in the room"], [319.7, "Bad days"], [343.7, "More support"]]
+};
+const vpChapters = v => (v && VP_CHAPTERS[v.dataset.cc||'']) || null;
+const vpChapAt = (list, t) => { let k=0; for(let i=0;i<list.length;i++) if(list[i][0]<=t+0.25) k=i; return k; };
 function vpBar(v, theatre){
   const bar=document.createElement('div');
   bar.className='vp-bar';
@@ -5984,6 +6013,7 @@ function vpBar(v, theatre){
    +'<span class="vp-t" data-a="now">0:00</span>'
    +'<div class="vp-track" data-a="track"><i></i></div>'
    +'<span class="vp-t" data-a="dur">0:00</span>'
+   +(theatre && vpChapters(v)?'<button class="vp-btn" data-a="chaps" aria-label="Chapters">'+VP_CHAPS+'</button>':'')
    +(theatre?'<button class="vp-btn" data-a="speed" aria-label="Speed"></button>':'')
    +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
    /* a film you can keep watching while you carry on reading the page,
@@ -5997,6 +6027,22 @@ function vpBar(v, theatre){
    +(theatre?VP_CLOSE:VP_EXPAND)+'</button>';
   const q=a=>bar.querySelector('[data-a="'+a+'"]');
   const play=q('play'), now=q('now'), dur=q('dur'), track=q('track'), fill=track.firstChild;
+  /* chapters: a mark on the line where each starts, the one you are in named
+     above it, and a bubble with the time and chapter while you drag */
+  const CH=theatre ? vpChapters(v) : null;
+  let chName=null, bub=null;
+  if(theatre){
+    bub=document.createElement('span'); bub.className='vp-bub'; track.appendChild(bub);
+  }
+  if(CH){
+    chName=document.createElement('span'); chName.className='vp-chname'; track.appendChild(chName);
+    const ticks=()=>{ track.querySelectorAll('.vp-tick').forEach(x=>x.remove());
+      if(!v.duration) return;
+      CH.forEach((c,i)=>{ if(!i) return; const b=document.createElement('b'); b.className='vp-tick';
+        b.style.left=(c[0]/v.duration*100).toFixed(2)+'%'; track.appendChild(b); }); };
+    v.addEventListener('loadedmetadata', ticks); v.addEventListener('durationchange', ticks); ticks();
+    q('chaps').onclick=e=>{ e.stopPropagation(); vpChapList(v); };
+  }
   const mute=q('mute');
   const paint=()=>{
     play.innerHTML = v.paused ? VP_PLAY : VP_PAUSE;
@@ -6008,6 +6054,7 @@ function vpBar(v, theatre){
     now.textContent=vpTime(v.currentTime);
     dur.textContent=vpTime(v.duration);
     fill.style.width=(v.duration?(v.currentTime/v.duration*100):0).toFixed(2)+'%';
+    if(chName){ const k=vpChapAt(CH, v.currentTime||0); if(chName.dataset.k!==String(k)){ chName.dataset.k=k; chName.textContent=CH[k][1]; } }
   };
   play.onclick=e=>{ e.stopPropagation(); v.paused?filmPlay(v):v.pause(); paint(); };
   q('full').onclick=e=>{ e.stopPropagation(); theatre?vpClose():vpOpen(v); };
@@ -6043,11 +6090,21 @@ function vpBar(v, theatre){
       try{ v.playbackRate=nx; }catch(err){} st.vpSpeed=nx; save(); show(); vpWake(); };
     show();
   }
-  /* scrub by pointer, so a drag works as well as a tap */
+  /* scrub by pointer, so a drag works as well as a tap. Turned sideways the
+     whole room is rotated a quarter turn, so the line runs down the screen
+     and the finger's height, not its left and right, is the place in the film
+     (12 Nov 2026: scrubbing "feels quite difficult"). Near a chapter's start
+     it snaps to it, as YouTube's does. */
   const seek=ev=>{
     const r=track.getBoundingClientRect();
-    const x=Math.max(0,Math.min(1,(ev.clientX-r.left)/Math.max(1,r.width)));
+    const down = theatre && vpTurn===90;
+    let x = down ? (ev.clientY-r.top)/Math.max(1,r.height) : (ev.clientX-r.left)/Math.max(1,r.width);
+    x=Math.max(0,Math.min(1,x));
+    if(CH && v.duration){ const near=CH.find(c=>Math.abs(c[0]/v.duration-x)<0.012); if(near) x=near[0]/v.duration; }
     if(v.duration) v.currentTime=x*v.duration;
+    if(bub && v.duration){ const k=CH?vpChapAt(CH, x*v.duration):-1;
+      bub.innerHTML=(k>-1?'<b>'+esc(CH[k][1])+'</b>':'')+vpTime(x*v.duration);
+      bub.style.left=(x*100).toFixed(2)+'%'; }
     paint();
   };
   track.addEventListener('pointerdown',ev=>{ ev.stopPropagation();
@@ -6130,6 +6187,8 @@ function vpOpen(v){
      strip lands exactly on top of the caption plate. */
   document.getElementById('vpRoom').appendChild(vpBar(v,true));
   vpTurn=0; vpFill=false; vpFit();
+  vpAutoTurn(v); v.addEventListener('loadedmetadata', ()=>vpAutoTurn(v), {once:true});
+  { const old=document.getElementById('vpChaps'); if(old) old.remove(); }
   /* videoWidth is 0 until metadata lands, so a cold open would size to 16/9
      and then sit wrong for the rest of the film */
   v.addEventListener('loadedmetadata', vpFit);
@@ -6168,6 +6227,32 @@ function vpKeys(e){
   if(e.key==='ArrowLeft') v.currentTime=Math.max(0, v.currentTime-5);
 }
 function vpRotate(){ vpTurn=(vpTurn+90)%180; vpFit(); vpWake(); }
+/* the chapters as a list over the film: tap one to go there */
+function vpChapList(v){
+  const room=document.getElementById('vpRoom'); if(!room) return;
+  let el=document.getElementById('vpChaps');
+  if(el){ el.remove(); return; }
+  const CH=vpChapters(v); if(!CH) return;
+  const k=vpChapAt(CH, v.currentTime||0);
+  el=document.createElement('div'); el.id='vpChaps';
+  el.innerHTML='<div class="vpc-h"><b>Chapters</b><button type="button" aria-label="Close chapters">&times;</button></div>'
+    +CH.map((c,i)=>'<button type="button" class="vpc-r'+(i===k?' on':'')+'" data-t="'+c[0]+'"><span>'+vpTime(c[0])+'</span>'+esc(c[1])+'</button>').join('');
+  el.addEventListener('click', e=>{ e.stopPropagation();
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.t!=null){ try{ v.currentTime=Number(b.dataset.t); }catch(x){} if(v.paused) filmPlay(v); }
+    el.remove(); vpWake(); });
+  room.appendChild(el);
+}
+/* The iPhone app only stands upright (its Info.plist allows portrait alone),
+   so turning the phone does nothing and a wide film stayed a strip across
+   the middle (12 Nov 2026: "landscape still is a small view on the phone").
+   There, a wide film opens already turned: hold the phone sideways to watch,
+   or press the turn button to stand it back up. */
+function vpAutoTurn(v){
+  if(!IOS_APP || !vpFrom || vpTurn || window.innerHeight<=window.innerWidth) return;
+  if(!v || !v.videoWidth || v.videoWidth<v.videoHeight*1.2) return;
+  vpTurn=90; vpFit();
+}
 /* Pinch out, or double tap: bigger. Held upright, a wide film first turns
    sideways, which is most of the screen; sideways, it then fills the
    screen. Pinch in, or double tap again, steps back the same way.
