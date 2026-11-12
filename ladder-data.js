@@ -451,8 +451,9 @@ const EXPLAIN = {
    arrives as stageIntro and wins over this. */
 const PHASE_INTRO = {
   0: 'f71dd8d48affa0aa92c1e574c3240100',   /* how the handstand ladder works: the split-screen cut of 4 Oct 2026, captions in the film (none on Stream); the first cut was ca0c240d... */
-  1: '694fce7c0221a03611d801f782bc2d80',   /* Wall Work intro, the sofa talk with his films, 9 Nov 2026 (6:12); before it 99806cf5, the September explainer */
-  2: '6b31bda28932030f284de4ef2afb5554',   /* Pushing More intro, the sofa talk with his films, 9 Nov 2026 (8:32) */
+  1: 'b90e4fc0f64dfc49a0c082b085e07cf5',   /* Wall Work intro, the sofa talk with his films, 9 Nov 2026 (6:12), re-exported 11 Nov with the voice in sync
+                                              (it was 75 ms late); before it 694fce7c, and 99806cf5, the September explainer */
+  2: '5e46c2d7886e6607d1cba4aebd67f33e',   /* Pushing More intro, the sofa talk with his films, 9 Nov 2026 (8:32), voice in sync 11 Nov; was 6b31bda2 */
   3: '853b9e439c88ad2375f3b5d038406a43',   /* Take-Off intro, the sofa talk with his films, 11 Nov 2026 (6:20), voice in sync; set live from the
                                               dashboard the same night (the shipped one was the placeholder 'tucktakeoffexplainer') */
 };
