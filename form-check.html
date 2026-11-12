@@ -51,6 +51,7 @@ html{scroll-behavior:smooth}
 .fc-stick a{display:flex;align-items:center;justify-content:center;text-decoration:none;width:100%;box-sizing:border-box}
 .fc-stick.off{transform:translateY(110%)}
 @media (min-width:761px){.fc-stick{display:none!important}}
+.fc-bg{color:#006663!important;font-weight:600;margin:0}
 .fc-go{background:#006663;color:#fff;border:none;font-family:inherit;font-weight:700;font-size:18px;min-height:58px;padding:0 28px;border-radius:14px;cursor:pointer;transition:background .2s,transform .2s}
 .fc-go:hover{background:#007a75;color:#fff}.fc-go:active{transform:scale(.98)}
 .fc-go[disabled]{opacity:.7;cursor:progress}
@@ -343,6 +344,7 @@ html{scroll-behavior:smooth}
 <span id="fcDropS" style="font-size: 14px; color: #555555">From your camera roll</span>
 <input id="fc-clip" type="file" accept="video/*" class="fc-file">
 </label>
+<p class="fc-hint fc-bg" id="fcBg2" hidden></p>
 <ul class="fc-tips">
 <li>Side on, not from the front</li>
 <li>Whole body in frame, hands to toes</li>
@@ -362,6 +364,7 @@ html{scroll-behavior:smooth}
 <label for="fc-pw" class="fc-l">Pick a password</label>
 <input id="fc-pw" type="password" autocomplete="new-password" minlength="8" class="fc-in">
 <span class="fc-hint">8 characters or more. Already have an account? Use its password.</span>
+<p class="fc-hint fc-bg" id="fcBg3" hidden></p>
 <label class="fc-share" for="fc-share"><input id="fc-share" type="checkbox"><span>You can share my clip and the reply on Instagram, to help other people stuck on the same thing. <em>Optional.</em></span></label>
 <button type="submit" id="fcGo" class="fc-go">Send my clip</button>
 <p class="fc-hint" style="text-align: center">Free. No card. By sending you agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>
@@ -425,7 +428,7 @@ html{scroll-behavior:smooth}
     $('fcDrop').classList.toggle('has', !!file);
     $('fcDropT').textContent=file ? (file.name || 'Your video') : 'Choose your video';
     $('fcDropS').textContent=file ? mb(file.size)+' MB · tap to choose a different one' : 'Side on, whole body in frame, up to two minutes.';
-    say('');
+    say(''); if(file) early(file);
   });
   [].forEach.call($('fcStuck').querySelectorAll('button'), function(b){
     b.addEventListener('click', function(){
@@ -447,23 +450,25 @@ html{scroll-behavior:smooth}
     setTimeout(function(){ fin(0); }, 5000); v.src=u; }); };
   /* the clip goes phone to Cloudflare in 10MB pieces, retried, as in the app */
   var PIECE=10*1024*1024;
-  var upload=function(f, token){
-    return api('/upload',{size:f.size, tus:true}, token).then(function(d){
+  var upload=function(f, token, onp, ctx){
+    onp=onp||pct; ctx=ctx||{};
+    return api(token?'/upload':'/upload/guest',{size:f.size, tus:true}, token).then(function(d){
       if(d._status>=400) throw (d.error||'Could not start the upload');
       if(!d.tusURL) return new Promise(function(res,rej){
         var fd=new FormData(); fd.append('file',f); var x=new XMLHttpRequest(); x.open('POST',d.uploadURL);
-        x.upload.onprogress=function(e){ if(e.lengthComputable) pct(Math.round(e.loaded/e.total*100)); };
+        x.upload.onprogress=function(e){ if(e.lengthComputable) onp(Math.round(e.loaded/e.total*100)); };
         x.onload=function(){ x.status<300 ? res(d.uid) : rej('The upload did not go. Check your signal and send it again.'); };
         x.onerror=function(){ rej('The upload did not go. Check your signal and send it again.'); }; x.send(fd); });
       var patch=function(at,piece){ return new Promise(function(res,rej){
         var x=new XMLHttpRequest(); x.open('PATCH', d.tusURL);
         x.setRequestHeader('Tus-Resumable','1.0.0'); x.setRequestHeader('Upload-Offset',String(at)); x.setRequestHeader('Content-Type','application/offset+octet-stream');
-        x.upload.onprogress=function(e){ if(e.lengthComputable) pct(Math.min(99,Math.round((at+e.loaded)/f.size*100))); };
+        x.upload.onprogress=function(e){ if(e.lengthComputable) onp(Math.min(99,Math.round((at+e.loaded)/f.size*100))); };
         x.onload=function(){ x.status<300 ? res(Number(x.getResponseHeader('Upload-Offset'))||(at+piece.size)) : rej(); };
         x.onerror=x.ontimeout=function(){ rej(); }; x.send(piece); }); };
       var where=function(){ return fetch(d.tusURL,{method:'HEAD',headers:{'Tus-Resumable':'1.0.0'}}).then(function(r){ return Number(r.headers.get('Upload-Offset'))||0; }); };
       var send=function(at,tries){
-        if(at>=f.size){ pct(100); return Promise.resolve(d.uid); }
+        if(ctx.dropped) return Promise.reject('dropped');
+        if(at>=f.size){ onp(100); return Promise.resolve(d.uid); }
         return patch(at, f.slice(at, Math.min(f.size, at+PIECE))).then(function(n){ return send(n,0); }, function(){
           if(tries>=4) throw 'The upload stopped at '+Math.round(at/f.size*100)+'%. Check your signal and send it again.';
           return new Promise(function(r){ setTimeout(r,1500*(tries+1)); }).then(function(){ return where().catch(function(){ return at; }); }).then(function(a){ return send(a,tries+1); });
@@ -472,6 +477,34 @@ html{scroll-behavior:smooth}
       return send(0,0);
     });
   };
+  /* ── the clip goes up while they type (12 Nov 2026) ─────────────
+     Chosen, checked for length, made smaller if it is huge, and uploaded
+     to /upload/guest before the account exists; Send makes the account and
+     waits for this to finish. If the early upload cannot start (an older
+     server, too many today), Send uploads it the old way. */
+  var pre=null;
+  var bg=function(t){ ['fcBg2','fcBg3'].forEach(function(id){ var e=$(id); if(e){ e.textContent=t; e.hidden=!t; } }); };
+  var early=function(f){
+    if(pre) pre.dropped=true;
+    var me={f:f, p:0, dropped:false, onp:null, done:false};
+    var tell=function(p){ me.p=p; if(me.onp) me.onp(p); if(pre===me && !me.done) bg(p>=100?'Your clip is uploaded.':'Uploading your clip while you carry on… '+p+'%'); };
+    pre=me; bg('Getting your clip ready…');
+    me.promise=secs(f).then(function(s){ if(s > 121) throw {len:1}; })
+      .then(function(){
+        if(f.size <= (typeof VID_MAX!=='undefined'?VID_MAX:200*1048576)) return f;
+        if(typeof vidShrink!=='function' || !vidShrinkOk()) throw {big:1};
+        bg('Making your clip smaller to send…');
+        return vidShrink(f, function(p){ if(pre===me) bg('Making your clip smaller to send… '+Math.round(p*100)+'%'); });
+      })
+      .then(function(small){ me.small=small; return upload(small, '', tell, me); })
+      .then(function(uid){ me.done=true; if(pre===me) bg('Your clip is uploaded.'); return uid; });
+    me.promise.catch(function(e){
+      if(pre!==me) return;
+      if(e && e.len){ bg(''); say('That clip is over two minutes. Trim it to the attempt itself.'); file=null; $('fcDrop').classList.remove('has'); $('fcDropT').textContent='Choose your video'; return; }
+      if(e && e.big){ bg(''); return; }
+      me.failed=true; bg(''); });
+  };
+
   /* the account: a new one, or the password of one they already have */
   var account=function(email,pw,name){
     return api('/signup',{email:email,password:pw,name:name,marketing:false,ref:'form-check'}).then(function(d){
@@ -488,7 +521,7 @@ html{scroll-behavior:smooth}
   form.addEventListener('submit', function(ev){
     ev.preventDefault();
     var name=$('fc-name').value.trim(), email=$('fc-email').value.trim().toLowerCase(), pw=$('fc-pw').value, note=$('fc-note').value.trim();
-    if(!file){ show(1); say('Choose your clip first.'); return; }
+    if(!file){ show(2); say('Choose your clip first.'); return; }
     if(!name){ say('What should I call you?'); $('fc-name').focus(); return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ say('That email does not look right.'); $('fc-email').focus(); return; }
     if(pw.length<8){ say('The password needs 8 characters or more.'); $('fc-pw').focus(); return; }
@@ -498,13 +531,23 @@ html{scroll-behavior:smooth}
       .then(function(){ return account(email,pw,name); })
       .then(function(t){ token=t;
         /* the app on this phone is signed in to the same account */
-        try{ var s=JSON.parse(localStorage.getItem('lha_app')||'{}')||{}; s.token=t; s.email=email; if(!s.mode) s.mode='free'; s.viewChosen=s.viewChosen||'app'; s.ref=s.ref||'form-check'; localStorage.setItem('lha_app', JSON.stringify(s)); }catch(e){}
-        if(f.size <= (typeof VID_MAX!=='undefined'?VID_MAX:200*1048576)) return f;
+        try{ var s=JSON.parse(localStorage.getItem('lha_app')||'{}')||{};
+          /* another account was signed in on this browser (a client, or the coach testing): its
+             coaching, stage and answers are not this person's, so the app starts clean (12 Nov 2026) */
+          if(s.email && String(s.email).toLowerCase()!==email) s={};
+          delete s.in; delete s.coached; delete s.tier; delete s.client;
+          s.token=t; s.email=email; if(!s.mode) s.mode='free'; s.viewChosen=s.viewChosen||'app'; s.ref=s.ref||'form-check'; localStorage.setItem('lha_app', JSON.stringify(s)); }catch(e){}
+        if(f.size <= (typeof VID_MAX!=='undefined'?VID_MAX:200*1048576) || (pre && pre.f===f && !pre.failed)) return f;
         if(typeof vidShrink!=='function' || !vidShrinkOk()) throw 'That video is '+mb(f.size)+' MB, too big to send from here. Film it at 1080p, or trim it, and try again.';
         stat('Making your video smaller to send. This takes about as long as the clip…'); pct(0);
         return vidShrink(f, function(p){ pct(Math.round(p*100)); });
       })
-      .then(function(small){ stat('Uploading your clip…'); pct(0); return upload(small, token); })
+      .then(function(small){
+        if(pre && pre.f===f && !pre.failed){
+          stat(pre.done?'Sending it…':'Finishing your upload…'); pct(pre.p); pre.onp=pct;
+          return pre.promise.catch(function(){ stat('Uploading your clip…'); pct(0); return upload(pre.small||small, token); });
+        }
+        stat('Uploading your clip…'); pct(0); return upload(small, token); })
       .then(function(uid){ stat('Sending it…');
         var share=!!($('fc-share')||{}).checked;
         var q=[stuck?'Struggling with: '+stuck+'.':'', note, share?'(Happy for it to be shared on Instagram.)':''].filter(Boolean).join(' ');
@@ -521,7 +564,7 @@ html{scroll-behavior:smooth}
         show(5);
       })
       .catch(function(e){ pct(null);
-        var m=String((e&&e.message)||e||''); show(/clip|video|MB/i.test(m) && !/account|password/i.test(m) ? 1 : 3); say(/failed to fetch|network|load failed/i.test(m) ? 'That did not send. Check your signal and send it again.' : (m || 'That did not send. Try again.')); });
+        var m=String((e&&e.message)||e||''); show(/clip|video|MB/i.test(m) && !/account|password/i.test(m) ? 2 : 3); say(/failed to fetch|network|load failed/i.test(m) ? 'That did not send. Check your signal and send it again.' : (m || 'That did not send. Try again.')); });
   });
 })();
 </script>

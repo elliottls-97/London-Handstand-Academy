@@ -10985,6 +10985,35 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ error: 'Nope' }, 405);
   }
 
+  /* ── a form check clip before there is an account (12 Nov 2026) ──
+     The form check page starts the upload the moment a clip is chosen, so it
+     goes up while they type their email. The account comes after, so this
+     needs no sign in: in pieces (tus) only, two minutes at most, a few a day
+     from one connection, marked creator "guest". /submission moves a guest
+     clip onto the account that sends it, and the daily run (cycle.mjs)
+     deletes any guest clip nobody sent within a day. */
+  if (path === '/upload/guest' && request.method === 'POST') {
+    if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return json({ error: 'Video upload is not switched on yet' }, 503);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`uplguest:${ip}`, 24 * 3600000)) > 6) return json({ error: 'That is a lot of clips for one day. Try again tomorrow.' }, 429);
+    const size = Math.floor(Number(body.size) || 0);
+    if (!(size > 0) || size > 2 * 1024 * 1024 * 1024) return json({ error: 'Which file?' }, 400);
+    const b64 = v => Buffer.from(String(v)).toString('base64');
+    const name = `form-check · guest · ${new Date().toISOString().slice(0, 10)}`;
+    try {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream?direct_user=true`,
+        { method: 'POST',
+          headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}`,
+                     'Tus-Resumable': '1.0.0', 'Upload-Length': String(size), 'Upload-Creator': 'guest',
+                     'Upload-Metadata': `maxDurationSeconds ${b64(125)},name ${b64(name)}` } });
+      const loc = res.headers.get('location'), uid = res.headers.get('stream-media-id');
+      if (!res.ok || !loc || !uid) return json({ error: `Stream would not open the upload (${res.status})` }, 502);
+      return json({ tusURL: loc, uid });
+    } catch (err) {
+      return json({ error: String(err.message || err) }, 502);
+    }
+  }
   if (path === '/upload' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -12515,6 +12544,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       return json({ error: 'Nothing to send' }, 400);
     }
 
+    /* a clip uploaded before the account existed (/upload/guest) becomes
+       this account's, so the daily sweep of unsent guest clips leaves it be */
+    if (process.env.CF_ACCOUNT && process.env.CF_STREAM_TOKEN) {
+      const H = { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` };
+      const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream/`;
+      await Promise.all(clips.filter(c => c.uid).map(async c => {
+        try {
+          const v = await (await fetch(base + c.uid, { headers: H })).json();
+          if (v && v.result && v.result.creator === 'guest') {
+            await fetch(base + c.uid, { method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uid: c.uid, creator: who, meta: { ...(v.result.meta || {}), name: `form-check · ${who} · ${new Date().toISOString().slice(0, 10)}`, uploadedBy: who, kind: 'form-check' } }) });
+          }
+        } catch {}
+      }));
+    }
     const plan = planFile(who);
     const cycle = await cycleGet(db, who, plan);
     await ensureAcct(who);

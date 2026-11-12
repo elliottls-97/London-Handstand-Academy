@@ -560,6 +560,23 @@ async function paymentsCheck(done) {
       cta: { href: 'https://dashboard.stripe.com/workbench/webhooks', label: 'Open Stripe' } }));
 }
 
+/* ── form check clips nobody sent (12 Nov 2026) ─────────────────────
+   The form check page uploads a clip before the account exists, as creator
+   "guest" (/upload/guest in app.mjs). Sending it moves it onto the account;
+   one still marked guest a day later was left half way, and Stream minutes
+   are paid for, so it goes. */
+async function guestClipSweep(done) {
+  if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return;
+  const H = { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` };
+  const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/stream`;
+  const r = await fetch(`${base}?creator=guest`, { headers: H });
+  const list = ((await r.json().catch(() => null)) || {}).result || [];
+  const old = list.filter(v => v && v.creator === 'guest' && Date.parse(v.created) < Date.now() - 24 * 3600000).slice(0, 40);
+  let n = 0;
+  for (const v of old) { const d = await fetch(`${base}/${v.uid}`, { method: 'DELETE', headers: H }); if (d.ok) n++; }
+  done.guestClipsDeleted = n;
+}
+
 export default async () => {
   /* the guard is read fresh for every run: a switch changed a moment ago counts */
   GUARD = null;
@@ -600,6 +617,7 @@ export default async () => {
   await run('push', () => trainingPush(done));
   await run('quiet', () => quietFreeAccounts(done));
   await run('voice', () => voiceSweep(done));
+  await run('guestClips', () => guestClipSweep(done));
   done.secs = Math.round((Date.now() - T0) / 100) / 10;
   /* the response body of a scheduled run is thrown away, so the run says
      what it did in the function log, where a bad day can be found */

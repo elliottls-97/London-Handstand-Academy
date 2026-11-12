@@ -16166,6 +16166,48 @@ function starterWeekHTML(){
     <button class="btn" style="flex:none;margin:0;min-height:40px;padding:0 16px;width:auto" onclick="go('home')">Train</button>
   </div>`;
 }
+/* ── a form check on its way (12 Nov 2026) ───────────────────────
+   Somebody who came for the free form check and is not coached lands on
+   the ladder with nothing saying where their clip is. On Train: sent, with
+   a coach, and the reply, as three steps, and a tap to it. */
+function fcProgress(){
+  if(!st.token || coachedView()) return null;
+  const sent=st.awaitingReview||0, back=st.lastReview||0, unread=back && back>(st.seenReview||0);
+  if(sent) return {k:'with', sent};
+  if(unread) return {k:'back', back};
+  return null;
+}
+function fcBannerHTML(){
+  const f=fcProgress(); if(!f) return '';
+  const day=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  const by=f.k==='with' && !fcPaid() ? day(f.sent+7*864e5) : '';
+  const seg=i=>{ const on = f.k==='back' || i===0, now = f.k==='with' && i===1;
+    return `<i style="flex:1;height:5px;border-radius:3px;background:${on?'var(--forest)':now?'var(--amber)':'rgba(0,64,61,.12)'}"></i>`; };
+  const head = f.k==='back' ? 'Your form check reply is ready.' : 'Your clip is with a coach.';
+  const sub = f.k==='back' ? 'A video on your clip, with what to change.'
+    : 'Sent '+day(f.sent)+'. '+(by?'Your video reply comes back by '+by+'.':'Your video reply comes back '+fcWhen()+'.');
+  const tap = f.k==='back' ? "st.seenReview=st.lastReview;save();goAsk()" : "st.coTab='check';go('coaching')";
+  return `<div class="rise rise-1" style="padding:14px 20px 0"><button onclick="${tap}" style="width:100%;display:flex;align-items:center;gap:12px;
+      padding:14px 16px;border-radius:18px;border:1.5px solid rgba(0,102,99,.25);background:#fff;cursor:pointer;text-align:left;color:var(--ink)">
+    <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR FORM CHECK</span>
+      <span style="display:block;font:600 15px/1.3 var(--sans);margin-top:6px">${head}</span>
+      <span style="display:block;font:400 13px/1.35 var(--sans);color:var(--grey);margin-top:4px">${esc(sub)}</span>
+      <span style="display:flex;gap:4px;margin-top:9px">${[0,1,2].map(seg).join('')}</span>
+      <span style="display:flex;justify-content:space-between;font:500 11px/1 var(--sans);color:var(--grey2);margin-top:6px"><span>Sent</span><span>With a coach</span><span>Your reply</span></span></span>
+    <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${f.k==='back'?'Watch':'See it'} &rarr;</span>
+  </button></div>`;
+}
+/* new to the app, here for a form check: their level is two minutes of
+   questions away, and the ladder waits until they have answered them */
+function fcQuizCardHTML(){
+  if(!st.token || st.in || st.quizDone) return '';
+  return `<div class="card" style="padding:18px 18px;display:flex;gap:13px;align-items:center">
+    <span style="flex:1;min-width:0"><span class="kick2" style="color:var(--forest)">NEW TO THE APP?</span>
+      <b style="display:block;font:600 15.5px/1.3 var(--sans);margin-top:6px">Find your level while you wait.</b>
+      <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:2px">A few questions, then the free Handstand Ladder starts you at the right stage.</span></span>
+    <button class="btn" style="flex:none;margin:0;min-height:42px;padding:0 16px;width:auto" onclick="startQuizFromSession()">Start</button>
+  </div>`;
+}
 /* on Train, while block one is being written: this is their starter week,
    and where they are with the steps before block one */
 function obBannerHTML(){
@@ -20865,6 +20907,7 @@ function screenHome(){
     ${/* the week is in the bar at the top (18 Oct 2026) */''}
     ${sessionLineHTML()}
     ${obBannerHTML()}
+    ${fcBannerHTML()}
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
 
     <!-- ── build today's session ──────────────────────────────────
@@ -24892,12 +24935,13 @@ function screenCoaching(){
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       ${nextSession()?nextSessionHTML():''}
       <div data-tour="formcheck">${checkCard}</div>
+      ${fcQuizCardHTML()}
       <!-- what happens, for somebody who has not had one, in one row. Once
            they have, they have been through it. -->
       ${hadFormCheck() ? '' : `
       <div class="card" style="padding:16px 14px">
         <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
-          ${['Film one attempt','I watch it myself',fcPaid()?'A video back in 48 hours':'A video back within 7 days']
+          ${['Film one attempt','A coach watches it',fcPaid()?'A video back in 48 hours':'A video back within 7 days']
             .map((t,i)=>`<div style="display:flex;flex-direction:column;gap:6px">
               <span style="font:400 20px/1 var(--serif);color:var(--forest)">${i+1}</span>
               <span style="font:500 13px/1.35 var(--sans)">${t}</span></div>`).join('')}
