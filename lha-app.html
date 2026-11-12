@@ -1536,6 +1536,13 @@ video{width:100%;display:block;background:#000}
 #theatre .vp-bar{background:none;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px)}
 #theatre .vp-btn{width:40px;height:40px}
 #theatre .vp-t{font-size:12px}
+#theatre .vp-top{position:absolute;left:0;right:0;top:0;z-index:5;display:flex;justify-content:flex-end;align-items:center;gap:8px;
+  padding:calc(env(safe-area-inset-top) + 12px) 14px 14px;transition:opacity .35s ease}
+#theatre.over .vp-top{background:linear-gradient(rgba(0,0,0,.55),transparent)}
+#theatre.over.idle .vp-top{opacity:0;pointer-events:none}
+#theatre .vp-top .vp-btn{background:rgba(255,255,255,.14)}
+#theatre .vp-top [data-a="full"]{margin-left:6px}
+#vpChaps{top:68px;bottom:auto!important}
 /* chapters on the line, the one you are in, and the drag bubble */
 .vp-tick{position:absolute;top:-1px;bottom:-1px;width:3px;margin-left:-1.5px;background:#111;border-radius:1px;pointer-events:none;z-index:2}
 .vp-chname{position:absolute;left:0;bottom:16px;font:600 12.5px/1 var(--sans);color:#fff;white-space:nowrap;
@@ -6185,7 +6192,14 @@ function vpOpen(v){
   /* the controls go on the room, not on the film. A three minute explainer
      is a 211px strip on a phone, and a bar pinned to the bottom of that
      strip lands exactly on top of the caption plate. */
-  document.getElementById('vpRoom').appendChild(vpBar(v,true));
+  /* the line gets the whole width at the foot; the other buttons go to a row
+     along the top, close on the right, as phone players do (12 Nov 2026:
+     "the scroller becomes very small on mobile") */
+  { const room=document.getElementById('vpRoom'), tb=vpBar(v,true);
+    room.appendChild(tb);
+    const top=document.createElement('div'); top.className='vp-top';
+    ['chaps','speed','turn','mute','pip','full'].forEach(a=>{ const b=tb.querySelector('[data-a="'+a+'"]'); if(b) top.appendChild(b); });
+    room.appendChild(top); }
   vpTurn=0; vpFill=false; vpFit();
   vpAutoTurn(v); v.addEventListener('loadedmetadata', ()=>vpAutoTurn(v), {once:true});
   { const old=document.getElementById('vpChaps'); if(old) old.remove(); }
@@ -6203,6 +6217,7 @@ function vpClose(){
   const at=v?v.currentTime:0, playing=v?!v.paused:false;
   const room=document.getElementById('vpRoom');
   const tbar=room&&room.querySelector(':scope > .vp-bar'); if(tbar) tbar.remove();
+  const ttop=room&&room.querySelector(':scope > .vp-top'); if(ttop) ttop.remove();
   wrap.style.transform=''; wrap.style.width=''; wrap.style.height='';
   wrap.setAttribute('style', css);
   parent.insertBefore(wrap, next || null);
