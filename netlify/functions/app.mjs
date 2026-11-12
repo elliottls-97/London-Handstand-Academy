@@ -780,7 +780,7 @@ async function journeyReport(days, full) {
     step('pvcoaching', 'Coaching page', n(cur, 'pvcoaching'), n(prev, 'pvcoaching')),
     step('pvcheck', 'Free form check page', n(cur, 'pvcheck'), n(prev, 'pvcheck')),
     step('pagecheckopen', 'Opened the form check steps', n(cur, 'pagecheckopen'), n(prev, 'pagecheckopen')),
-    step('pagecheckstep2', 'Chose a clip', n(cur, 'pagecheckstep2'), n(prev, 'pagecheckstep2')),
+    step('pagecheckstep2', 'Said what they struggle with', n(cur, 'pagecheckstep2'), n(prev, 'pagecheckstep2')),
     step('pagecheckstep3', 'Reached the account step', n(cur, 'pagecheckstep3'), n(prev, 'pagecheckstep3')),
     step('pagecheckgo', 'Pressed Send my clip', n(cur, 'pagecheckgo'), n(prev, 'pagecheckgo')),
     step('pagechecksent', 'Sent a free form check', n(cur, 'pagechecksent'), n(prev, 'pagechecksent')),
