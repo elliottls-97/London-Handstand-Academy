@@ -23713,7 +23713,13 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   /* Easiest first where the shares built it, so the session ramps. A written
      list is in the coach's order and re-sorting it would quietly undo the
      thing they came here to set. */
-  if(!written) picked.sort((a,b)=>lvlOf(a.v)-lvlOf(b.v));
+  if(!written){
+    /* a stage with a session order runs grouping by grouping, easiest first
+       inside each, so the box work is together and the wall work after it */
+    const so=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
+    const gi=v=>{ const i=so ? so.indexOf(grpOf(v)) : -1; return i<0 ? 99 : i; };
+    picked.sort((a,b)=>so ? (gi(a.v)-gi(b.v)) || (lvlOf(a.v)-lvlOf(b.v)) : lvlOf(a.v)-lvlOf(b.v));
+  }
   else { const seq={}; (written||[]).forEach((r,i)=>{ seq[r.v]=i; });
          picked.sort((a,b)=>(seq[a.v]==null?9e9:seq[a.v])-(seq[b.v]==null?9e9:seq[b.v])); }
   /* the stage below goes in first, before anything from this one, and takes
@@ -23830,7 +23836,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const warmN=warm.items.length;
     const skill=out.slice(warmN);
     const seen=[]; skill.forEach(q=>{ if(seen.indexOf(q.it.v)<0) seen.push(q.it.v); });
+    /* the stage's session order, by grouping, when it has one (see SESSION_ORDER) */
+    const soG=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
+    const ordG=v=>{ if(!soG) return 0; const i=soG.indexOf(grpOf(v)); return i<0 ? 99 : i; };
     skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((a.it.vol?1:0)-(b.it.vol?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
+      || (written ? 0 : ordG(a.it.v)-ordG(b.it.v))
       || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
