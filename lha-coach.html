@@ -1563,7 +1563,7 @@ function memFcHTML(D){
   if(!memFc || memFcDays!==D) return `<div class="card" style="margin-bottom:16px"><div class="kick">FORM CHECK PAGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Loading…</div></div>`;
   const by=Object.fromEntries((memFc.site||[]).map(x=>[x.k,x]));
   const rows=[['pvcheck','Visited the page'],['pagecheckopen','Pressed Send my clip, free'],['pagecheckstep2','Said what they struggle with'],
-    ['pagecheckclip','Chose a clip'],['pagecheckstep3','Reached the account step'],['pagecheckgo','Pressed Send'],['pagechecksent','Sent a free form check']];
+    ['pagecheckstep3','Gave their name and email'],['pagecheckclip','Chose a clip'],['pagecheckgo','Pressed Send'],['pagechecksent','Sent a free form check']];
   const top=Math.max(1, ...rows.map(([k])=>(by[k]||{}).n||0));
   const buy=(by.pagecheckbuy||{}).n||0;
   return `<div class="card" style="margin-bottom:16px">
@@ -1578,9 +1578,24 @@ function memFcHTML(D){
           <div style="height:6px;border-radius:99px;background:rgba(0,64,61,.08);margin-top:5px;overflow:hidden"><i style="display:block;height:100%;width:${Math.round(n/top*100)}%;background:var(--forest);border-radius:99px"></i></div></div>
         <div style="font:600 18px/1 var(--sans);font-variant-numeric:tabular-nums;text-align:right">${n}</div></div>`; }).join('')}
     </div>
-    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">Tapped <b>Start form checks, £35</b> on the page: <b>${buy}</b>.
-      The full journey is in Settings, Journey.</div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">Asked for a link to send it later: <b>${(by.pagechecklater||{}).n||0}</b>, came back from it: <b>${(by.pagecheckback||{}).n||0}</b>.
+      Tapped <b>Start form checks, £35</b> on the page: <b>${buy}</b>. The full journey is in Settings, Journey.</div>
+    ${memLeadsHTML()}
   </div>`;
+}
+/* the people who gave their email on the form check page and have not sent a clip */
+let memLeads=null, memLeadsAsked=false;
+function memLeadsHTML(){
+  if(!memLeadsAsked){ memLeadsAsked=true; fetch(API+'/fcleads',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ memLeads=d.leads||[]; draw(); } }).catch(()=>{}); }
+  if(!memLeads) return '';
+  const open=memLeads.filter(x=>!x.sent);
+  if(!open.length) return `<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:12px">Nobody has started and stopped yet.</div>`;
+  const day=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  return `<div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:18px">STARTED, NOT SENT YET</div>
+    <div style="margin-top:8px;display:flex;flex-direction:column">${open.slice(0,30).map(x=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px 0;border-top:1px solid var(--line);font:400 13px/1.4 var(--sans)">
+      <div style="min-width:0"><b>${esc(x.name||x.email.split('@')[0])}</b> <span style="color:var(--grey2)">${esc(x.email)}</span>
+        <div style="color:var(--grey)">${x.stuck?esc(x.stuck):'No answer given'}${x.later?' · asked for the link '+day(x.later):''}${x.nudged?' · reminded '+day(x.nudged):''}</div></div>
+      <div style="color:var(--grey2);white-space:nowrap">${day(x.at)}</div></div>`).join('')}</div>`;
 }
 function membersHTML(){
   loadMembers(); loadPaying();

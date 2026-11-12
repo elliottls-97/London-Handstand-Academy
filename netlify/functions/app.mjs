@@ -27,7 +27,7 @@ import PRESS_DRILLS from './press-drills.mjs';
 const withPress = d => { const out = {}; for (const v of Object.keys(PRESS_DRILLS)) out[v] = Object.assign({}, PRESS_DRILLS[v]);
   for (const [v, x] of Object.entries(d || {})) out[v] = Object.assign({}, out[v] || {}, x || {}); return out; };
 import * as supa from './supa.mjs';
-import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail } from './emails.mjs';
+import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail, fcLinkEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -781,8 +781,10 @@ async function journeyReport(days, full) {
     step('pvcheck', 'Free form check page', n(cur, 'pvcheck'), n(prev, 'pvcheck')),
     step('pagecheckopen', 'Opened the form check steps', n(cur, 'pagecheckopen'), n(prev, 'pagecheckopen')),
     step('pagecheckstep2', 'Said what they struggle with', n(cur, 'pagecheckstep2'), n(prev, 'pagecheckstep2')),
+    step('pagecheckstep3', 'Gave their name and email', n(cur, 'pagecheckstep3'), n(prev, 'pagecheckstep3')),
     step('pagecheckclip', 'Chose a clip', n(cur, 'pagecheckclip'), n(prev, 'pagecheckclip')),
-    step('pagecheckstep3', 'Reached the account step', n(cur, 'pagecheckstep3'), n(prev, 'pagecheckstep3')),
+    step('pagechecklater', 'Asked for a link to send it later', n(cur, 'pagechecklater'), n(prev, 'pagechecklater')),
+    step('pagecheckback', 'Came back from that link', n(cur, 'pagecheckback'), n(prev, 'pagecheckback')),
     step('pagecheckgo', 'Pressed Send my clip', n(cur, 'pagecheckgo'), n(prev, 'pagecheckgo')),
     step('pagechecksent', 'Sent a free form check', n(cur, 'pagechecksent'), n(prev, 'pagechecksent')),
     step('pagecheckbuy', 'Tapped Start form checks (£35)', n(cur, 'pagecheckbuy'), n(prev, 'pagecheckbuy')),
@@ -10994,6 +10996,55 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      from one connection, marked creator "guest". /submission moves a guest
      clip onto the account that sends it, and the daily run (cycle.mjs)
      deletes any guest clip nobody sent within a day. */
+  /* ── the form check page's name and email, before the clip (12 Nov 2026) ──
+     Kept under fclead:<id> the moment they are given, so somebody who stops at
+     the clip (most do, often with nothing filmed yet) can be sent a link back:
+     now if they ask for it (later), once a day on if not (cycle.mjs). The link
+     carries the id and a key made from it, never the email. */
+  if (path === '/formcheck/lead') {
+    if (request.method === 'GET') {
+      const id = String(url.searchParams.get('r') || '').replace(/[^a-f0-9]/g, '').slice(0, 32);
+      const k = String(url.searchParams.get('k') || '');
+      if (!id || k !== await hmac('fclead:' + id)) return json({ error: 'That link has run out' }, 404);
+      const v = await getSetting('fclead:' + id);
+      if (!v) return json({ error: 'That link has run out' }, 404);
+      return json({ name: v.name || '', email: v.email || '', stuck: v.stuck || '', note: v.note || '' });
+    }
+    if (request.method !== 'POST') return json({ error: 'Nope' }, 405);
+    const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
+    if ((await rateHit(`fclead:${ip}`, 3600000)) > 20) return json({ error: 'Try again in a while.' }, 429);
+    const e = norm(body.email);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) || e.length > 120) return json({ error: 'That email does not look right.' }, 400);
+    let id = String(body.id || '').replace(/[^a-f0-9]/g, '').slice(0, 32);
+    if (id && String(body.key || '') !== await hmac('fclead:' + id)) id = '';
+    if (!id) id = [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(16).padStart(2, '0')).join('');
+    const key = await hmac('fclead:' + id);
+    const prev = (await getSetting('fclead:' + id)) || {};
+    const v = Object.assign({}, prev, {
+      email: e, name: String(body.name || '').trim().slice(0, 60), stuck: String(body.stuck || '').slice(0, 40),
+      note: String(body.note || '').slice(0, 400), at: prev.at || Date.now(), last: Date.now(),
+      ...(body.sent ? { sent: Date.now() } : {}) });
+    let mailed = false;
+    if (body.later && !body.sent) {
+      const first = v.name.split(' ')[0];
+      const T = await emailCopy('fcLater', { name: esc(first) });
+      if (!T.off) {
+        mailed = !!(await email(e, T.subject, fcLinkEmail(T, { first, href: `${SITE}/form-check?r=${id}&k=${key}` })).catch(() => false));
+      }
+      if (mailed) v.later = Date.now();
+    }
+    await setSetting('fclead:' + id, v);
+    return json({ ok: true, id, key, mailed });
+  }
+  /* who started a form check and did not send it, for Members */
+  if (path === '/coach/fcleads' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const rows = (await supa.rows('settings', `key=like.${enc('fclead:')}*&select=key,value`).catch(() => [])) || [];
+    const leads = rows.map(r => r.value || {}).filter(v => v.email)
+      .map(v => ({ email: v.email, name: v.name || '', stuck: v.stuck || '', at: v.at || 0, sent: v.sent || 0, later: v.later || 0, nudged: v.nudged || 0 }))
+      .sort((a, b) => b.at - a.at).slice(0, 100);
+    return json({ leads });
+  }
   if (path === '/upload/guest' && request.method === 'POST') {
     if (!process.env.CF_ACCOUNT || !process.env.CF_STREAM_TOKEN) return json({ error: 'Video upload is not switched on yet' }, 503);
     const ip = request.headers.get('x-nf-client-connection-ip') || 'x';
@@ -11758,7 +11809,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* "Send me a clip" pressed on the website (10 Nov 2026) */
                   'sitecheck',
                   /* the form check page's own form: Send pressed, and the clip filed (11 Nov 2026) */
-                  'pagecheckopen', 'pagecheckstep1', 'pagecheckstep2', 'pagecheckstep3', 'pagecheckgo', 'pagechecksent', 'pagecheckclip', 'pagecheckbuy',
+                  'pagecheckopen', 'pagecheckstep1', 'pagecheckstep2', 'pagecheckstep3', 'pagecheckgo', 'pagechecksent', 'pagecheckclip', 'pagecheckbuy', 'pagechecklater', 'pagecheckback',
                   /* the same in the app: I'm interested pressed, one tap when signed in */
                   'appinterest',
                   'siteleave', 'siteleavesend',

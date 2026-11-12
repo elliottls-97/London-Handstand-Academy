@@ -38,6 +38,30 @@ export const EMAILS = {
     ],
     "footnote": "Sent because we spoke about coaching. This is the last one."
   },
+  "fcLater": {
+    "name": "Form check: send it later",
+    "when": "The moment somebody on the form check page asks for a link to send their clip later",
+    "vars": ["name"],
+    "subject": "Your free form check link",
+    "title": "Film it, then send it here.",
+    "paras": [
+      "Here is your link back. Film one normal attempt, side on, with your whole body in frame, then press the button and send it. Your answers are kept.",
+      "Elliott or one of our coaches watches it and sends a video back within 7 days, with what to change."
+    ],
+    "footnote": "You asked for this on the London Handstand Academy form check page."
+  },
+  "fcNudge": {
+    "name": "Form check started, not sent",
+    "when": "About a day after somebody gives their email on the form check page and does not send a clip. Once only",
+    "vars": ["name"],
+    "subject": "Your free form check is waiting",
+    "title": "Your form check is waiting.",
+    "paras": [
+      "You started a free form check and stopped before sending your clip. Your answers are kept.",
+      "Film one normal attempt, side on, with your whole body in frame, then press the button. A video comes back within 7 days with what to change."
+    ],
+    "footnote": "You gave your email on the London Handstand Academy form check page. This is the only reminder."
+  },
   "applyNudge": {
     "name": "Application started, not sent",
     "when": "About a day after somebody gives their email on the coaching application and stops before sending it. Once only",
@@ -1029,6 +1053,14 @@ export function startLinkEmail(T, x, site) {
 }
 
 /* ── an application started and not sent: one reminder (5 Nov 2026) ── */
+/* ── the form check, sent later: the link back to the page (12 Nov 2026) ── */
+export function fcLinkEmail(T, x) {
+  return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
+    blocks: [{ t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras,
+      btn: { label: 'Send my clip', sub: 'Free, up to two minutes', href: x.href } }],
+    sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
+}
+
 export function applyNudgeEmail(T, x, site) {
   return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
     blocks: [{ t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras,

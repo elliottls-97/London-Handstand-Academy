@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════ */
 import programmes, { planFile } from './programmes.mjs';
 import * as supa from './supa.mjs';
-import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail, applyNudgeEmail, startLinkEmail } from './emails.mjs';
+import { renderEmail, afterClassEmail, nextStepEmail, tipEmail, intentEmail, intent2Email, earlyEmail, interestEmail, applyNudgeEmail, startLinkEmail, fcLinkEmail } from './emails.mjs';
 import { pushReady, pushSend, pushSubs } from './push.mjs';
 import { getStore } from '@netlify/blobs';
 /* the words for an email, with whatever the dashboard has changed on top */
@@ -603,6 +603,7 @@ export default async () => {
   await run('intent', () => intentMail(done));
   await run('interest', () => interestMail(done));
   await run('applyNudge', () => applyNudgeMail(done));
+  await run('fcNudge', () => fcNudgeMail(done));
   await run('startlinks', () => startLinkMail(done));
   /* new class dates, to the people who asked on the class page: one email
      each with everything new. The sending lives in app.mjs, beside Send now
@@ -1228,7 +1229,45 @@ async function appStartKey(id) {
   return Buffer.from(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode('appstart:' + id))).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+async function fcLeadKey(id) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(process.env.SIGNING_SECRET || ''), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return Buffer.from(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode('fclead:' + id))).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 const STEP_WORDS = { Goal: 'your goal', 'Where you are': 'where you are now', Format: 'how you want to train', 'Your week': 'your week', Film: 'the clips', Contact: 'the last step' };
+/* ── a form check started and not sent (12 Nov 2026) ─────────────────
+   fclead:<id> is written by app.mjs the moment the form check page has a name
+   and an email. One reminder, about a day on (three days on for somebody who
+   asked for the link themselves), unless a clip has come in from that address
+   since. Kept 30 days, then dropped. */
+async function fcNudgeMail(done) {
+  done.fcNudge = { sent: 0, dropped: 0 };
+  const now = Date.now();
+  const rows = (await supa.rows('settings', `key=like.${enc('fclead:')}*&select=key,value`).catch(() => [])) || [];
+  for (const r of rows) {
+    const v = r.value || {}, id = r.key.slice(7), e = norm(v.email);
+    const at = Number(v.at) || 0;
+    if (!e || now - at > 30 * DAY) { await supa.remove('settings', `key=eq.${enc(r.key)}`).catch(() => {}); done.fcNudge.dropped++; continue; }
+    if (v.sent || v.nudged) continue;
+    const wait = v.later ? 3 * DAY : 20 * 3600000;
+    if (now - (Number(v.later) || Number(v.last) || at) < wait || now - at > 7 * DAY) continue;
+    const sent = await supa.row('submissions', `email=eq.${enc(e)}&created_at=gte.${enc(new Date(at - 3600000).toISOString())}&select=id`).catch(() => null);
+    if (sent) { await supa.upsert('settings', { key: r.key, value: Object.assign({}, v, { sent: now }), updated_at: new Date().toISOString() }, 'key').catch(() => {}); continue; }
+    const nk = 'fcnudge:' + e;
+    if (await supa.row('nudges', `key=eq.${enc(nk)}&select=key`).catch(() => null)) continue;
+    const first = String(v.name || '').split(' ')[0];
+    const T = await emailCopy('fcNudge', { name: esc(first) });
+    if (!T.off) {
+      const href = `${SITE}/form-check?r=${enc(id)}&k=${enc(await fcLeadKey(id))}`;
+      const went = await email(e, T.subject, fcLinkEmail(T, { first, href }));
+      if (!went) { done.held = (done.held || 0) + 1; continue; }
+      done.fcNudge.sent++;
+    }
+    await supa.upsert('nudges', { key: nk, sent_at: new Date().toISOString() }, 'key');
+    await supa.upsert('settings', { key: r.key, value: Object.assign({}, v, { nudged: now }), updated_at: new Date().toISOString() }, 'key').catch(() => {});
+  }
+}
+
 async function applyNudgeMail(done) {
   done.applyNudge = { sent: 0, dropped: 0 };
   const now = Date.now();
