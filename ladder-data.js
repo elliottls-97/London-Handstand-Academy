@@ -41,19 +41,18 @@ const CHECKPOINTS={
     {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.'}
   ],
   2:[
-    {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
-    /* moved from Wall Work, 9 Nov 2026 (Elliott); Coming off the wall removed the same day */
-    {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
-    /* moved from Wall Work, 9 Nov 2026 (Elliott: "it basically requires chest to wall"); above single leg tuck slides on screen */
-    /* single leg wall removals moved to Take-Off, and slide aways became the
-       straddle shoulder leans (Elliott, 12 Nov 2026) */
-    {k:'straddle-lean', n:'Straddle wall shoulder leans', kind:'count', target:10, demo:'wall-straddle-shoulder-leans'},
-    {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'},
-    {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
-    {k:'step-ups',    n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
+    /* Elliott's order, 12 Nov 2026, read top to bottom on screen: wall step ups, box hold, single leg tuck slides,
+       wall scapula shrugs, straddle shoulder leans, tuck slides, entries. Stored bottom row first.
+       Single leg wall removals moved to Take-Off and slide aways became the straddle shoulder leans
+       (12 Nov); wall scapula shrugs and single leg tuck slides came from Wall Work (9 Nov). */
     {k:'entry-clean', n:'Entries to eight clean',   kind:'breaks',target:12, demo:'straddle-entries'},
-    /* moved from Wall Work, 9 Nov 2026 (Elliott); last here is the top row on screen */
-    {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'}
+    {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
+    {k:'straddle-lean', n:'Straddle wall shoulder leans', kind:'count', target:6, demo:'wall-straddle-shoulder-leans'},
+    {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'},
+    {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
+    {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
+    {k:'step-ups',    n:'Wall step ups',            kind:'count', target:5,  demo:'wall-step-ups', goal:'5 each side', note:'Each side.'},
+    {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'}
   ],
   3:[
     /* from Pushing More, 12 Nov 2026: the first step of leaving the wall, so it sits first */
