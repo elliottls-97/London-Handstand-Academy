@@ -1550,6 +1550,38 @@ function memWhen(t){
   if(d<=0) return 'today'; if(d===1) return 'yesterday'; if(d<7) return d+' days ago';
   return new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
 }
+/* ── the form check page, as a funnel, on Members (12 Nov 2026) ─────
+   The website's own counts for /form-check, from the journey, over the same
+   days as the members above: no people, only how many reached each step. */
+let memFc=null, memFcDays=0;
+function loadMemFc(days){
+  if(memFcDays===days && memFc) return; memFcDays=days;
+  fetch(API+'/journey?days='+days,{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d && memFcDays===days){ memFc=d; draw(); } }).catch(()=>{});
+}
+function memFcHTML(D){
+  loadMemFc(D);
+  if(!memFc || memFcDays!==D) return `<div class="card" style="margin-bottom:16px"><div class="kick">FORM CHECK PAGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Loading…</div></div>`;
+  const by=Object.fromEntries((memFc.site||[]).map(x=>[x.k,x]));
+  const rows=[['pvcheck','Visited the page'],['pagecheckopen','Pressed Send my clip, free'],['pagecheckstep2','Said what they struggle with'],
+    ['pagecheckclip','Chose a clip'],['pagecheckstep3','Reached the account step'],['pagecheckgo','Pressed Send'],['pagechecksent','Sent a free form check']];
+  const top=Math.max(1, ...rows.map(([k])=>(by[k]||{}).n||0));
+  const buy=(by.pagecheckbuy||{}).n||0;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">FORM CHECK PAGE · LAST ${D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'}</div>
+    <div style="font:400 28px/1.1 var(--serif);margin-top:8px">How far people get <em style="color:var(--forest);font-style:normal">sending a clip.</em></div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+    ${rows.map(([k,l],i)=>{ const x=by[k]||{}, n=x.n||0, pv=x.prev||0, prevStep=i?((by[rows[i-1][0]]||{}).n||0):0;
+      const pct=i&&prevStep?Math.round(n/prevStep*100):null;
+      return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 48px;gap:10px;align-items:center">
+        <div><div style="display:flex;justify-content:space-between;gap:8px;font:400 13.5px/1.3 var(--sans)"><span>${esc(l)}</span>
+          <span style="color:var(--grey2);font-size:12px;white-space:nowrap">${pct!=null?pct+'% of the step before':''}${pv?' · '+pv+' before':''}</span></div>
+          <div style="height:6px;border-radius:99px;background:rgba(0,64,61,.08);margin-top:5px;overflow:hidden"><i style="display:block;height:100%;width:${Math.round(n/top*100)}%;background:var(--forest);border-radius:99px"></i></div></div>
+        <div style="font:600 18px/1 var(--sans);font-variant-numeric:tabular-nums;text-align:right">${n}</div></div>`; }).join('')}
+    </div>
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">Tapped <b>Start form checks, £35</b> on the page: <b>${buy}</b>.
+      The full journey is in Settings, Journey.</div>
+  </div>`;
+}
 function membersHTML(){
   loadMembers(); loadPaying();
   const err=memErr||payingErr;
@@ -1593,7 +1625,7 @@ function membersHTML(){
     return `<span style="display:inline-block;padding:4px 9px;border-radius:999px;background:${c[0]};color:${c[1]};font:600 11.5px/1 var(--sans);white-space:nowrap">${esc(x.t)}</span>`; };
   const stg=k=>k==null?'':((typeof STAGES!=='undefined'&&STAGES[k])?STAGES[k].n:'Stage '+(k+1));
   const showName={active:'Opened the app', trained:'Trained', new:'Joined', paid:'Paying now', trial:'On a free week now', all:'Everyone'}[memShow];
-  return `<div class="card">
+  return `${memFcHTML(D)}<div class="card">
     <div class="kick">MEMBERS</div>
     <div style="font:400 34px/1.05 var(--serif);margin-top:8px">Who is using <em style="color:var(--forest);font-style:normal">the app.</em></div>
     <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08);margin-top:16px;max-width:460px">

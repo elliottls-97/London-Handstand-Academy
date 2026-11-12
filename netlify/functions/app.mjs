@@ -781,9 +781,11 @@ async function journeyReport(days, full) {
     step('pvcheck', 'Free form check page', n(cur, 'pvcheck'), n(prev, 'pvcheck')),
     step('pagecheckopen', 'Opened the form check steps', n(cur, 'pagecheckopen'), n(prev, 'pagecheckopen')),
     step('pagecheckstep2', 'Said what they struggle with', n(cur, 'pagecheckstep2'), n(prev, 'pagecheckstep2')),
+    step('pagecheckclip', 'Chose a clip', n(cur, 'pagecheckclip'), n(prev, 'pagecheckclip')),
     step('pagecheckstep3', 'Reached the account step', n(cur, 'pagecheckstep3'), n(prev, 'pagecheckstep3')),
     step('pagecheckgo', 'Pressed Send my clip', n(cur, 'pagecheckgo'), n(prev, 'pagecheckgo')),
     step('pagechecksent', 'Sent a free form check', n(cur, 'pagechecksent'), n(prev, 'pagechecksent')),
+    step('pagecheckbuy', 'Tapped Start form checks (£35)', n(cur, 'pagecheckbuy'), n(prev, 'pagecheckbuy')),
     step('pvgroup', 'Six week group page', n(cur, 'pvgroup'), n(prev, 'pvgroup')),
     step('pvcall', 'Free call page', n(cur, 'pvcall'), n(prev, 'pvcall')),
     step('pvworkshop', 'A workshop page', n(cur, 'pvworkshop'), n(prev, 'pvworkshop')),
@@ -11756,7 +11758,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* "Send me a clip" pressed on the website (10 Nov 2026) */
                   'sitecheck',
                   /* the form check page's own form: Send pressed, and the clip filed (11 Nov 2026) */
-                  'pagecheckopen', 'pagecheckstep1', 'pagecheckstep2', 'pagecheckstep3', 'pagecheckgo', 'pagechecksent',
+                  'pagecheckopen', 'pagecheckstep1', 'pagecheckstep2', 'pagecheckstep3', 'pagecheckgo', 'pagechecksent', 'pagecheckclip', 'pagecheckbuy',
                   /* the same in the app: I'm interested pressed, one tap when signed in */
                   'appinterest',
                   'siteleave', 'siteleavesend',
