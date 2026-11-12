@@ -58,10 +58,14 @@ const CHECKPOINTS={
     /* from Pushing More, 12 Nov 2026: the first step of leaving the wall, so it sits first */
     {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     {k:'side-away',   n:'Full slide away',          kind:'secs',  target:5,  demo:'slide-away'},
+    /* the leg lifts are one check point, both sides, and the knee lifts are
+       their own (Elliott, 12 Nov 2026) */
+    {k:'box-lifts',   n:'Knees on box, single leg lifts', kind:'count', target:10, demo:'knees-on-box-single-leg-lifts', goal:'10 each side', note:'Each side.'},
+    {k:'box-knee-lifts', n:'Knees on box, knee lifts', kind:'count', target:5, demo:'knees-on-box-knee-lift-offs'},
     {k:'tuck-takeoff',n:'Tuck take-offs',           kind:'secs',  target:5,  demo:'tuck-take-offs'},
-    {k:'box-lifts-l', n:'Knees on box, left leg lifts',  kind:'count', target:10, demo:'knees-on-box'},
-    {k:'box-lifts-r', n:'Knees on box, right leg lifts', kind:'count', target:10, demo:'knees-on-box'},
     {k:'shape-wall',  n:'Shape changes on the wall',kind:'count', target:8,  demo:'wall-shape-changes', note:'Straddle to straight.'},
+    /* the harder balance before attempts in the room (12 Nov 2026) */
+    {k:'tuck-wall-bal', n:'Tuck wall balances',     kind:'secs',  target:5,  demo:'tuck-wall-balance'},
     {k:'free-attempt',n:'Freestanding balance attempts', kind:'count', target:10}
   ],
   4:[
@@ -110,7 +114,8 @@ const STAGES=[
   drillIds:['tuck-slides','single-leg-tuck-slides','lateral-slide-outs','slide-away','knees-on-box','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','chair-assisted-step-ups','tuck-entries','straddle-entries','straight-entries','p-plank-slides','wall-scapula-shrugs','wall-shape-changes']},
  {n:'Take-Off',sum:'Leaving the wall for your first real seconds of balance.',goal:'Leave the wall into brief moments of freestanding balance.',hold:'5s',intro:'This is where the wall disappears. Single-leg take-offs, box work and tuck take-offs build the control to leave on your own terms.',
   ch:'Free handstand attempt',chSub:'Take off and catch your balance. Hold whatever you find.',
-  drillIds:['knees-on-box','single-leg-take-off','single-leg-wall-removals','slide-away','tuck-take-offs','single-leg-tuck-take-offs','p-plank-slides']},
+  drillIds:['knees-on-box','knees-on-box-single-leg-lifts','knees-on-box-knee-lift-offs','single-leg-take-off','single-leg-wall-removals','slide-away',
+            'tuck-take-offs','single-leg-tuck-take-offs','tuck-wall-balance','wall-shape-changes','p-plank-slides']},
  {n:'Freestanding',sum:'Kicking up and balancing on your own, again and again rather than by luck.',goal:'Kick up and balance freestanding, consistently.',hold:'30s',intro:'Entries, shapes and corrections. The stage where a handstand becomes something you can repeat rather than catch.',
   ch:'Freestanding hold',chSub:'Kick up and hold freestanding. Aim for 30 seconds clean.',
   drillIds:['tuck-entries','straight-entries','straddle-entries','straddle-to-straight','straight-to-tuck-back','straddle-to-diamond']},
@@ -556,6 +561,27 @@ const POOL = {
     {v:'straight-entries',             g:'Entries',        L:3},
     {v:'wall-shape-changes',           g:'Shapes',         L:3},
   ],
+  /* Take-Off: it had no list of its own, so its sessions could not step up
+     in difficulty and the dashboard's one addition was its whole pool
+     (12 Nov 2026). Easier works the box and one leg off the wall; harder
+     reaches the tuck take-offs and tuck wall balances. */
+  3:[
+    {v:'wrist-circles-mob',            g:'Warm-up',        L:1},
+    {v:'plank-fingertip-lifts',        g:'Warm-up',        L:1},
+    {v:'shoulder-circles',             g:'Warm-up',        L:1},
+    {v:'wall-scapula-shrugs',          g:'Strength',       L:1},
+    {v:'p-plank-slides',               g:'Strength',       L:2},
+    {v:'knees-on-box',                 g:'Box work',       L:1},
+    {v:'knees-on-box-single-leg-lifts', g:'Box work',      L:2},
+    {v:'knees-on-box-knee-lift-offs',  g:'Box work',       L:3},
+    {v:'single-leg-wall-removals',     g:'Off the wall',   L:1},
+    {v:'single-leg-take-off',          g:'Off the wall',   L:2},
+    {v:'slide-away',                   g:'Off the wall',   L:2},
+    {v:'single-leg-tuck-take-offs',    g:'Off the wall',   L:3},
+    {v:'tuck-take-offs',               g:'Off the wall',   L:3},
+    {v:'tuck-wall-balance',            g:'Off the wall',   L:4},
+    {v:'wall-shape-changes',           g:'Shapes',         L:3},
+  ],
 };
 /* drill levels run 1 to 4; the bands above map them onto three workouts */
 /* which grouping a drill belongs to on the stage it is being trained on */
@@ -887,7 +913,7 @@ const STAGE_STORY = {
      {t:'Cleaning up your entries',      k:'entry-clean', teaser:1}],
   3:[{t:'Sliding away',                  k:'side-away', teaser:1},
      {t:'Taking off in a tuck',          k:'tuck-takeoff', teaser:1},
-     {t:'Lifting off the box',           k:'box-lifts-l', teaser:1}],
+     {t:'Lifting off the box',           k:'box-lifts', teaser:1}],
   4:[{t:'Finding balance in a tuck',     k:'tuck-entries'},
      {t:'Opening into a straddle',       k:'straddle-entries', teaser:1},
      {t:'Going straight up',             k:'straight-entries', teaser:1},
