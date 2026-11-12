@@ -34,6 +34,8 @@
     if (el.dataset.acctDone) return; el.dataset.acctDone = '1';
     if (!on) return;
     el.href = '/lha-app.html?ref=site-acct';
+    /* the homepage opens app links in its own window; an account opens straight in, no tour */
+    el.setAttribute('data-app-direct', '');
     el.innerHTML = '<span class="acct-av" style="width:22px;height:22px;font-size:10px;margin-right:7px;vertical-align:middle;background:rgba(255,255,255,.22)">' + esc(initials()) + '</span>Your account';
     el.title = 'Signed in as ' + email;
   };
@@ -44,6 +46,8 @@
   };
   var fill = function (root) {
     all(root, '[data-acct-btn]').forEach(btn);
+    /* "Sign in" beside a Join button goes once they are signed in */
+    if (on) all(root, '[data-acct-hide]').forEach(function (el) { el.style.display = 'none'; });
     all(root, '[data-acct]').forEach(function (el) { if (!el.dataset.acctDone) { el.dataset.acctDone = '1'; el.innerHTML = chipHTML(); } });
     if (!on) return;
     all(root, '[data-acct-name]').forEach(function (el) { if (!el.value && name) el.value = name; });
