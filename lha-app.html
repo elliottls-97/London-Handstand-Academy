@@ -8382,6 +8382,23 @@ function replyClose(){
   const el=document.getElementById('reveal'); if(el) el.innerHTML='';
   render();
 }
+/* ── form checks, offered once the free one is back (12 Nov 2026) ──
+   One row and a button, the same on the reply and on the form check screen.
+   Somebody already paying for the Ladder adds them for the add-on price
+   (the server charges the add-on to a paid Ladder whatever the button says). */
+function fcOfferHTML(go){
+  const add=!!st.checksAddon, price=add ? PRICE('checksadd') : checksPrice();
+  if(!price) return '';
+  return `<div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
+      <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Form checks</div>
+        <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">${add
+          ? 'Up to 3 clips a fortnight, a video back on each with what to change next, added to your Ladder.'
+          : 'Up to 3 clips a fortnight, a video back on each with what to change next, and the whole Ladder.'}</div></div>
+      <div style="flex:none;text-align:right;font:400 20px/1 var(--serif);color:var(--deep)">${esc(price)}<span style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:3px">${add?'a month on top':'a month'}</span></div></div>
+    <button onclick="${go}" style="width:100%;margin-top:12px;min-height:52px;border:0;border-radius:16px;cursor:pointer;
+      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1.2 var(--sans)">${add?'Add form checks, '+esc(price)+' a month':'Start form checks, '+esc(price)+' a month'}</button>`;
+}
+const fcCanOffer = () => sells() && !st.in && !coachedView() && !(st.checks && st.checks.on) && !!st.token;
 function replyHTML(m){
   const who=coachLabel(), cue=replyCue(m), rest=String(m.text||'').trim().replace(/\s+/g,' ').slice(cue.length).trim();
   const kept=cueKept(m.id||m.video);
@@ -8431,12 +8448,7 @@ function replyHTML(m){
       ${offer?`<div class="card" style="margin-top:20px;padding:20px">
         <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
         <div style="font:400 22px/1.2 var(--serif);margin-top:8px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
-        ${offerChecks?`<div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
-          <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Form checks</div>
-            <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">Up to 3 clips a fortnight, a video back on each with what to change next, and the whole Ladder.</div></div>
-          <div style="flex:none;font:400 20px/1 var(--serif);color:var(--deep)">${esc(checksPrice())}<span style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:3px">a month</span></div></div>
-        <button onclick="replyClose();buyPlan('checks')" style="width:100%;margin-top:12px;min-height:52px;border:0;border-radius:16px;cursor:pointer;
-          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1.2 var(--sans)">Start form checks</button>`:''}
+        ${offerChecks?fcOfferHTML("replyClose();buyPlan('checks')"):''}
         <div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
           <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Coaching</div>
             <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">A programme written for you, changed when your video says it should.</div></div>
@@ -20925,6 +20937,10 @@ function screenHome(){
     ${sessionLineHTML()}
     ${obBannerHTML()}
     ${fcBannerHTML()}
+    ${(fcCanOffer() && st.lastReview && !st.awaitingReview) ? `<div class="rise rise-1" style="padding:12px 20px 0"><div class="card" style="padding:18px 18px 16px">
+      <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
+      <div style="font:400 21px/1.2 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+      ${fcOfferHTML("buyPlan('checks')")}</div></div>` : ''}
     ${fcProgress() && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
 
@@ -24763,6 +24779,9 @@ function screenCoaching(){
           <button onclick="goAsk()"
             style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;padding:10px;
             color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>
+          ${fcCanOffer() ? `<div class="kick2" style="color:var(--forest);margin-top:20px">KEEP ME ON IT</div>
+            <div style="font:400 20px/1.2 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+            ${fcOfferHTML("buyPlan('checks')")}` : ''}
           ${(sells() && !st.in) ? `<div style="border-top:1px solid rgba(0,64,61,.08);margin-top:12px;padding-top:12px;
             font:400 13.5px/1.5 var(--sans);color:var(--grey)">Want a whole programme built around this?
             <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="seeCoaching()">See coaching</button></div>` : ''}
