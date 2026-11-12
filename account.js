@@ -28,12 +28,22 @@
       ? '<a class="acct-link" href="/lha-app.html?ref=site-acct" title="Signed in as ' + esc(email) + '"><span class="acct-av">' + esc(initials()) + '</span>Your account</a>'
       : '<a class="acct-link" href="/lha-app.html?signin=1&amp;ref=site-acct">Sign in</a>';
   };
+  /* a page's own button made the account button (the homepage's top right): its look is kept,
+     its words and link follow the sign in */
+  var btn = function (el) {
+    if (el.dataset.acctDone) return; el.dataset.acctDone = '1';
+    if (!on) return;
+    el.href = '/lha-app.html?ref=site-acct';
+    el.innerHTML = '<span class="acct-av" style="width:22px;height:22px;font-size:10px;margin-right:7px;vertical-align:middle;background:rgba(255,255,255,.22)">' + esc(initials()) + '</span>Your account';
+    el.title = 'Signed in as ' + email;
+  };
   var all = function (root, sel) {
     var l = [].slice.call(root.querySelectorAll(sel));
     if (root.matches && root.matches(sel)) l.unshift(root);
     return l;
   };
   var fill = function (root) {
+    all(root, '[data-acct-btn]').forEach(btn);
     all(root, '[data-acct]').forEach(function (el) { if (!el.dataset.acctDone) { el.dataset.acctDone = '1'; el.innerHTML = chipHTML(); } });
     if (!on) return;
     all(root, '[data-acct-name]').forEach(function (el) { if (!el.value && name) el.value = name; });
