@@ -25361,7 +25361,7 @@ function screenJoin(){
         :second?'Session two'
         :clip?'Your free form check'
         :track?'Track your progress'
-        :plan?'Coaching'
+        :plan?(st.wantPlan==='checks'?'Form checks':'Coaching')
         :trial?'Your free '+esc(trialDays)
         :want?'To open '+esc(want.n)
         :taste?'Your free session at '+esc(PSJ.n):'Your starting point'}</div>
@@ -25382,7 +25382,7 @@ function screenJoin(){
       : second ? ''
       : clip ? 'An email and a password, so my video reply has somewhere to land.'
       : track ? 'Every session and check point, kept on any phone you sign in on. Free, and no card.'
-      : plan ? 'Your coaching lives on an account, so this takes a moment and then the payment page opens.'
+      : plan ? (st.wantPlan==='checks' ? 'Your form checks live on an account, so this takes a moment and then the payment page opens.' : 'Your coaching lives on an account, so this takes a moment and then the payment page opens.')
       : trial ? (want?'It opens '+esc(want.n)+' and the rest of the ladder. ':'')
                +(IOS_APP && !sells()
                /* in the iPhone app Apple takes the payment, not Stripe, and
@@ -25419,7 +25419,7 @@ function screenJoin(){
           ? 'The account is what holds the free session, so it is still there on any phone you sign in on.'
           : saving
           ? 'It also keeps your progress, so it is there on any phone you sign in on.'
-          : (track || clip) ? ''
+          : (track || clip || plan) ? ''
           : emailOptional()
           ? '<b style="display:block;font:400 22px/1.2 var(--serif);color:var(--ink);margin-bottom:6px">Save your progress? <span style="color:var(--grey)">Optional.</span></b>It keeps your training on any phone, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
@@ -25463,6 +25463,7 @@ function screenJoin(){
           ${trial ? 'Create it and start the free '+trialDays
             : track ? 'Save my progress'
             : clip ? 'Continue'
+            : plan ? 'Continue to payment'
             : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
@@ -25471,7 +25472,7 @@ function screenJoin(){
       </form>
       <!-- the way past it is a button, under the form: it was a grey line
            at the foot of the screen and the form read as required -->
-      ${emailOptional()&&!trial&&!want&&!saving?`<button onclick="skipJoin()" style="width:100%;height:52px;margin-top:12px;border-radius:14px;
+      ${emailOptional()&&!trial&&!want&&!saving&&!plan?`<button onclick="skipJoin()" style="width:100%;height:52px;margin-top:12px;border-radius:14px;
         border:1.5px solid rgba(0,102,99,.35);background:#fff;color:var(--forest);cursor:pointer;
         font:600 15px/1 var(--sans)">${(st.joinFor==='track'||st.joinFor==='clip')?'Not now':'Start training without an account'}</button>`:''}
       <!-- Somebody who already has an account had no way off this screen but
@@ -27728,6 +27729,13 @@ document.addEventListener('DOMContentLoaded',function(){
     /* the website's "Send me a clip" (10 Nov 2026): straight to the free
        form check. The questions wait until they go to train: st.checkFirst
        lets Coaching and the sign up screen through before the quiz is done. */
+    /* the form check page's "Start form checks" (12 Nov 2026): straight to
+       the £35 checkout, through an account first if there is none (buyPlan
+       keeps the plan and finishes it once they have joined) */
+    if(q.get('buy')==='checks' && !st.in){
+      st.viewChosen='app'; st.inPerson=false; if(!st.mode) st.mode='free'; st.checkFirst=true; save();
+      try{ history.replaceState(null,'',location.pathname); }catch(e){}
+      setTimeout(()=>buyPlan('checks'), 700); }
     if(q.get('start')==='check' && !st.in){
       st.coTab='check'; st.tab='coaching';
       /* nobody signed in: straight to the account the reply lands on, then
