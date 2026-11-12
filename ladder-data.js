@@ -45,16 +45,19 @@ const CHECKPOINTS={
     /* moved from Wall Work, 9 Nov 2026 (Elliott); Coming off the wall removed the same day */
     {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
     /* moved from Wall Work, 9 Nov 2026 (Elliott: "it basically requires chest to wall"); above single leg tuck slides on screen */
-    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
-    {k:'slide-count', n:'Slide aways',              kind:'count', target:10, demo:'slide-away'},
+    /* single leg wall removals moved to Take-Off, and slide aways became the
+       straddle shoulder leans (Elliott, 12 Nov 2026) */
+    {k:'straddle-lean', n:'Straddle wall shoulder leans', kind:'count', target:10, demo:'wall-straddle-shoulder-leans'},
     {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'},
     {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
-    {k:'step-ups',    n:'Step ups',                 kind:'count', target:10, demo:'chair-assisted-step-ups'},
+    {k:'step-ups',    n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
     {k:'entry-clean', n:'Entries to eight clean',   kind:'breaks',target:12, demo:'straddle-entries'},
     /* moved from Wall Work, 9 Nov 2026 (Elliott); last here is the top row on screen */
     {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'wall-scapula-shrugs'}
   ],
   3:[
+    /* from Pushing More, 12 Nov 2026: the first step of leaving the wall, so it sits first */
+    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
     {k:'side-away',   n:'Full slide away',          kind:'secs',  target:5,  demo:'slide-away'},
     {k:'tuck-takeoff',n:'Tuck take-offs',           kind:'secs',  target:5,  demo:'tuck-take-offs'},
     {k:'box-lifts-l', n:'Knees on box, left leg lifts',  kind:'count', target:10, demo:'knees-on-box'},
