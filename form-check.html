@@ -98,6 +98,7 @@ html{scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){.fc-dlg[open],.fc-step{animation:none}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.fc-go,.fc-drop,.fc-bar i{transition:none}}
 </style>
+<script src="/account.js" defer></script>
 </head>
 <body>
 <div style="width: 100%; background: #f4f4f5; color: #111111; font-family: 'Figtree', system-ui, sans-serif; font-size: 17px; line-height: 1.5">
@@ -109,6 +110,7 @@ html{scroll-behavior:smooth}
 <nav style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px">
 <a href="#how" class="fc-nl" style="color: #111111; text-decoration: none; font-size: 15px; padding: 12px 0">How it works</a>
 <a href="/#coaching" class="fc-nl" style="color: #111111; text-decoration: none; font-size: 15px; padding: 12px 0">Coaching</a>
+<span data-acct class="fc-nl" style="font-size: 15px"></span>
 <a href="#send" class="fc-hgo" style="background: #006663; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 16px; padding: 12px 20px; border-radius: 12px">Send a clip</a>
 </nav>
 </div>
@@ -340,9 +342,9 @@ html{scroll-behavior:smooth}
 <div class="fc-k">Step 2 of 3</div>
 <h2>Where should I send your <em>reply?</em></h2>
 <label for="fc-name" class="fc-l">First name</label>
-<input id="fc-name" type="text" autocomplete="given-name" class="fc-in">
+<input id="fc-name" type="text" autocomplete="given-name" class="fc-in" data-acct-name>
 <label for="fc-email" class="fc-l">Email</label>
-<input id="fc-email" type="email" inputmode="email" autocomplete="email" class="fc-in">
+<input id="fc-email" type="email" inputmode="email" autocomplete="email" class="fc-in" data-acct-email>
 <span class="fc-hint">If you need to film it first, I&rsquo;ll email you a link to come back to.</span>
 <button type="button" class="fc-go" data-next="3">Next</button>
 </section>
@@ -363,9 +365,10 @@ html{scroll-behavior:smooth}
 <li>One normal attempt, up to two minutes</li>
 </ul>
 <button type="button" class="fc-later" id="fcLater">No clip yet? Email me a link to send it later</button>
-<label for="fc-pw" class="fc-l">Pick a password</label>
+<div id="fcPwBox"><label for="fc-pw" class="fc-l">Pick a password</label>
 <input id="fc-pw" type="password" autocomplete="new-password" minlength="8" class="fc-in">
-<span class="fc-hint">8 characters or more, for the app where your reply lands. Already have an account? Use its password.</span>
+<span class="fc-hint">8 characters or more, for the app where your reply lands. Already have an account? Use its password.</span></div>
+<p class="fc-hint" id="fcSignedIn" hidden></p>
 <p class="fc-hint fc-bg" id="fcBg3" hidden></p>
 <label class="fc-share" for="fc-share"><input id="fc-share" type="checkbox"><span>You can share my clip and the reply on Instagram, to help other people stuck on the same thing. <em>Optional.</em></span></label>
 <button type="submit" id="fcGo" class="fc-go">Send my clip</button>
@@ -419,7 +422,12 @@ html{scroll-behavior:smooth}
     var f=D.querySelector('.fc-step[data-step="'+n+'"] input:not([type=file]), .fc-step[data-step="'+n+'"] textarea'); if(f && n===2) setTimeout(function(){ f.focus(); }, 60);
     if(n<=3) count('pagecheckstep'+n);
   };
-  var open=function(e){ if(e) e.preventDefault(); if(step===5 || step===4){} else show(lead && lead.resumed ? 3 : 1);
+  /* signed in on this site already (account.js): no password to pick, the sign in is used */
+  var signedIn=function(){ var A=window.LHAacct; return !!(A && A.on && A.token && A.email===$('fc-email').value.trim().toLowerCase()); };
+  var pwView=function(){ var A=window.LHAacct, on=!!(A && A.on);
+    $('fcPwBox').hidden=on && signedIn(); $('fcSignedIn').hidden=!(on && signedIn());
+    if(on && signedIn()) $('fcSignedIn').textContent='Signed in as '+A.email+'. Your reply lands in your app.'; };
+  var open=function(e){ if(e) e.preventDefault(); setTimeout(pwView,0); if(step===5 || step===4){} else show(lead && lead.resumed ? 3 : 1);
     try{ dlg.showModal(); }catch(x){ dlg.setAttribute('open',''); } count('pagecheckopen'); };
   [].forEach.call(D.querySelectorAll('a[href="#send"]'), function(a){ a.addEventListener('click', open); });
   if(location.hash==='#send') setTimeout(open, 300);
@@ -465,7 +473,7 @@ html{scroll-behavior:smooth}
       if(!mailOk($('fc-email').value.trim())){ say('That email does not look right.'); $('fc-email').focus(); return; }
       saveLead();
     }
-    show(Number(b.dataset.next)); }); });
+    show(Number(b.dataset.next)); pwView(); }); });
   var mb=function(n){ return Math.max(1, Math.round(n/1048576)); };
 
   $('fc-clip').addEventListener('change', function(){
@@ -569,11 +577,11 @@ html{scroll-behavior:smooth}
     if(!name){ show(2); say('What should I call you?'); $('fc-name').focus(); return; }
     if(!mailOk(email)){ show(2); say('That email does not look right.'); $('fc-email').focus(); return; }
     if(!file){ say('Choose your clip first.'); return; }
-    if(pw.length<8){ say('The password needs 8 characters or more.'); $('fc-pw').focus(); return; }
+    if(!signedIn() && pw.length<8){ say('The password needs 8 characters or more.'); $('fc-pw').focus(); return; }
     var go={}; show(4); stat('Setting up your account…'); pct(2); count('pagecheckgo');
     var token='', f=file;
     secs(f).then(function(s){ if(s > 121) throw 'That clip is over two minutes. Trim it to the attempt itself and send it again.'; })
-      .then(function(){ return account(email,pw,name); })
+      .then(function(){ return signedIn() ? window.LHAacct.token : account(email,pw,name); })
       .then(function(t){ token=t;
         /* the app on this phone is signed in to the same account */
         try{ var s=JSON.parse(localStorage.getItem('lha_app')||'{}')||{};
