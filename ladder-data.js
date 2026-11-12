@@ -57,11 +57,11 @@ const CHECKPOINTS={
   3:[
     /* from Pushing More, 12 Nov 2026: the first step of leaving the wall, so it sits first */
     {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
-    {k:'side-away',   n:'Full slide away',          kind:'secs',  target:5,  demo:'slide-away'},
+    {k:'side-away',   n:'Slide away',          kind:'secs',  target:5,  demo:'slide-away'},
     /* the leg lifts are one check point, both sides, and the knee lifts are
        their own (Elliott, 12 Nov 2026) */
     {k:'box-lifts',   n:'Knees on box, single leg lifts', kind:'count', target:10, demo:'knees-on-box-single-leg-lifts', goal:'10 each side', note:'Each side.'},
-    {k:'box-knee-lifts', n:'Knees on box, knee lifts', kind:'count', target:5, demo:'knees-on-box-knee-lift-offs'},
+    {k:'box-knee-lifts', n:'Knees on box lift offs', kind:'count', target:5, demo:'knees-on-box-knee-lift-offs'},
     {k:'tuck-takeoff',n:'Tuck take-offs',           kind:'secs',  target:5,  demo:'tuck-take-offs'},
     {k:'shape-wall',  n:'Shape changes on the wall',kind:'count', target:8,  demo:'wall-shape-changes', note:'Straddle to straight.'},
     /* the harder balance before attempts in the room (12 Nov 2026) */
