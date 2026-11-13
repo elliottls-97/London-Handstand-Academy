@@ -2523,6 +2523,14 @@ button.px-step{cursor:pointer}
   .hduo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:20px;align-items:start;padding:20px 20px 0}
   .hduo>*{min-width:0}
   .hcol{display:flex;flex-direction:column;gap:16px}
+  .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
+  .hlist{padding:16px 16px 10px!important}
+  .hlist-t{font:400 21px/1.08 var(--serif);margin-top:8px}
+  .hlist-t em{color:var(--forest);font-style:normal}
+  .hlist-l{margin-top:10px;display:flex;flex-direction:column}
+  .hlist-r{display:flex;align-items:center;gap:12px;padding:7px 0;border:0;border-top:1px solid rgba(0,64,61,.08);background:none;text-align:left;cursor:pointer;color:var(--ink)}
+  .hlist-r .hlearn-i{width:84px}
+  .hlist-r:hover b{color:var(--forest)}
   .hcol .sidecard{border-radius:26px;padding:18px 20px}
   .hduo .hcps{margin-top:0}
   .hduo .hcps-fold{display:none}
@@ -21580,7 +21588,9 @@ function screenHome(){
     ${/* and for a class booker trying the app, who never answered them (13 Nov 2026) */''}
     ${!W && (fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
-    ${(W && !trialPending()) ? `<div class="hduo rise rise-2"><div class="hcol">${hduoSessHTML(sessTitle, sessIds, _rest, _cellIdx)}${sideWeekCard()}</div>${homeCpsHTML()}</div>` : ''}
+    ${/* check points on the left, the stage's films and reads on the right; Start
+         above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
+    ${(W && !trialPending()) ? `<div class="hduo hduo2 rise rise-2">${homeCpsHTML()}${learnListHTML()}</div>` : ''}
 
     <!-- ── build today's session ──────────────────────────────────
          On a phone this is one green button and the two questions are
@@ -21705,6 +21715,23 @@ function hduoSessHTML(title, ids, rest, cellIdx){
     <div class="hsess-s">${names.length?names.length+' drill'+(names.length===1?'':'s')+' &middot; ':''}about ${ladderMins()} minutes</div>
     ${names.length?`<ol class="hsess-l">${names.slice(0,6).map(n=>`<li>${esc(n)}</li>`).join('')}${names.length>6?`<li class="more">and ${names.length-6} more</li>`:''}</ol>`:''}
     <button class="btn" style="width:100%;margin-top:14px" onclick="startDay(${cellIdx},'full')">Start session</button></section>`;
+}
+/* Learn beside the check points on a laptop's Train: the stage's films and
+   reads first, as rows, and the way to the rest */
+function learnListHTML(){
+  if(typeof FAQS_READY!=='function') return '';
+  const cur=curStage(), S=STAGES[cur]||STAGES[0], all=FAQS_READY();
+  const pick=all.filter(x=>x && x.stage===cur).concat(all.filter(x=>x && x.stage!==cur)).slice(0,6);
+  if(!pick.length) return '';
+  return `<section class="card hlist"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <div class="kick2" style="color:var(--forest)">LEARN AT ${esc(String(S.n).toUpperCase())}</div>
+      <button onclick="go('learn')" style="border:0;background:none;cursor:pointer;padding:0;font:600 13px/1 var(--sans);color:var(--forest)">Everything in Learn</button></div>
+    <div class="hlist-t">Watch, then <em>train.</em></div>
+    <div class="hlist-l">${pick.map(x=>{ const i=FAQS.indexOf(x), open=explainerOpen(i);
+      const art=x.uid && typeof EXPLAIN_ARTICLE!=='undefined' && EXPLAIN_ARTICLE[x.uid];
+      return `<button class="hlist-r" onclick="${open?`openExplainer(${i})`:`lockedExplainer(${i})`}">
+        <span class="hlearn-i">${x.uid?`<img src="${esc(streamThumb(x.uid))}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
+        <span class="hlearn-x"><b>${esc(x.q)}</b><small>${art?'Film and read':'Film'}${x.dur?' &middot; '+esc(x.dur):''}${open?'':' &middot; free account'}</small></span></button>`; }).join('')}</div></section>`;
 }
 /* the stage's films as cards on a laptop, the first three for the stage */
 function learnRowHTML(){
@@ -27188,7 +27215,7 @@ function sideHTML(){
     const quiz=((fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML()) || '';
     const how=(howShown() && !howBig()) ? filmTileHTML(streamThumb(HOW_URL()), 'HOW IT WORKS &middot; 3 MIN', 'Watch this first', 'openHowFilm()', 'howHide()', 'Hide the film about how the app works') : '';
     const films=(phaseFilmHTML(true)||'')+how;
-    bits.length=0; bits.push(quiz, films?`<div class="ftiles">${films}</div>`:'', cal, cls, placeNoteHTML(true));
+    bits.length=0; bits.push(quiz, films?`<div class="ftiles">${films}</div>`:'', sideWeekCard(), cal, cls, placeNoteHTML(true));
     if(!st.in && !st.plus) bits.push(sideCheckCard());
   }
   /* on a laptop the bookings sit beside the classes (13 Nov 2026), so
