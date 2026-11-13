@@ -8102,7 +8102,7 @@ function cpCamOn(c){ return !!c && c.video!==false && !!st.token && (!!st.coache
 function cpClipHTML(c, sent){
   const who=coachLabel();
   if(!sent && cpCamOn(c)) return '';
-  const send=(st.coached||coachedView())?`cpFilm('${c.k}')`:`cpAsk()`;
+  const send=`cpCam('${c.k}')`;
   if(!sent){
     /* a coaching client's clips are part of what they pay for */
     const can=!!st.coached || fcOpen();
@@ -8191,6 +8191,29 @@ function cpClipHTML(c, sent){
    moment they wonder whether it counted, so the offer belongs on the card
    rather than on a tab they never open. */
 function cpAsk(){ closeOv(); go('coaching'); }
+/* the camera on a check point: films it when there is a form check to
+   send, asks for an account first, and once the free one is gone says what
+   the next ones cost, over the check point rather than leaving it */
+function cpCam(k){
+  if(!st.token){ goJoin(); return; }
+  if(fcOpen()){ cpFilm(k); return; }
+  if(st.freeCheckUsed || st.checkOpen || st.awaitingReview){ st.cpBuyK=k; openOv('cpbuy'); return; }
+  /* not heard from the server yet: the Coaching tab knows what is open */
+  cpAsk();
+}
+function cpBuyBody(){
+  /* the check point's name, off its row behind the sheet */
+  const row=[...document.querySelectorAll('[data-ck]')].find(x=>x.dataset.ck===st.cpBuyK);
+  const nm=((row&&row.querySelector('.lc-t b'))||{}).textContent||'';
+  const waiting=!!(st.checkOpen || st.awaitingReview);
+  const offer = sells() ? fcOfferHTML("buyPlan('checks')") : iosChecksOfferHTML();
+  return `<div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}FORM CHECK${nm?' · '+esc(nm.toUpperCase()):''}</div>
+    <div style="font:400 32px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">Get ${esc(coachLabel())}&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em></div>
+    <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">${waiting
+      ? 'Your free one is with '+esc(coachLabel())+' now. For this one too:'
+      : 'That is your free one used.'}</div>
+    ${offer || `<button class="btn" style="width:100%;margin-top:16px" onclick="cpAsk()">See form checks</button>`}`;
+}
 /* whether a form check is there to be sent right now: a coached client or
    the check tier always, everybody else until they have used their one. The
    icon stays on the card either way, because the offer is still real, it
@@ -9084,10 +9107,11 @@ function cpListHTML(si){
   const S=climbState(si);
   if(!S.n) return '';
   const use='log';
-  /* Film it from the row, without opening it (Elliott, 17 Oct 2026), for
-     anybody whose clip goes to Elliott: coached, a form check due on the
-     subscription, one open, or the free one still to use. */
-  const film = !!st.token && fcOpen();
+  /* Film it from the row, without opening it (Elliott, 17 Oct 2026). On
+     every check point now (13 Nov 2026: "the checkpoints should always have
+     the film option to get a form check, but it just asks people to pay if
+     they have already had their free one"): cpCam sends it, or asks. */
+  const film = true;
   const rows=cpListOrder(S).map(r=>{
     const th=climbThumb(r.c, false);
     const kind=r.c.kind==='secs'?'secs':r.c.kind==='face'?'face':'count';
@@ -9105,7 +9129,7 @@ function cpListHTML(si){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
         <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c):''}</span>
         </button>
-        ${film?`<button class="lc-cam" onclick="event.stopPropagation();cpFilm(${jsq(r.c.k)})" aria-label="Film ${esc(r.c.n)} for ${esc(coachLabel())}"
+        ${film?`<button class="lc-cam" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Film ${esc(r.c.n)} for ${esc(coachLabel())}"
           title="Film it for ${esc(coachLabel())}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/>
           <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></button>`:''}
@@ -14266,6 +14290,7 @@ function drawOv(){
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
+  if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='wsbook'){ body=wsBookBody(); }
   if(st.ov==='wsbooked'){ body=wsBookedBody(); }
