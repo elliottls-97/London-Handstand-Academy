@@ -344,6 +344,19 @@ body{margin:0;background:#f4f4f5;font-family:var(--sans);color:var(--ink);
 .hcap.hcap-c .hcap-go>span svg{fill:#fff;width:18px;height:20px;margin-left:3px}
 .hcap.hcap-c .hcap-go .hcap-gl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .hcps{position:relative;margin-top:16px}
+/* picking several classes to book together (13 Nov 2026) */
+.clspick{flex:none;width:26px;height:26px;border-radius:50%;border:2px solid rgba(0,64,61,.25);background:#fff;display:grid;place-items:center;
+  cursor:pointer;color:#fff;font:700 12px/1 var(--sans);padding:0}
+.clsrow.on .clspick{background:var(--forest);border-color:var(--forest)}
+.clspick.off{visibility:hidden}
+.clsbarw{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);z-index:5;padding-top:12px}
+.clsbar{display:flex;align-items:center;gap:10px;padding:12px 12px 12px 16px;border-radius:18px;background:#fff;border:1.5px solid var(--forest);
+  box-shadow:0 1px 2px rgba(0,64,61,.05),0 14px 30px rgba(0,64,61,.16)}
+.clsbar b{display:block;font:600 15px/1.2 var(--sans)}
+.clsbar span span{display:block;font:500 12.5px/1.35 var(--sans);color:var(--grey);margin-top:2px}
+.clsbar .btn,.clsbar .btn2{min-height:46px;flex:none!important;width:auto!important}
+.clsbar .btn2{border:0!important;background:none!important;box-shadow:none!important;color:var(--grey)!important;padding:0 8px!important}
+@media (min-width:1080px){ .clsbarw{bottom:18px} }
 .hcps::before{content:'';position:absolute;top:-8px;left:56px;width:18px;height:18px;transform:rotate(45deg);background:#fff;
  border-left:1px solid rgba(0,64,61,.10);border-top:1px solid rgba(0,64,61,.10);border-radius:3px;z-index:1}
 .hcps-p{position:relative;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:18px 8px 6px;
@@ -22032,6 +22045,7 @@ function wsBookOpen(slug){
 }
 function wsBookPick(slug){ wsb.slug=slug; wsb.pair=false; wsb.msg=''; wsb.listed=false; drawOv(); }
 function wsBookBody(){
+  if(wsb.multi && wsb.multi.length>1 && !wsb.waiting) return wsBookMultiBody();
   const list=wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug)||list[0];
   if(!w) return `<div style="padding:2px;font:400 15px/1.5 var(--sans);color:var(--grey)">Nothing on sale right now. The next dates go out by email first.</div>`;
   const full=wsFull(w);
@@ -22132,11 +22146,13 @@ function wsBookFields(){
 }
 const WS_LVLS=[['New to it, never been upside down','New to it','never upside down'],['Learning to freestand','Learning','to freestand'],['Working on press, one arm or push ups','Working on','press, one arm, push ups']];
 function wsBookGo(){
-  const list=wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
+  const multi = wsb.multi && wsb.multi.length>1;
+  const list=multi ? (wsOpenList()||[]) : wsDatesOf(wsb.slug), w=list.find(x=>x.slug===wsb.slug); if(!w) return;
   const f=wsBookFields(); if(!f) return;
-  const other=list.find(x=>x.slug!==w.slug && !wsFull(x));
-  const also=(wsb.pair&&other)?other.slug:'';
-  const slugs=[w.slug].concat(also?[also]:[]);
+  const other=multi ? null : list.find(x=>x.slug!==w.slug && !wsFull(x));
+  const also=multi ? wsb.multi.filter(x=>x!==w.slug).join(',') : ((wsb.pair&&other)?other.slug:'');
+  const slugs=multi ? wsb.multi.slice() : [w.slug].concat(also?[also]:[]);
+  if(multi) clsPick.clear();
   let friend=null;
   if(wsb.fr){
     friend={name:(wsb.frName||'').trim(), email:(wsb.frEmail||'').trim()};
@@ -22279,6 +22295,50 @@ function wsAboutGo(){
    a Book button into the same sheet the website uses. Paid for through
    Stripe: an in person class is a service, so Apple allows it in the app.
    A coached client gets it once, quietly, at the foot of Today. */
+const clsPick=new Set();
+function clsPickToggle(slug){ if(clsPick.has(slug)) clsPick.delete(slug); else clsPick.add(slug); render(); }
+function clsPickBarHTML(){
+  if(!clsPick.size) return '';
+  const list=(wsOpenList()||[]).filter(w=>clsPick.has(w.slug));
+  if(!list.length){ clsPick.clear(); return ''; }
+  const cost=wsListCost(list.map(w=>w.price),1), full=list.reduce((t,w)=>t+(Number(w.price)||0),0);
+  return `<div class="clsbar"><span style="flex:1;min-width:0"><b>${list.length} class${list.length===1?'':'es'}</b>
+      <span>${esc(wsPounds(cost))}${cost<full?' &middot; '+esc(wsPounds(full-cost))+' off for booking them together':''}</span></span>
+    <button class="btn2" style="width:auto;margin:0;padding:0 16px" onclick="clsPick.clear();render()">Clear</button>
+    <button class="btn" style="width:auto;margin:0;padding:0 22px" onclick="wsBookMany()">Book ${list.length===1?'it':'them'}</button></div>`;
+}
+function wsBookMany(){
+  const slugs=(wsOpenList()||[]).filter(w=>clsPick.has(w.slug)).map(w=>w.slug);
+  if(!slugs.length) return;
+  if(slugs.length===1){ wsBookOpen(slugs[0]); return; }
+  closeWorkshop(true);
+  wsb={slug:slugs[0], multi:slugs, pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[], lvl:'', q:''};
+  openOv('wsbook');
+}
+/* several classes in one booking: the list, the total, and the same name,
+   email and waiver as one */
+function wsBookMultiBody(){
+  const all=wsOpenList()||[], list=wsb.multi.map(sl=>all.find(w=>w.slug===sl)).filter(Boolean);
+  const cost=wsListCost(list.map(w=>w.price),1), full=list.reduce((t,w)=>t+(Number(w.price)||0),0);
+  const name=wsb.name!=null?wsb.name:(st.client||''), email=wsb.email!=null?wsb.email:(st.email||'');
+  const fld='width:100%;border:1px solid rgba(0,64,61,.14);border-radius:14px;padding:13px 14px;font:400 16px/1.3 var(--sans);background:#fff;color:var(--ink)';
+  const lab='display:block;font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--grey2);margin:14px 0 6px';
+  return `<div style="padding:2px">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">In person, London</div>
+    <div style="font:400 30px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">${list.length} <em style="color:var(--forest);font-style:normal">classes.</em></div>
+    <div style="margin-top:14px;border-radius:16px;background:#fff;border:1px solid rgba(0,64,61,.10);padding:4px 14px">${list.map((w,i)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;${i?'border-top:1px solid rgba(0,64,61,.08)':''}">
+      <span style="min-width:0"><b style="display:block;font:600 14px/1.3 var(--sans)">${esc(w.title||'Class')}</b>
+        <span style="font:400 12.5px/1.4 var(--sans);color:var(--grey)">${esc(wsDay(w))}${wsTime(w)?', '+esc(wsTime(w)):''}</span></span>
+      <span style="flex:none;font:400 18px/1.2 var(--serif);color:var(--deep)">${esc(w.priceLabel||wsPounds(w.price))}</span></div>`).join('')}</div>
+    ${cost<full?`<div style="margin-top:8px;font:500 13px/1.4 var(--sans);color:var(--forest)">${esc(wsPounds(full-cost))} off for booking them together.</div>`:''}
+    <label style="${lab}" for="wsbName">Your name</label><input id="wsbName" style="${fld}" value="${esc(name)}" oninput="wsb.name=this.value" autocomplete="name" placeholder="First and last">
+    <label style="${lab}" for="wsbEmail">Email</label><input id="wsbEmail" type="email" inputmode="email" style="${fld}" value="${esc(email)}" oninput="wsb.email=this.value" autocomplete="email" placeholder="you@example.com">
+    ${wsConsentHTML()}
+    <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${wsb.busy?'One moment…':'Book '+list.length+' classes'+(cost>0?', '+wsPounds(cost):'')}</button>
+    <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${cost>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before each, by email. Move or cancel up to 24 hours before. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
+  </div>`;
+}
 function classesCardHTML(max, where){
   loadWorkshops();
   const list=wsOpenList().slice(0, max||3);
@@ -22289,7 +22349,13 @@ function classesCardHTML(max, where){
     const fmt=o=>d?d.toLocaleDateString('en-GB',Object.assign({timeZone:'Europe/London'},o)):'';
     /* places once a few are taken (8 Nov 2026): three booked, or five or fewer left */
     const leftLine = full ? 'Full, join the waiting list' : (Number(w.places)>0 && left>0 && (Number(w.places)-left>=3 || left<=5)) ? (left===1?'1 place left':left+' places left') : '';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(0,64,61,.08)">
+    /* pick several and book them together (Elliott, 13 Nov 2026: "allow them
+       to select multiple classes to book on that page") */
+    const booked=(st.bookings||[]).some(b=>b && b.slug===w.slug && b.status==='booked');
+    const canPick = where==='page' && !full && !booked;
+    const picked = canPick && clsPick.has(w.slug);
+    return `<div class="clsrow${picked?' on':''}" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(0,64,61,.08)">
+      ${where==='page' ? (canPick ? `<button class="clspick" onclick="clsPickToggle(${jsq(w.slug)})" aria-pressed="${picked}" aria-label="${picked?'Unselect':'Select'} ${esc(w.title||'class')}, ${esc(fmt({weekday:'long',day:'numeric',month:'long'}))}">${picked?'&check;':''}</button>` : '<span class="clspick off" aria-hidden="true"></span>') : ''}
       <div style="flex:none;width:46px;text-align:center;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:12px;padding:6px 0">
         <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">${esc(fmt({weekday:'short'}).toUpperCase())}</div>
         <div style="font:400 22px/1.05 var(--serif);color:var(--ink);margin-top:2px">${esc(fmt({day:'numeric'}))}</div>
@@ -22301,7 +22367,7 @@ function classesCardHTML(max, where){
         ${leftLine?`<div style="font:600 12px/1.3 var(--sans);margin-top:3px;color:${full||left<=3?'var(--red,#a4503c)':'var(--forest)'}">${esc(leftLine)}</div>`:''}
       </div>
       ${/* a class they have booked says so rather than offering it again (the canvas, 13 Nov 2026) */
-        (st.bookings||[]).some(b=>b && b.slug===w.slug && b.status==='booked')
+        booked
         ? `<span style="flex:none;display:inline-flex;align-items:center;gap:7px;font:600 13.5px/1 var(--sans);color:var(--forest)"><span
             style="width:22px;height:22px;border-radius:50%;background:var(--forest);color:#fff;display:grid;place-items:center;font:700 11px/1 var(--sans)">&check;</span>You are booked</span>`
         : `<button onclick="wsBookOpen(${jsq(w.slug||'')})" style="flex:none;min-height:40px;padding:0 16px;border-radius:12px;cursor:pointer;
@@ -22425,6 +22491,8 @@ function screenClasses(){
   return `<div class="scroll s">${ipHead('In person &middot; OverGravity, Shadwell','Come to a '+ipEm('class.'))}
     ${(()=>{ const q=pushQuizHTML(); return q?`<div class="pad">${q}</div>`:''; })()}
     <div class="pad" style="padding-top:18px">${card || ipEmpty('No dates on sale right now.','New ones show here first.')}</div>
+    ${card && !clsPick.size ? `<div class="pad" style="padding-top:8px;font:500 13px/1.4 var(--sans);color:var(--grey)">Tick more than one to book them together, ${esc(wsPounds(WS_MULTI))} off each extra class.</div>` : ''}
+    ${clsPickBarHTML() ? `<div class="pad clsbarw">${clsPickBarHTML()}</div>` : ''}
     ${wide()?'':`<div class="pad" style="padding-top:14px">${ipSessionLine()}</div>`}
     ${inPersonView()?`<div class="pad" style="padding-top:10px">${ipLadderLine()}</div>`:''}
     <div style="height:120px"></div></div>`;
