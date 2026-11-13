@@ -2027,6 +2027,8 @@ async function reseedOnboarding(email, force) {
    for a fortnight, and signs them straight in once they have picked one.
    A password itself is never emailed, because emails are forwarded and
    kept. */
+/* a link from a class or 1-2-1 email opens the app on Classes (12 Nov 2026) */
+const toClasses = u => String(u || `${SITE}/lha-app.html`) + (String(u || '').includes('?') ? '&' : '?') + 'to=classes';
 async function welcomeLink(e) {
   /* Each call made a new code and the new one replaced the last, so the
      second email a person got (paid, then confirmed) killed the button in
@@ -3521,7 +3523,7 @@ async function sessHeldMail(db, row, opts = {}) {
   const was = opts.moved ? sessWhen({ when: opts.moved }) : '';
   return email(row.email, `${was ? 'Moved' : 'Held for you'}: your session, ${whenTxt}`, mail({
     title: was ? 'Moved. Now I book the room.' : row.credit ? 'Held. Now I book the room.' : 'Paid. Now I book the room.', greeting: first,
-    cta: cNoPw ? { href: cLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'See it in the app' },
+    cta: cNoPw ? { href: toClasses(cLink), label: 'Choose a password' } : { href: toClasses(`${SITE}/lha-app.html`), label: 'See it in the app' },
     paras: [`<b>${esc(whenTxt)}</b>, at OverGravity, Shadwell. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
             `It is held for you while I book the room around OverGravity's timetable, and I confirm it within 48 hours, by email and in the app, with the calendar entry.`,
             row.credit ? `If that time cannot be secured, I will offer you another, and if none suits you, it goes back on your pack.` : `If that time cannot be secured, I will offer you another, and if none suits you it is refunded in full.`,
@@ -4596,7 +4598,7 @@ const handle = async (request) => {
                   `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
                   wsChangeHTML(manage.join(' &middot; '), good.map(r => r.w), kept > 0, allGood.length > 1),
                   wsNoPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
-          cta: wsNoPw ? { href: wsLink, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+          cta: wsNoPw ? { href: toClasses(wsLink), label: 'Choose a password' } : { href: toClasses(`${SITE}/lha-app.html`), label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       /* held for somebody silenced by name: it goes in their messages, and
          the coach is told it was held */
@@ -4763,7 +4765,7 @@ const handle = async (request) => {
                   sessNoPw ? `You have an account in the Handstand Ladder app under this address, where your booking is, and we can talk there as well as by email. Your username is ${esc(e)}: choose a password with the button below and you are in.`
                            : 'Your booking is in the Handstand Ladder app under this address, and we can talk there as well as by email.',
                   sRow.id ? await sessChangeHTML(sRow) : ''].filter(Boolean),
-          cta: { href: sessLink || `${SITE}/lha-app.html`, label: sessNoPw ? 'Choose a password' : 'Open the app' },
+          cta: { href: toClasses(sessLink), label: sessNoPw ? 'Choose a password' : 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true, noQueue: true });
       }
       } catch (err) { await supa.remove('nudges', `key=eq.${enc(sessKey)}`).catch(() => {}); throw err; }

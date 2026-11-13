@@ -13,6 +13,12 @@
   var name = on ? String(s.client || s.name || '').trim() : '';
   var email = on ? String(s.email || '').trim().toLowerCase() : '';
   window.LHAacct = { on: on, name: name, first: name.split(' ')[0] || '', email: email, token: on ? tok : '' };
+  /* the app opens on what this page is about: a class page on Classes (or the
+     bookings, when a class is coming up), the form check page on Coaching;
+     anywhere else, wherever they were last */
+  var path = location.pathname || '';
+  var to = /handstand-class|session|workshop/.test(path) ? 'classes' : /form-check|coaching/.test(path) ? 'coaching' : '';
+  var tq = to ? '&amp;to=' + to : '', tqRaw = to ? '&to=' + to : '';
 
   var css = '.acct-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-weight:600;white-space:nowrap}'
     + '.acct-av{width:26px;height:26px;border-radius:50%;background:#00403d;color:#fff;display:inline-grid;place-items:center;font:600 11px/1 system-ui,sans-serif;letter-spacing:.02em}';
@@ -25,15 +31,15 @@
   };
   var chipHTML = function () {
     return on
-      ? '<a class="acct-link" href="/lha-app.html?ref=site-acct" title="Signed in as ' + esc(email) + '"><span class="acct-av">' + esc(initials()) + '</span>Your account</a>'
-      : '<a class="acct-link" href="/lha-app.html?signin=1&amp;ref=site-acct">Sign in</a>';
+      ? '<a class="acct-link" href="/lha-app.html?ref=site-acct' + tq + '" title="Signed in as ' + esc(email) + '"><span class="acct-av">' + esc(initials()) + '</span>Your account</a>'
+      : '<a class="acct-link" href="/lha-app.html?signin=1&amp;ref=site-acct' + tq + '">Sign in</a>';
   };
   /* a page's own button made the account button (the homepage's top right): its look is kept,
      its words and link follow the sign in */
   var btn = function (el) {
     if (el.dataset.acctDone) return; el.dataset.acctDone = '1';
-    if (!on) return;
-    el.href = '/lha-app.html?ref=site-acct';
+    if (!on) { if (to && /signin=1/.test(el.getAttribute('href') || '')) el.href = el.getAttribute('href') + tqRaw; return; }
+    el.href = '/lha-app.html?ref=site-acct' + tqRaw;
     /* the homepage opens app links in its own window; an account opens straight in, no tour */
     el.setAttribute('data-app-direct', '');
     el.innerHTML = '<span class="acct-av" style="width:22px;height:22px;font-size:10px;margin-right:7px;vertical-align:middle;background:rgba(255,255,255,.22)">' + esc(initials()) + '</span>Your account';

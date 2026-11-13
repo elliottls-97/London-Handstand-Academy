@@ -824,8 +824,8 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
       [`First stage free. The other five, ${escH(o.app)} a month, ${trialTxt} free.`,
         'A muscle up plan joins it soon.',
         o.store ? `On iPhone, ${escH(o.iphone || '£9.99')} a month. <a href="${escH(o.store)}" style="color:${MC.teal};font-weight:600">Get it on the App Store</a>` : ''],
-      [{ href: `${site}/lha-app.html?ref=classmail`, label: 'Open the app' }])
-      .replace('<tr><td class="px" style="padding:', `<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(site)}/lha-app.html?ref=classmail"><img src="${escH((d.assets || site) + '/assets/site/app-screens-email.jpg')}" width="598" alt="The Handstand Ladder app: the ladder, a session playing, and a form check" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${mf(M_SANS, 14, 20, 400)};color:${MC.grey}"></a></td></tr>
+      [{ href: `${site}/lha-app.html?ref=classmail&to=classes`, label: 'Open the app' }])
+      .replace('<tr><td class="px" style="padding:', `<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(site)}/lha-app.html?ref=classmail&to=classes"><img src="${escH((d.assets || site) + '/assets/site/app-screens-email.jpg')}" width="598" alt="The Handstand Ladder app: the ladder, a session playing, and a form check" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${mf(M_SANS, 14, 20, 400)};color:${MC.grey}"></a></td></tr>
 <tr><td class="px" style="padding:`)
 
     + mOffer('In person &middot; OverGravity', 'A 1-2-1 with Elliott',
@@ -857,7 +857,7 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
   if (o) {
     T.push('KEEP GOING', '',
       `The Handstand Ladder app. First stage free. The other five, ${o.app} a month, ${trialTxt} free. A muscle up plan joins it soon.`,
-      `${site}/lha-app.html?ref=classmail`, '',
+      `${site}/lha-app.html?ref=classmail&to=classes`, '',
       `A 1-2-1 with Elliott, at OverGravity. 60 minutes, ${o.s60}. 90 minutes, ${o.s90}. Join coaching within 14 days and it comes off your first month.`,
       `${site}/session.html`, '',
       `Coaching, your own programme. A plan written around you, and a video form check every two weeks. ${o.online} a month online. ${o.inperson} with a session in London each month.${placesLine ? ' ' + mPlain(placesLine) : ''}`,
@@ -1168,7 +1168,7 @@ export function earlyEmail(T, x, site) {
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 export function intent2Email(T, x, site) {
-  const S = site || SITE, [day, ...time] = String(x.when || '').split(', '), app = `${S}/lha-app.html?ref=workshop`;
+  const S = site || SITE, [day, ...time] = String(x.when || '').split(', '), app = `${S}/lha-app.html?ref=workshop&to=classes`;
   return richEmail({ title: T.title, preheader: `${day}: places are still open. Or start at home, free.`,
     blocks: [
       { t: 'hero', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall, in the free app', href: app,
