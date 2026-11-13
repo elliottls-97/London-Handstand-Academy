@@ -2432,6 +2432,9 @@ button.px-step{cursor:pointer}
   .cw-l li span:last-child{color:#8a5a12;font-weight:600}
   .cw-l li.on{margin:0 -12px;padding:9px 12px;border-radius:12px;background:rgba(243,169,73,.12);border-top-color:transparent}
   .cnote p{margin:10px 0 0;font:400 18px/1.4 var(--serif);color:var(--deep)}
+  .cprog{padding-top:34px}
+  .cprog .ptiles,.cprog .progduo{padding-left:22px;padding-right:22px}
+  .pd-clips{min-width:0;display:flex;flex-direction:column;gap:11px}
   .hcps .lc-r{padding:0!important}
   .hcps .lc-r:has(.lc-fb.new) .lc-p{background:rgba(243,169,73,.10)!important}
   /* a form check answered, on a laptop (D5) */
@@ -3059,7 +3062,17 @@ function screenTodayWide(d, dl, total, ticked, mins, name){
       ${minisHTML()}
     </div>
     <div class="ccol ccps rise rise-1">${homeCpsHTML()}</div>
-  </div><div style="height:26px"></div></div>`;
+  </div>
+  ${/* Progress lives on Home on a laptop (Elliott, 13 Nov 2026: "progress
+       page can go on the main page for coached"), so the tab goes */''}
+  <section class="cprog rise rise-3">
+    <div class="kick2" style="color:var(--forest);padding:0 22px">PROGRESS</div>
+    <div class="ptop-h" style="padding:0 22px;font-size:34px">Week ${weekNow()} of the <em>block.</em></div>
+    ${progTilesHTML(true)}
+    <div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div><div style="padding:6px 6px 0">${(()=>{ try{ return trainingCalendar(true); }catch(e){ return ''; } })()}</div></div>
+      <div class="pd-clips">${(()=>{ try{ return clipsBody(); }catch(e){ return ''; } })()}</div></div>
+  </section>
+  <div style="height:26px"></div></div>`;
 }
 const key=(di,gi,ii)=>di+'-'+gi+'-'+ii;
 
@@ -10166,23 +10179,23 @@ function doseUnit(d){ return /\bs(ec|econds)?\b|\d+\s*s\b/i.test(String(d||'')) 
    work was done in them. These three are the answer to "how much": time on
    the floor, reps turned over, and seconds spent upside down. */
 /* Progress on a laptop (D2): how far in, then the week in four numbers */
-function progTilesHTML(){
+function progTilesHTML(coached){
   const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
   const first=ss.length?Math.min(...ss.map(x=>x.at)):Date.now();
   const n=Math.max(1, Math.floor((Date.now()-first)/(7*864e5))+1);
   const W=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve'];
   const wk=MONDAY(Date.now()), lastWk=wk-7*864e5, now=volumeBetween(wk,null), was=volumeBetween(lastWk,wk);
-  const P=cpProgress(curStage()), S=STAGES[curStage()]||STAGES[0];
+  const P=coached?cpProgress():cpProgress(curStage()), S=STAGES[curStage()]||STAGES[0];
   const hm2=m=>m>=60?Math.floor(m/60)+' h '+(m%60)+' m':m+' m';
   const dl=(a,b,u)=>(!b||!a)?'':(a>b?'up '+(a-b)+(u||'')+' on last week':a<b?'down '+(b-a)+(u||'')+' on last week':'level with last week');
   const tile=(k,v,sub)=>`<div class="card ptile"><div class="kick2" style="color:var(--grey)">${k}</div><div class="ptile-v">${v}</div><div class="ptile-s">${sub}</div></div>`;
-  return `<div class="ptop"><div class="kick2" style="color:var(--forest)">PROGRESS &middot; WEEK ${n} OF YOUR RUN</div>
-    <div class="ptop-h">${W[n]?W[n]+' week'+(n===1?'':'s'):n+' weeks'} <em>in.</em></div></div>
+  return `${coached?'':`<div class="ptop"><div class="kick2" style="color:var(--forest)">PROGRESS &middot; WEEK ${n} OF YOUR RUN</div>
+    <div class="ptop-h">${W[n]?W[n]+' week'+(n===1?'':'s'):n+' weeks'} <em>in.</em></div></div>`}
     <div class="ptiles">
       ${tile('THIS WEEK', hm2(now.mins||0), now.whole+' session'+(now.whole===1?'':'s')+(now.sessions>now.whole?', '+(now.sessions-now.whole)+' part':''))}
       ${tile('HELD', mmss(now.secs||0), 'upside down'+(dl(now.secs,was.secs,'s')?', '+dl(now.secs,was.secs,'s'):''))}
       ${tile('REPS', String(now.reps||0), dl(now.reps,was.reps)||'this week')}
-      ${tile('CHECK POINTS', P.met+' of '+P.of, 'at '+esc(S.n))}
+      ${tile('CHECK POINTS', P.met+' of '+P.of, coached?'this block':'at '+esc(S.n))}
     </div>`;
 }
 function volumeHero(){
@@ -28736,12 +28749,13 @@ function render(){
   if(st.classHello && st.tab!=='classes'){ st.classHello=0; save(); }
   if(sec==='co' && wide() && !coachedView() && st.tab==='coaching' && st.coTab==='chat') st.coTab='check';
   if(coached && wide() && st.tab==='ask' && !st.paused && !st.preview) st.tab='today';
+  if(coached && wide() && st.tab==='progress' && !st.paused && !st.preview) st.tab='today';
   /* a coached client on a laptop: their check points open on Home, beside
      their session and the chat, unless they have folded them away */
   if(coached && wide() && st.tab==='today' && !st.homeCps && !st.homeCpsShut && !window._cpsWide){
     window._cpsWide=1; st.homeCps=true; window._hcpsAt=Date.now(); }
   const tabs=inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
-    : coached ? TABS.coached.filter(([id])=>!(id==='ask' && wide() && !st.paused && !st.preview))
+    : coached ? TABS.coached.filter(([id])=>!((id==='ask'||id==='progress') && wide() && !st.paused && !st.preview))
     : sec==='co' ? coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView()))
     : TABS.free
     /* a session buyer who has not taken the quiz has no stage yet, so no
