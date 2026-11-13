@@ -13601,15 +13601,19 @@ function toggleSound(on){
    which is the one thing a training app should never make you do. Tapping
    the seconds runs that set down in place. One row at a time, counted on
    wall-clock deltas so a backgrounded tab does not drift, and it ticks the
-   set off when it lands. Tap again to stop it. */
+   set off when it lands. Tap again to stop it, and what was held is what
+   is logged (Elliott, 13 Nov 2026: "log the time done till the countdown
+   is ticked then its complete"): stopped at 18 of 30, it is done at 18s. */
 let rowT=null;          /* {k, ends, raf, label, secs} */
 function rowClockStop(done){
   if(!rowT) return;
   clearInterval(rowT.raf);
   const el=document.getElementById('clk-'+rowT.k);
   if(el){ el.innerHTML=rowT.label; el.style.background='rgba(0,102,99,.08)';
-          el.style.color='var(--forest)'; }
-  const key=rowT.k; rowT=null;
+          el.style.color='var(--forest)'; el.setAttribute('aria-label','Start the timer for this set'); }
+  const key=rowT.k, secs=rowT.secs, held=Math.floor((Date.now()-(rowT.ends-secs*1000))/1000); rowT=null;
+  /* stopped by hand: the seconds held, unless it was a slip of the finger */
+  if(done==='early'){ if(held>=2 && held<secs) tickAt(key, held); return; }
   if(done){ cue();
     /* the same tick the box does, so one set is one tick wherever it came from */
     const box=document.getElementById('box-'+key);
@@ -13617,13 +13621,14 @@ function rowClockStop(done){
   }
 }
 function rowClock(k){
-  if(rowT && rowT.k===k) return rowClockStop(false);
+  if(rowT && rowT.k===k) return rowClockStop('early');
   if(rowT) rowClockStop(false);
   const el=document.getElementById('clk-'+k);
   if(!el) return;
   const secs=Number(el.dataset.secs)||0;
   if(secs<=0) return;                       /* a rep drill has nothing to count */
-  rowT={k, label:el.innerHTML, ends:Date.now()+secs*1000, raf:0};
+  rowT={k, label:el.innerHTML, secs, ends:Date.now()+secs*1000, raf:0};
+  el.setAttribute('aria-label','Stop, and log what was held');
   const paint=()=>{
     if(!rowT) return;
     const el2=document.getElementById('clk-'+rowT.k);
@@ -14572,9 +14577,25 @@ function drawOv(){
                  description now. The cues only showed once the film was
                  opened, which nothing said: Cues is its own pill. -->
             ${(qSaved && itUrl(it) && !dlHas(uidOfUrl(itUrl(it))))?`<div style="margin-top:8px;font:600 12px/1.3 var(--sans);color:var(--grey)">Needs signal: this film is not on your phone</div>`:''}
+            <div id="demo-${k}" hidden style="margin-top:11px"></div>
+            <!-- the same keys the box ticks, so anything that needs to know
+                 which sets a card stands for can read them off it -->
+            <span hidden data-keys="${keysJson}"></span>
+            <div id="cues-${k}" ${(it.cues&&it.cues.length)||cuesOpen.has(k)?'':'hidden'} style="margin-top:10px">
+              ${(it.cues&&it.cues.length)?`<div style="background:rgba(0,102,99,.05);border-radius:12px;
+                padding:11px 13px">
+                <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">HOW TO DO IT</div>
+                <ul style="margin:9px 0 0;padding-left:16px">
+                  ${it.cues.slice(0,6).map(c=>`<li style="font:400 13.5px/1.5 var(--sans);
+                    color:var(--ink);margin-top:3px">${esc(c)}</li>`).join('')}
+                </ul></div>`
+              :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">
+                No written cues for this one yet.</div>`}
+            </div>
             <div class="rowpills" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px">
-              ${(it.cues&&it.cues.length)?`<button class="rt" id="cuesb-${k}" aria-expanded="${cuesOpen.has(k)}"
-                onclick="toggleCues('${k}',this)">Cues</button>`:''}
+              ${''/* Skip for a week comes after the cues: the rare thing goes last.
+                 The cues open with the row now (Elliott, 13 Nov 2026:
+                 "expanding might want the cues as well"), so no Cues pill */}
               ${(()=>{
                 /* Log and Not today went behind a dots button so the tick
                    read as the thing that counts a drill (usability review),
@@ -14593,21 +14614,6 @@ function drawOv(){
                 /* more or fewer is on the tick now (Elliott, 13 Nov 2026) */
                 return (st.in?howBtnHTML(it.v,k):asideB);
               })()}
-            </div>
-            <div id="demo-${k}" hidden style="margin-top:11px"></div>
-            <!-- the same keys the box ticks, so anything that needs to know
-                 which sets a card stands for can read them off it -->
-            <span hidden data-keys="${keysJson}"></span>
-            <div id="cues-${k}" ${cuesOpen.has(k)?'':'hidden'} style="margin-top:10px">
-              ${(it.cues&&it.cues.length)?`<div style="background:rgba(0,102,99,.05);border-radius:12px;
-                padding:11px 13px">
-                <div style="font:600 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)">HOW TO DO IT</div>
-                <ul style="margin:9px 0 0;padding-left:16px">
-                  ${it.cues.slice(0,6).map(c=>`<li style="font:400 13.5px/1.5 var(--sans);
-                    color:var(--ink);margin-top:3px">${esc(c)}</li>`).join('')}
-                </ul></div>`
-              :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2)">
-                No written cues for this one yet.</div>`}
             </div>
             ${(st.in&&levelLine(it.v))?`<div id="lvl-${k}" style="margin-top:8px;
               font:600 12px/1.4 var(--sans);color:var(--forest)">${esc(levelLine(it.v))}</div>`:''}
@@ -24396,12 +24402,19 @@ function tickAmt(k, by){
   const box=document.getElementById('dosebox-'+k);
   const keys=String((box&&box.dataset.keys)||k).split(',').filter(Boolean);
   const i=Number(String(k).slice(1)), it=((Q||[])[i]||{}).it||{}, want=recommendedReps(it);
+  const ticked=keys.some(x=>(st.qTick||{})[x]);
+  const cur=ticked?keys.map(x=>(st.reps||{})[x]).find(x=>x!=null):null, base=cur!=null?cur:want;
+  /* none at all is an untick, not a number */
+  tickAt(k, Math.max(u_step(it), base+by));
+}
+/* done, at this amount a set: the steppers and a timer stopped early both land here */
+function tickAt(k, next){
+  const box=document.getElementById('dosebox-'+k);
+  const keys=String((box&&box.dataset.keys)||k).split(',').filter(Boolean);
+  const i=Number(String(k).slice(1)), it=((Q||[])[i]||{}).it||{}, want=recommendedReps(it);
   st.qTick=st.qTick||{}; st.reps=st.reps||{};
   const was=keys.some(x=>st.qTick[x]);
   if(!was) keys.forEach(x=>{ st.qTick[x]=true; delete st.reps[x]; });
-  const cur=keys.map(x=>st.reps[x]).find(x=>x!=null), base=cur!=null?cur:want;
-  /* none at all is an untick, not a number */
-  const next=Math.max(u_step(it), base+by);
   keys.forEach(x=>{ if(!st.qTick[x]) return; if(next===want) delete st.reps[x]; else st.reps[x]=next; });
   save(); listKeep();
   if(box) box.innerHTML=doseAreaHTML(k, keys);
