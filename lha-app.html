@@ -2382,6 +2382,20 @@ button.px-step{cursor:pointer}
   .drow2 em{font-style:normal;padding:4px 8px;border-radius:999px;background:rgba(0,102,99,.10);
     font:700 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)}
   .drow2:hover b{color:var(--forest)}
+  /* the chat beside the form check */
+  #side .schatcard{display:flex;flex-direction:column;padding:0;overflow:hidden;
+    height:calc(100dvh - var(--dh,122px) - 52px);min-height:420px;border-radius:24px}
+  .schead{flex:none;display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(0,64,61,.08)}
+  .schead b{display:block;font:600 15px/1.2 var(--sans)}
+  .schead span span{display:block;font:500 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px}
+  .scph{width:40px;height:40px;flex:none;border-radius:50%;background:var(--forest);overflow:hidden;
+    color:var(--on-primary);display:grid;place-items:center;font:400 18px/1 var(--serif)}
+  .scph img{grid-area:1/1;width:100%;height:100%;object-fit:cover}
+  #side .schat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px;background:rgba(244,244,245,.55)}
+  #side .composer{position:static!important;left:auto!important;right:auto!important;bottom:auto!important;
+    flex:none;padding:10px 12px 12px!important;background:#fff;border-top:1px solid rgba(0,64,61,.08)}
+  #side .composer>*{max-width:none!important}
+  #side .bub>div,#side .bub>a{max-width:86%!important}
 }
 </style></head><body><div id="app"></div>
 <!-- Relative, not root relative. "/ladder-data.js" resolves to the disk
@@ -12165,7 +12179,11 @@ function chatThreadRows(empty){
     <i></i><i></i><i></i></div></div>`;
   return out;
 }
-const onChatScreen = () => st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat');
+/* on a laptop the chat sits beside the form check, the Start steps and the
+   plans (13 Nov 2026), so those screens are the chat screen too */
+const sideChatOn = () => { try{ return wide() && !!st.token && !coachedView() && section()==='co'
+  && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
+const onChatScreen = () => st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat') || sideChatOn();
 function chatScroller(){ const l=document.getElementById('chatList'); return l ? l.closest('.scroll') : null; }
 function chatToEnd(smooth){
   const sc=chatScroller(); if(!sc) return;
@@ -25157,7 +25175,7 @@ function screenCoaching(){
             ? 'Watched.'
             : 'A coach is watching it and picking the one thing to change.', true],
           ['Answer ready', done
-            ? 'It is in the Chat tab.'
+            ? (sideChatOn() ? 'It is in the chat, on the right.' : 'It is in the Chat tab.')
             : (fcPaid()?'Within 48 hours':'Within 7 days')+'. You\'ll get an email the moment it lands.', done],
         ];
         return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--amber)'}">
@@ -26227,6 +26245,9 @@ function markChatSeen(){
    It opens on the chat when something is waiting there. */
 const coTab = () => awaitingBlock() ? 'chat' : (st.coTab || (unreadMsgs()>0 ? 'chat' : 'check'));
 function setCoTab(k){
+  /* on a laptop the chat is already beside the page: go to its latest message */
+  if(k==='chat' && st.tab==='coaching' && sideChatOn() && document.querySelector('#side #chatList')){
+    chatToEnd(true); const t=document.getElementById('askIn'); if(t) t.focus(); return; }
   /* the two halves are tabs along the bottom now: go there, so the bar follows */
   if(st.tab!=='coaching'){ go(k==='chat' ? 'cochat' : 'cocheck'); return; }
   st.coTab=k; save();
@@ -26545,6 +26566,18 @@ function acctMenuHTML(){
     ${row("signOut()",'Sign out','','')}
   </div>`;
 }
+function sideChatHTML(){
+  if(!st.token) return `<div class="card sidecard"><div class="kick2">CHAT WITH ${esc(coachLabel().toUpperCase())}</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">Ask me anything. An account first, so a reply has somewhere to land.</div>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="goJoin()">Create an account to ask</button></div>`;
+  const empty='Nothing here yet.<br>Ask about a drill, something that hurts, or '+(IOS_APP?'where to start':'which plan fits')+'.';
+  return `<div class="card schatcard">
+    <div class="schead"><span class="scph">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>
+      <span style="flex:1;min-width:0"><b>Chat with ${esc(coachLabel())}</b><span>Usually replies within 48 hours</span></span></div>
+    <div class="scroll schat" onscroll="chatJumpPaint()">${chatPushBar()}<div id="chatList" class="clist" data-empty="${esc(empty)}">${chatThreadHTML(empty)}</div><div id="chatEnd"></div></div>
+    ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}
+  </div>`;
+}
 function sideBookingsHTML(){
   const list = st.token ? bookingsHTML() : '';
   const from=ipPrice('session60');
@@ -26582,6 +26615,7 @@ function sideHTML(){
   /* on a laptop the bookings sit beside the classes (13 Nov 2026), so
      Bookings loses its tab there; the 1-2-1 goes under them */
   if(t==='classes' && wide()){ bits.length=0; bits.push(sideBookingsHTML()); }
+  if(sideChatOn()){ bits.length=0; bits.push(sideChatHTML()); }
   const h=bits.filter(Boolean).join('');
   return h ? `<aside id="side">${h}</aside>` : '';
 }
@@ -28255,9 +28289,10 @@ function render(){
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   if(inPerson && wide() && st.tab==='bookings') st.tab='classes';
+  if(sec==='co' && wide() && !coachedView() && st.tab==='coaching' && st.coTab==='chat') st.coTab='check';
   const tabs=inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
     : coached ? TABS.coached
-    : sec==='co' ? coTabsList()
+    : sec==='co' ? coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView()))
     : TABS.free
     /* a session buyer who has not taken the quiz has no stage yet, so no
        Ladder: their booking, the quiz and coaching are the whole app */
