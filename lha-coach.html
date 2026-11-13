@@ -8648,14 +8648,16 @@ let openSess=null;   /* which session row is expanded */
    older follow-along carries its real minutes; an older drill list only
    ever sent its planned minutes, so that is all it can say. */
 function sessReal(x){
-  if(x && x.secs>0) return Math.max(1, Math.round(x.secs/60));
+  /* less any spell off the app over five minutes, which the app counts as a break (13 Nov 2026) */
+  if(x && x.secs>0) return Math.max(1, Math.round((x.secs-(Number(x.off)||0))/60));
   if(x && x.mode==='player' && x.actual>0) return x.actual;
   return 0;
 }
 function sessTimeTxt(x){
   const clock=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});
   const real=sessReal(x), plan=x&&x.mins?' (planned '+x.mins+' min)':'';
-  if(x && x.start && x.secs) return clock(x.start)+' to '+clock(x.start+x.secs*1000)+' · '+real+' min'+plan;
+  const off=x&&x.off>=60 ? ', '+Math.round(x.off/60)+' min off the app not counted' : '';
+  if(x && x.start && x.secs) return clock(x.start)+' to '+clock(x.start+x.secs*1000)+' · '+real+' min training'+off+plan;
   if(real) return real+' min'+plan;
   return x&&x.mins ? 'planned '+x.mins+' min, real time not recorded' : '';
 }

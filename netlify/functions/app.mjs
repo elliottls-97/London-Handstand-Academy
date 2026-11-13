@@ -12793,6 +12793,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           ...(Number(body.session.start) > Date.now() - 8 * 86400000 && Number(body.session.start) <= Date.now() + 60000
             ? { start: Math.round(Number(body.session.start)) } : {}),
           ...(Number(body.session.secs) > 0 ? { secs: Math.min(6 * 3600, Math.round(Number(body.session.secs))) } : {}),
+          /* seconds of it spent off the app in spells over five minutes, which
+             the app counts as breaks rather than training (13 Nov 2026) */
+          ...(Number(body.session.off) > 0 ? { off: Math.min(6 * 3600, Math.round(Number(body.session.off))) } : {}),
           got: Number(body.session.got) || 0,            // steps completed
           of: Number(body.session.of) || 0,              // steps in the session
           stoppedAt: String(body.session.stoppedAt || '').slice(0, 60),
