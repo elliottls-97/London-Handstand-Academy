@@ -12220,8 +12220,13 @@ function chatThreadRows(empty){
 }
 /* on a laptop the chat sits beside the form check, the Start steps and the
    plans (13 Nov 2026), so those screens are the chat screen too */
-const sideChatOn = () => { try{ return wide() && !!st.token && !coachedView() && section()==='co'
-  && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
+const sideChatOn = () => { try{ if(!wide() || !st.token || st.preview) return false;
+  /* a coached client: their plan, their check points with Elliott's replies,
+     and the chat, all on one screen (Elliott, 13 Nov 2026: "for coached
+     clients ... seeing their plan, the chat and the checkpoints and their
+     responses are the most important thing") */
+  if(coachedView()) return ['today','plan','progress'].includes(st.tab) && !st.paused;
+  return section()==='co' && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
 const onChatScreen = () => st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat') || sideChatOn();
 function chatScroller(){ const l=document.getElementById('chatList'); return l ? l.closest('.scroll') : null; }
 function chatToEnd(smooth){
@@ -28386,8 +28391,9 @@ function render(){
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   if(inPerson && wide() && st.tab==='bookings') st.tab='classes';
   if(sec==='co' && wide() && !coachedView() && st.tab==='coaching' && st.coTab==='chat') st.coTab='check';
+  if(coached && wide() && st.tab==='ask' && !st.paused && !st.preview) st.tab='today';
   const tabs=inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
-    : coached ? TABS.coached
+    : coached ? TABS.coached.filter(([id])=>!(id==='ask' && wide() && !st.paused && !st.preview))
     : sec==='co' ? coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView()))
     : TABS.free
     /* a session buyer who has not taken the quiz has no stage yet, so no
