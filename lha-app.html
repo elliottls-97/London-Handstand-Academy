@@ -2573,6 +2573,17 @@ button.px-step{cursor:pointer}
   .hcol{display:flex;flex-direction:column;gap:16px}
   .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
   .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
+  /* a stage opened from the ladder, on a laptop: the film, the words and the
+     button side by side, not a phone card stretched across the page
+     (Elliott, 13 Nov 2026) */
+  .lw-popi{display:grid!important;grid-template-columns:minmax(0,360px) minmax(0,1fr);grid-template-rows:auto auto;column-gap:28px;row-gap:16px;align-items:center;
+    padding:14px 66px 14px 14px!important;background:#fff!important;border:1px solid rgba(0,64,61,.10);
+    box-shadow:0 1px 2px rgba(0,64,61,.05),0 12px 30px rgba(0,64,61,.08)}
+  .lw-popi::before{background:#fff!important;border-left:1px solid rgba(0,64,61,.10);border-top:1px solid rgba(0,64,61,.10);top:-8px!important}
+  .lw-popi>div{padding:0!important;align-self:end;max-width:560px}
+  .lw-popimg{height:auto!important;aspect-ratio:16/9;grid-row:1 / span 2}
+  .lw-popi .lw-go{grid-column:2;justify-self:start;align-self:start;width:auto;min-width:240px;height:56px;border-radius:28px;padding:0 26px;font-size:16px}
+  .lw-popi .lw-popx{top:14px;right:14px;background:#f4f4f5;box-shadow:none}
   /* a session on a laptop: the player beside the list (canvas D18) */
   .ov .sheet.listsheet.dksheet,.ov.full .sheet.listsheet.dksheet{width:min(1360px,96vw)!important;max-width:1360px!important;
     height:94vh!important;max-height:94vh!important;display:flex!important;flex-direction:column;overflow:hidden!important}
@@ -2614,6 +2625,17 @@ button.px-step{cursor:pointer}
   .dknext small{display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey)}
   .dknext b{display:block;font:600 16px/1.2 var(--sans);margin-top:6px}
   .dknext span span{display:block;font:500 13px/1.3 var(--sans);color:var(--grey);margin-top:3px}
+  /* the page form: under the header, no scrim, no sheet */
+  #ov.dkpage{top:var(--dh,122px);z-index:39;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+    align-items:stretch!important;justify-content:center!important;animation:none!important}
+  #ov.dkpage .sheet.listsheet.dksheet{width:min(1320px,100%)!important;max-width:1320px!important;height:100%!important;max-height:none!important;
+    border-radius:0!important;box-shadow:none!important;background:transparent!important;border:0!important;padding:18px 36px 0!important;animation:none!important}
+  .dkhead{flex:none;display:flex;align-items:flex-end;gap:18px;padding:0 2px 16px}
+  .dkh1{margin:8px 0 0;font:400 36px/1 var(--serif);letter-spacing:-.015em;color:var(--ink)}
+  .dkh1 em{color:var(--forest);font-style:normal}
+  .dkdays{display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)}
+  .dkdays button{min-height:40px;padding:0 16px;border:0;border-radius:11px;background:transparent;cursor:pointer;font:600 13.5px/1 var(--sans);color:var(--grey)}
+  .dkdays button[aria-selected="true"]{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
   .lrow.dknow{border-color:rgba(243,169,73,.75)!important;box-shadow:inset 0 0 0 1px rgba(243,169,73,.55);background:#fffaf2!important}
   .hlist{padding:16px 16px 10px!important}
   .hlist-t{font:400 21px/1.08 var(--serif);margin-top:8px}
@@ -3208,7 +3230,7 @@ function screenTodayWide(d, dl, total, ticked, mins, name){
       <div style="height:6px"></div>
       ${/* one button that says Start session and takes them to the Plan,
            where the day is laid out (Elliott, 13 Nov 2026) */''}
-      <button class="cstart rise rise-1" data-tour="session" onclick="go('plan')">
+      <button class="cstart rise rise-1" data-tour="session" onclick="dkGoNow=true;go('plan')">
         <span style="min-width:0"><b>${ticked>=total&&total?'Go again':'Start session'}</b>
           <small>${esc(d.label||'Today')}${d.sub?', '+esc(d.sub):''} &middot; ${esc(String(len))} min &middot; ${total} drill${total===1?'':'s'}</small></span>
         <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>
@@ -6935,6 +6957,10 @@ function qaVideo(a, full){
 
 function screenPlan(){
   if(planEmpty()) return planWaitHTML();
+  if(wide() && coachedView() && !planInline){
+    setTimeout(()=>{ if(st.tab==='plan' && wide() && coachedView() && !st.ov) planDesk(); }, 0);
+    return `<div class="scroll s"></div>`;
+  }
   const d=day();
   const total=allItems(d).length;
   const ticked=d.groups.reduce((a,g,gi)=>a+g.items.filter((_,ii)=>st.tick[key(st.day,gi,ii)]).length,0);
@@ -14271,7 +14297,7 @@ document.addEventListener('visibilitychange',()=>{
 function openOv(kind){
   /* the drill list's clock starts when it is opened, so the coach sees how
      long it really took rather than what the ticked drills should take */
-  if(kind==='list' && !((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); woStart(); try{ save(); }catch(e){} }
+  if(kind==='list' && !dkPageMode && !((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); woStart(); try{ save(); }catch(e){} }
   /* a fix's article sits above every sheet: it steps aside, and is back
      when the sheet closes and the fix redraws */
   fxArtHide();
@@ -14361,7 +14387,7 @@ function ovGhostPlay(o){
   });
 }
 function closeOv(){
-  if(st.ov==='list') dkHalt();
+  if(st.ov==='list'){ if(dkPageMode) listKeep(); dkHalt(); dkPageMode=false; $('#ov').classList.remove('dkpage'); }
   /* the summary is the end of the workout, and of the free one with it */
   if(st.ov==='summary') endTaste();
   filmSlowLater();
@@ -14409,6 +14435,7 @@ function listBarHTML(){
 }
 function listKeep(){
   if(tourKey || st.ov!=='list' || !Array.isArray(Q) || !Q.length) return;
+  if(dkPageMode){ st.dkHeld={day:st.day, d:new Date().toDateString(), tick:Object.assign({}, st.qTick||{}), reps:Object.assign({}, st.reps||{})}; save(); return; }
   const n=Q.filter((_,i)=>(st.qTick||{})['q'+i]).length;
   st.listHeld = n ? {q:Q.map(x=>Object.assign({}, x, {it:Object.assign({}, x.it)})),
     tick:Object.assign({}, st.qTick||{}), reps:Object.assign({}, st.reps||{}),
@@ -15993,10 +16020,12 @@ function drawOv(){
   $('#ov').dataset.kind=String(st.ov);
   const dk=dkOn(), oldList=$('#ov').querySelector('.dklist'), listTop=oldList?oldList.scrollTop:0;
   if(dk && DK.q!==Q){ DK.q=Q; dkHalt(); dkLoad(dkFirstOpen()); }
+  const pg=dk && dkPageMode;
+  $('#ov').classList.toggle('dkpage', pg);
   $('#ov').innerHTML=`<div class="sheet${st.ov==='list'?' listsheet':''}${dk?' dksheet':''}"${again?' style="animation:none"':''} onclick="event.stopPropagation()">
-    ${OV_HELD(st.ov)?'':'<div class="grab"></div>'}${st.ov==='list'?listBarHTML():''}
+    ${OV_HELD(st.ov)?'':'<div class="grab"></div>'}${st.ov==='list'?(pg?dkDaysHTML():listBarHTML()):''}
     ${dk ? `<div class="dkgrid"><section class="dk" id="dk" aria-label="The player">${dkHTML()}</section>
-      <div class="dklist">${T[st.ov]?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}<div style="padding-top:14px">${body}</div></div></div>`
+      <div class="dklist">${(T[st.ov]&&!pg)?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}<div style="padding-top:${pg?4:14}px">${body}</div></div></div>`
     : `${T[st.ov]?`<h2 class="st">${esc(T[st.ov])}</h2>`:''}
     <div style="padding-top:14px">${body}</div>`}</div>`;
   const sheet=$('#ov').querySelector('.sheet');
@@ -17571,6 +17600,7 @@ function qTickAll(keys,el){
     if(q && typeof q.gi==='number'){ if(!any){ try{ rollTicks(); }catch(e){} any=true; } st.tick[key(st.day,q.gi,q.ii)]=on; } });
     if(any){ st.tickDay=dayKey(Date.now()); st.tickIdx=st.day; st.tickAt=Date.now(); try{ sendPlanSoon(); }catch(e){} } }
   save(); listKeep();
+  if(on && dkPageMode) dkClockStart();
   if(on && dkOn() && list.includes('q'+DK.i)){ const g=dkGroup(DK.i); setTimeout(()=>{ dkHalt(); if(g.l>=Q.length-1){ DK.phase='end'; } else dkLoad(g.l+1); dkPaint(); }, 0); }
   if(el) el.classList.toggle('on', on);
   const db=document.getElementById('dosebox-'+list[0]); if(db) db.innerHTML=doseAreaHTML(list[0], list);
@@ -17753,6 +17783,7 @@ function finishChecklist(){
      follow along (16 Oct 2026, review). */
   st.lastSessionMins=lsA ? lsReal : Math.max(1,took);
   lastSum={sets:ticked, of:(Q||[]).length, drills:[...rows.values()].filter(r=>r.got>0).length, done};
+  if(dkPageMode){ st.dkHeld=null; st.dkDone=new Date().toDateString()+':'+st.day; }
   st.qTick={}; st.reps={}; st.listHeld=null; save(); closeOv(); openOv('summary');
 }
 let lastSum=null;
@@ -17780,6 +17811,7 @@ function dkToggle(force){
   if(DK.phase==='end') return;
   try{ beepWake(); keepAwake(); }catch(e){}
   if(DK.left<=0) DK.left=DK.total;
+  if(dkPageMode) dkClockStart();
   DK.run=true; DK.last=Date.now();
   if(DK.t) clearInterval(DK.t);
   DK.t=setInterval(dkTick, 250);
@@ -17808,6 +17840,7 @@ function dkPhaseEnd(){
 }
 /* a set done: the list's tick, and a coached day's plan tick, as the follow along writes it */
 function dkMark(i){
+  if(dkPageMode) dkClockStart();
   st.qTick=st.qTick||{}; st.qTick['q'+i]=true;
   const q=Q[i];
   if(coachedView() && q && typeof q.gi==='number'){
@@ -17852,7 +17885,7 @@ function dkOverHTML(){
   const q=Q[DK.i]; if(!q) return '';
   const it=q.it, rest=DK.phase==='rest', end=DK.phase==='end', nq=Q[DK.i+1];
   const order=[...new Set(Q.map(x=>x.it.v))], di=order.indexOf(it.v)+1;
-  const r=dkRestSecs(DK.i), cues=(it.cues||[]).slice(0,3);
+  const r=dkRestSecs(DK.i), cues=(((it.cues&&it.cues.length)?it.cues:((drillById(it.v)||{}).cues||[]))).slice(0,3);
   if(end) return `<div class="dkend"><b>That is the lot.</b><span>Every set is ticked on the right.</span></div>`;
   return `<div class="dktop"><span class="dkpill">${di} OF ${order.length}${q.grp?' &middot; '+esc(String(q.grp).toUpperCase()):''}</span>
       <span class="dkpill dkset">${rest?'REST':'SET '+q.set+' OF '+q.sets}</span></div>
@@ -17908,6 +17941,38 @@ function dkNow(){
   if(DK.phase==='end') return;
   const box=document.getElementById('box-'+dkGroup(DK.i).keys[0]), row=box&&box.closest('.lrow');
   if(row){ row.classList.add('dknow'); try{ row.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(e){} }
+}
+/* ── a coached client's Plan on a laptop is this screen ───────────────
+   Elliott, 13 Nov 2026: the Plan page "goes but has the days / different
+   workouts at the top". It sits under the header like a page, the days are
+   tabs along the top, and what the plan has ticked today shows ticked. */
+let dkPageMode=false, dkGoNow=false;
+function dkClockStart(){ if(!((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); try{ woStart(); }catch(e){} } }
+function planDesk(day){
+  if(st.ov==='list' && dkPageMode) listKeep();
+  if(day!=null) st.day=day;
+  try{ rollTicks(); }catch(e){}
+  st.fixActive=null; st.miniOn=null; qSaved=null; qFix=null;
+  Q=queue(); qLabel=((DATA&&DATA.days&&DATA.days[st.day])||{}).label||'Your session';
+  const h=st.dkHeld, today=new Date().toDateString();
+  st.qTick={}; st.reps={};
+  if(h && h.day===st.day && h.d===today){ st.qTick=Object.assign({}, h.tick||{}); st.reps=Object.assign({}, h.reps||{}); }
+  if(st.dkDone!==today+':'+st.day) Q.forEach((q,i)=>{ if(st.tick[key(st.day,q.gi,q.ii)]) st.qTick['q'+i]=true; });
+  st.ovRow=null; st.listMode='work'; st.ovFull=true; st.ovList=false; save();
+  dkPageMode=true; DK.q=null;
+  if(st.ov==='list') drawOv(); else openOv('list');
+  if(dkGoNow){ dkGoNow=false; setTimeout(()=>{ if(dkOn()) dkToggle(true); }, 200); }
+}
+function dkDaysHTML(){
+  const days=(DATA&&DATA.days)||[], d=days[st.day]||{};
+  const lw=String(d.label||'Your session').trim().split(' '), last=lw.pop();
+  return `<div class="dkhead">
+    <div style="min-width:0"><div class="kick2" style="color:var(--forest)">YOUR PLAN${d.sub?' &middot; '+esc(String(d.sub).toUpperCase()):''}</div>
+      <h1 class="dkh1">${lw.length?esc(lw.join(' '))+' ':''}<em>${esc(last)}.</em></h1></div>
+    <span style="flex:1"></span>
+    ${days.length>1?`<div class="dkdays" role="tablist" aria-label="The days of your plan">${days.map((x,i)=>`<button role="tab" aria-selected="${i===st.day}" onclick="planDesk(${i})">${esc(x.label||('Day '+(i+1)))}</button>`).join('')}</div>`:''}
+    <button id="l-sound" class="lbtn lsnd" onclick="toggleSound()" aria-label="${soundOn()?'Sound on':'Sound off'}">${soundOn()?VB_SPK:VB_MUTED}</button>
+  </div>`;
 }
 /* Follow along on a laptop opens this screen, playing */
 function dkFromQueue(from){
@@ -27593,6 +27658,7 @@ function switchView(toFree, ok){
 
 function go(t){
   fxReadClose();
+  if(dkPageMode && st.ov==='list' && t!=='plan') closeOv();
   /* on a laptop the chat is the floating window, not a tab (13 Nov 2026);
      a paused or preview account still has the Chat tab */
   if((t==='cochat' || (t==='ask' && !st.paused)) && fchatAllowed()){ fchatSet(true); return; }
@@ -29086,7 +29152,7 @@ function render(){
   if(st.guideNext && st.oriented){ delete st.guideNext; if(!st.token) st.tourNext=1; }
   /* a sheet covers the page. Redrawing underneath it costs a flash and buys
      nothing — closeOv renders on the way out. */
-  if(st.ov && $('#ov') && $('#ov').classList.contains('on')){ renderPending=true; return; }
+  if(st.ov && $('#ov') && $('#ov').classList.contains('on') && !(st.ov==='list' && dkPageMode)){ renderPending=true; return; }
   renderPending=false;
   if(st.tab!=='fix') fxReadClose();
   if(st.tab!=='coaching' && typeof coOffer!=='undefined') coOffer=false;
@@ -29136,7 +29202,7 @@ function render(){
     app.classList.toggle('harail', !!app.querySelector('.tabbar'));
     app.classList.toggle('hdesk', !!app.querySelector('#dhead'));
     app.classList.toggle('hchat', !!app.querySelector('#side .schatcard'));
-    { const dh=app.querySelector('#dhead'); if(dh) app.style.setProperty('--dh', dh.offsetHeight+'px'); }
+    { const dh=app.querySelector('#dhead'); if(dh){ app.style.setProperty('--dh', dh.offsetHeight+'px'); document.documentElement.style.setProperty('--dh', dh.offsetHeight+'px'); } }
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
     /* arriving on the chat opens at the newest message rather than at the
        top and jumping down two frames later */
