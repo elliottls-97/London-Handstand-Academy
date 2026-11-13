@@ -9770,7 +9770,7 @@ function planLogBtn(k,it){
   if(got!=null) return `<button class="rt on" onclick="st.repOpen=st.repOpen==='${k}'?null:'${k}';save();render()">${got}${u} done</button>`;
   /* a number different from the dose, either way: it said "Did fewer?" and
      the stepper under it already went up as well as down */
-  return `<button class="rt" onclick="planOpenRep('${k}')">${u==='s'?'Log time':'Log reps'}</button>`;
+  return `<button class="rt" onclick="planOpenRep('${k}')">${logAsk(u)}</button>`;
 }
 function planOpenRep(k){ st.repOpen=k; save(); render(); }
 function planStepper(k,it){
@@ -14525,6 +14525,8 @@ function drawOv(){
                 cursor:pointer;font:700 12.5px/1 var(--sans);color:var(--forest);
                 font-variant-numeric:tabular-nums">${
                 esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</button>
+              <span id="did-${k}" style="font:600 12.5px/1 var(--sans);color:var(--deep)">${
+                (logged!=null && logged!==recommendedReps(it)) ? esc(logged+doseUnit(it.d)+' done') : ''}</span>
               ${(()=>{
                 const bits=[nSets>1?nSets+' sets':'',
                   someOn?grp.keys.filter(x=>(st.qTick||{})[x]).length+' of '+nSets+' done':''].filter(Boolean);
@@ -14554,7 +14556,7 @@ function drawOv(){
                 border:1px solid rgba(17,17,17,.12);border-radius:50%;background:#fff;cursor:pointer;
                 font:500 16px/1 var(--sans)">+</button>
               <span style="margin-left:auto;font:600 10px/1 var(--sans);letter-spacing:.12em;
-                color:var(--grey2)">REPS DONE</span>
+                color:var(--grey2)">${doseUnit(it.d)==='s'?'SECONDS DONE':'REPS DONE'}</span>
             </div>
             ${st.in?howPanelHTML(it.v,k):''}
             ${(()=>{
@@ -14587,7 +14589,7 @@ function drawOv(){
                    drill out for a week. */
                 const u=doseUnit(it.d);
                 const logB=`<button onclick="toggleStep('${k}')" id="dose-${k}"
-                  style="${logLook(logged!=null)}">${logged==null?(u==='s'?'Log time':'Log reps'):logged+u+' done'}</button>`;
+                  style="${logLook(logged!=null)}">${logged==null?logAsk(u):logged+u+' done'}</button>`;
                 /* a sore wrist, no wall, or a drill they simply cannot do this
                    week. It leaves this session and the ones after it for seven
                    days, rather than being skipped again every time. */
@@ -24293,21 +24295,27 @@ function agoShort(ms){
 
 /* in the working list the number is what you have actually done, not what the
    session asks for — logged per drill for the session record. */
+/* Ticking a drill already counts what it asked for. This is only for
+   doing more or less (Elliott, 13 Nov 2026), so it says that. */
+const logAsk = u => u==='s' ? 'Longer or shorter?' : 'More or fewer?';
 function adjustReps(k,by){
   st.reps=st.reps||{};
   const i=Number(String(k).slice(1));
   const base = st.reps[k]==null ? recommendedReps(((Q||[])[i]||{}).it||{}) : st.reps[k];
   const next=Math.max(0,base+by);
   st.reps[k]=next; save(); listKeep();
+  const it=((Q||[])[i]||{}).it||{}, u=doseUnit(it.d);
+  const want=recommendedReps(it);
   const a=document.getElementById('secs-'+k), b=document.getElementById('dose-'+k);
   if(a) a.textContent=String(next);
-  if(b){ b.textContent = next ? next+' done' : 'Log';
+  if(b){ b.textContent = next ? next+u+' done' : logAsk(u);
          b.setAttribute('style', logLook(!!next)); }
+  /* and on the row, so a closed row still says what they really did */
+  const did=document.getElementById('did-'+k);
+  if(did) did.textContent = (next && next!==want) ? next+u+' done' : '';
   /* fewer or more than it asked for is worth saying out loud: it went
      into the session either way, and the button going dark was the only
      acknowledgement there has ever been */
-  const it=((Q||[])[i]||{}).it||{};
-  const want=recommendedReps(it);
   sentLine('rsent-'+k, !next ? ''
     : next===want ? 'Counted: '+next+'. It goes with this session.'
     : next>want ? 'Counted: '+next+', '+(next-want)+' more than asked. It goes with this session.'
