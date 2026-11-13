@@ -2434,6 +2434,18 @@ button.px-step{cursor:pointer}
   .cnote p{margin:10px 0 0;font:400 18px/1.4 var(--serif);color:var(--deep)}
   .hcps .lc-r{padding:0!important}
   .hcps .lc-r:has(.lc-fb.new) .lc-p{background:rgba(243,169,73,.10)!important}
+  /* a form check answered, on a laptop (D5) */
+  .fcrep{display:flex;gap:24px;padding:22px!important;flex-wrap:wrap}
+  .fcrep-v{position:relative;flex:none;width:260px;max-width:100%;aspect-ratio:9/16;border:0;padding:0;border-radius:20px;overflow:hidden;
+    background:linear-gradient(180deg,#23302f,#11150f);cursor:pointer}
+  .fcrep-v img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .fcrep-v i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:50%;
+    background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+  .fcrep-v span{position:absolute;left:14px;right:14px;bottom:14px;font:600 12.5px/1.3 var(--sans);color:#fff;text-align:left;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+  .fcrep-x{flex:1 1 260px;min-width:0;display:flex;flex-direction:column}
+  .fcrep-t{margin:10px 0 0;font:400 21px/1.4 var(--serif);color:var(--deep)}
+  .fcrep-q{margin-top:18px;padding:14px 16px;border-radius:16px;background:rgba(0,102,99,.06);font:500 14px/1.45 var(--sans)}
+  .fcrep-q>div:last-child{margin-top:6px}
   /* Train on a laptop (the canvas) */
   .scroll.s.hwide>*{max-width:940px!important}
   .lcard{background:#fff;border-radius:26px;border:1px solid rgba(0,64,61,.10);padding:14px 26px 18px;margin-bottom:16px;
@@ -22221,9 +22233,13 @@ function classesCardHTML(max, where){
         <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc([wsTime(w), w.priceLabel].filter(Boolean).join(' · '))}</div>
         ${leftLine?`<div style="font:600 12px/1.3 var(--sans);margin-top:3px;color:${full||left<=3?'var(--red,#a4503c)':'var(--forest)'}">${esc(leftLine)}</div>`:''}
       </div>
-      <button onclick="wsBookOpen(${jsq(w.slug||'')})" style="flex:none;min-height:40px;padding:0 16px;border-radius:12px;cursor:pointer;
+      ${/* a class they have booked says so rather than offering it again (the canvas, 13 Nov 2026) */
+        (st.bookings||[]).some(b=>b && b.slug===w.slug && b.status==='booked')
+        ? `<span style="flex:none;display:inline-flex;align-items:center;gap:7px;font:600 13.5px/1 var(--sans);color:var(--forest)"><span
+            style="width:22px;height:22px;border-radius:50%;background:var(--forest);color:#fff;display:grid;place-items:center;font:700 11px/1 var(--sans)">&check;</span>You are booked</span>`
+        : `<button onclick="wsBookOpen(${jsq(w.slug||'')})" style="flex:none;min-height:40px;padding:0 16px;border-radius:12px;cursor:pointer;
         ${full?'border:1px solid rgba(0,64,61,.18);background:#fff;color:var(--deep)':'border:0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);box-shadow:0 6px 16px rgba(0,102,99,.22)'};
-        font:600 13.5px/1 var(--sans)">${full?'Wait list':'Book'}</button>
+        font:600 13.5px/1 var(--sans)">${full?'Wait list':'Book'}</button>`}
     </div>`;
   };
   return `<div class="card" style="padding:${where==='page'?'6px':'16px'} 18px 8px">
@@ -25507,6 +25523,29 @@ function screenCoaching(){
            it went, someone has it, the answer is back. Silence after
            uploading is what makes people think it vanished. */
         const done = !awaiting;
+        /* on a laptop an answer with a video is the video, large, beside
+           what Elliott said and what was asked (the canvas, D5) */
+        const ans=st.lastAnswer||{};
+        if(wide() && done && ans.video){
+          const sub=(st.subs||[]).find(x=>x.status==='reviewed') || {};
+          const asked=String(((sub.numbers||{}).question)||'').replace(/^Struggling with:\s*/i,'');
+          return `<div class="card fcrep">
+            <button class="fcrep-v" onclick="openReply('', ${jsq(ans.video)})" aria-label="Play ${esc(coachLabel())}'s video reply">
+              <img src="${esc(streamThumb(ans.video))}" alt="" onerror="this.remove()"><i><svg width="22" height="24" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i>
+              <span>Your video from ${esc(coachLabel())}</span></button>
+            <div class="fcrep-x">
+              <div class="kick2" style="color:var(--forest)">ANSWERED &middot; ${esc(String(when(st.lastReview)).toUpperCase())}</div>
+              ${ans.text?`<div class="kick2" style="color:var(--grey);margin-top:16px">WHAT ${esc(coachLabel().toUpperCase())} SAID</div>
+              <p class="fcrep-t">${esc(ans.text)}</p>`:''}
+              ${asked?`<div class="fcrep-q"><div class="kick2" style="color:var(--grey)">YOU ASKED</div><div>${esc(asked)}</div></div>`:''}
+              <div style="display:flex;gap:10px;margin-top:auto;padding-top:18px">
+                <button class="btn" style="flex:1;margin:0" onclick="openReply('', ${jsq(ans.video)})">Watch the reply</button>
+                <button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="st.seenReview=st.lastReview;save();render()">Got it</button></div>
+            </div></div>
+            ${fcCanOffer() ? `<div class="card" style="padding:22px;margin-top:16px"><div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
+              <div style="font:400 24px/1.15 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+              ${fcOfferHTML("buyPlan('checks')")}</div>` : ''}`;
+        }
         const steps = [
           ['Uploaded', 'Your clip is in.', true],
           ['With a coach', done
