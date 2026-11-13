@@ -2487,7 +2487,18 @@ button.px-step{cursor:pointer}
   .progduo{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;align-items:start;padding:8px 20px 40px;box-sizing:border-box}
   .progduo>div{min-width:0}
   .progduo .pd-k{color:var(--forest);padding:14px 20px 0}
+  .progduo>.pd-log,.progduo>.pd-over{background:#fff;border-radius:26px;border:1px solid rgba(0,64,61,.10);padding:8px 4px 16px;
+    box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+  .progduo .pd-log .calcard{box-shadow:none!important;border:0!important;background:transparent!important}
   .progduo .calcard{max-width:none}
+  .ptop{padding:24px 20px 0}
+  .ptop-h{font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:8px}
+  .ptop-h em,.pd-h em{color:var(--forest);font-style:normal}
+  .ptiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;padding:20px 20px 4px}
+  .ptile{padding:18px 20px!important}
+  .ptile-v{font:400 34px/1.05 var(--serif);margin-top:8px;white-space:nowrap}
+  .ptile-s{font:500 13px/1.3 var(--sans);color:var(--grey);margin-top:4px}
+  .pd-h{font:400 28px/1.05 var(--serif);padding:8px 20px 4px}
   /* the welcome for a new account */
   .scroll.s.hello{display:block!important;padding:0!important}
   .scroll.s.hello>.hwrap{max-width:1320px!important;margin:0 auto;padding:40px 36px 48px;box-sizing:border-box}
@@ -10142,6 +10153,26 @@ function doseUnit(d){ return /\bs(ec|econds)?\b|\d+\s*s\b/i.test(String(d||'')) 
    The Progress tab counted sessions and days and never once said how much
    work was done in them. These three are the answer to "how much": time on
    the floor, reps turned over, and seconds spent upside down. */
+/* Progress on a laptop (D2): how far in, then the week in four numbers */
+function progTilesHTML(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
+  const first=ss.length?Math.min(...ss.map(x=>x.at)):Date.now();
+  const n=Math.max(1, Math.floor((Date.now()-first)/(7*864e5))+1);
+  const W=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve'];
+  const wk=MONDAY(Date.now()), lastWk=wk-7*864e5, now=volumeBetween(wk,null), was=volumeBetween(lastWk,wk);
+  const P=cpProgress(curStage()), S=STAGES[curStage()]||STAGES[0];
+  const hm2=m=>m>=60?Math.floor(m/60)+' h '+(m%60)+' m':m+' m';
+  const dl=(a,b,u)=>(!b||!a)?'':(a>b?'up '+(a-b)+(u||'')+' on last week':a<b?'down '+(b-a)+(u||'')+' on last week':'level with last week');
+  const tile=(k,v,sub)=>`<div class="card ptile"><div class="kick2" style="color:var(--grey)">${k}</div><div class="ptile-v">${v}</div><div class="ptile-s">${sub}</div></div>`;
+  return `<div class="ptop"><div class="kick2" style="color:var(--forest)">PROGRESS &middot; WEEK ${n} OF YOUR RUN</div>
+    <div class="ptop-h">${W[n]?W[n]+' week'+(n===1?'':'s'):n+' weeks'} <em>in.</em></div></div>
+    <div class="ptiles">
+      ${tile('THIS WEEK', hm2(now.mins||0), now.whole+' session'+(now.whole===1?'':'s')+(now.sessions>now.whole?', '+(now.sessions-now.whole)+' part':''))}
+      ${tile('HELD', mmss(now.secs||0), 'upside down'+(dl(now.secs,was.secs,'s')?', '+dl(now.secs,was.secs,'s'):''))}
+      ${tile('REPS', String(now.reps||0), dl(now.reps,was.reps)||'this week')}
+      ${tile('CHECK POINTS', P.met+' of '+P.of, 'at '+esc(S.n))}
+    </div>`;
+}
 function volumeHero(){
   const wk=MONDAY(Date.now()), lastWk=wk-7*864e5;
   const now=volumeBetween(wk,null), was=volumeBetween(lastWk,wk);
@@ -22537,8 +22568,8 @@ function screenLadder(){
          were all here, and each was the calendar said again. A day opens
          under its own week; under the month is how each drill has moved.
          How well I know you is still in the menu. -->
-    ${duo ? `<div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div>${progressBody()}</div>
-      <div class="pd-over"><div class="kick2 pd-k">OVER TIME</div>${overBodyHTML()}</div></div>` : progressBody()}` : overBodyHTML()}
+    ${duo ? `${progTilesHTML()}<div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div>${progressBody()}</div>
+      <div class="pd-over"><div class="kick2 pd-k">OVER TIME</div><div class="pd-h">What has gone <em>up.</em></div>${overBodyHTML()}</div></div>` : progressBody()}` : overBodyHTML()}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
