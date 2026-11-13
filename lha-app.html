@@ -2399,6 +2399,12 @@ button.px-step{cursor:pointer}
   #side .composer>*{max-width:none!important}
   #side .bub>div,#side .bub>a{max-width:86%!important}
   #app.hchat #side{padding-left:14px;padding-right:22px}
+  /* Progress: the log and over time side by side, the page at full width */
+  .scroll.s.progwide>*{max-width:1260px!important}
+  .progduo{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;align-items:start;padding:8px 20px 40px;box-sizing:border-box}
+  .progduo>div{min-width:0}
+  .progduo .pd-k{color:var(--forest);padding:14px 20px 0}
+  .progduo .calcard{max-width:none}
   /* the welcome for a new account */
   .scroll.s.hello{display:block!important;padding:0!important}
   .scroll.s.hello>.hwrap{max-width:1320px!important;margin:0 auto;padding:40px 36px 48px;box-sizing:border-box}
@@ -19743,7 +19749,7 @@ function openClips(){
   else { st.coTab='check'; save(); go('coaching');
     setTimeout(()=>{ const el=[...document.querySelectorAll('#app .kick2')].find(e=>/YOUR CLIPS/.test(e.textContent)); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}); }, 200); }
 }
-function homeCps(){ st.homeCps=!st.homeCps; if(st.homeCps){ window._hcpsAt=Date.now(); if(coachedView()) try{ cpOpenNews(); }catch(e){} } save(); render(); }
+function homeCps(){ st.homeCps=!st.homeCps; st.homeCpsShut=!st.homeCps; if(st.homeCps){ window._hcpsAt=Date.now(); if(coachedView()) try{ cpOpenNews(); }catch(e){} } save(); render(); }
 /* the check points out of the capsule: the list, the finished stage's
    offer when there is one, and the way to fold it */
 /* the finished stage's offer, at the top of the list once every check
@@ -22214,7 +22220,8 @@ function screenLadder(){
   /* the six stages are ladderStripHTML(), along the top */
 
   const nxt=STAGES[cur+1];
-  return `<div class="scroll s">
+  const duo = wide() && ltab!=='tests' && !!st.token && !progFresh();
+  return `<div class="scroll s${duo?' progwide':''}">
     <!-- The green hero has gone the way of Today's. The stage you are on is
          the page, not a banner over it, and the stages below it are a spine
          rather than five cards that each carried the price. -->
@@ -22225,8 +22232,8 @@ function screenLadder(){
     <!-- Log and Over time stay on screen as the month scrolls under them
          (Elliott, 18 Oct 2026: "keep log and overtime buttons persistent") -->
     ${wide()?'':'<div style="height:calc(env(safe-area-inset-top) + 72px)"></div>'}
-    <div class="segstick" style="${
-      wide()?'top:0;padding-top:14px;padding-bottom:10px':'top:calc(env(safe-area-inset-top) + 71px);padding-top:12px;padding-bottom:10px'}">${ladderSeg()}</div>
+    ${(()=>{ const sg=ladderSeg(); return sg?`<div class="segstick" style="${
+      wide()?'top:0;padding-top:14px;padding-bottom:10px':'top:calc(env(safe-area-inset-top) + 71px);padding-top:12px;padding-bottom:10px'}">${sg}</div>`:''; })()}
     ${/* this week, said in words: it was two dots in the top bar */''}
     ${coachedView()?'':homeStreakHTML()}
     ${ltab==='tests' ? assessHTML() : !st.token ? `
@@ -22289,7 +22296,8 @@ function screenLadder(){
          were all here, and each was the calendar said again. A day opens
          under its own week; under the month is how each drill has moved.
          How well I know you is still in the menu. -->
-    ${progressBody()}` : overBodyHTML()}
+    ${duo ? `<div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div>${progressBody()}</div>
+      <div class="pd-over"><div class="kick2 pd-k">OVER TIME</div>${overBodyHTML()}</div></div>` : progressBody()}` : overBodyHTML()}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
@@ -22765,6 +22773,16 @@ function ladderTab(){
 }
 function ladderSeg(){
   const on=ladderTab();
+  /* on a laptop the log and over time sit side by side (13 Nov 2026) */
+  if(wide()){
+    if(!(strengthOn()||shoulderOn())) return '';
+    const w=on==='tests'?'tests':'log';
+    const b2=(k,l)=>`<button role="tab" aria-selected="${w===k}" onclick="st.ladderTab='${k}';save();render()" style="flex:1;cursor:pointer;
+      border:0;border-radius:999px;height:44px;font:${w===k?700:500} 15px/1 var(--sans);color:var(--deep);
+      background:${w===k?'#fff':'transparent'};box-shadow:${w===k?'0 1px 2px rgba(0,64,61,.08)':'none'}">${l}</button>`;
+    return `<div style="padding:0 20px"><div role="tablist" aria-label="Progress view" class="segrow"
+      style="display:flex;padding:4px;border-radius:999px;background:rgba(0,64,61,.07)">${b2('log','Log and over time')}${b2('tests','Assessments')}</div></div>`;
+  }
   const b=(k,l)=>`<button role="tab" aria-selected="${on===k}" onclick="st.ladderTab='${k}';save();render()" style="flex:1;cursor:pointer;
     border:0;border-radius:999px;height:44px;font:${on===k?700:500} 15px/1 var(--sans);color:var(--deep);
     background:${on===k?'#fff':'transparent'};box-shadow:${on===k?'0 1px 2px rgba(0,64,61,.08)':'none'};
@@ -26701,6 +26719,7 @@ function sideHTML(){
        they are; this column says what they have done. */
     /* the month, and a day opens to what was actually done in it. Not on
        the screen that already has it further down the page. */
+    if(t==='ladder' && wide() && st.token && ladderTab()!=='tests' && !progFresh()) return '';
     const onProgress = (t==='ladder' && ladderTab()==='progress');
     if(!onProgress && typeof trainingCalendar==='function'){
       try{ bits.push(trainingCalendar()); }catch(e){}
@@ -28392,6 +28411,10 @@ function render(){
   if(inPerson && wide() && st.tab==='bookings') st.tab='classes';
   if(sec==='co' && wide() && !coachedView() && st.tab==='coaching' && st.coTab==='chat') st.coTab='check';
   if(coached && wide() && st.tab==='ask' && !st.paused && !st.preview) st.tab='today';
+  /* a coached client on a laptop: their check points open on Home, beside
+     their session and the chat, unless they have folded them away */
+  if(coached && wide() && st.tab==='today' && !st.homeCps && !st.homeCpsShut && !window._cpsWide){
+    window._cpsWide=1; st.homeCps=true; window._hcpsAt=Date.now(); }
   const tabs=inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
     : coached ? TABS.coached.filter(([id])=>!(id==='ask' && wide() && !st.paused && !st.preview))
     : sec==='co' ? coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView()))
