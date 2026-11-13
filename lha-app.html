@@ -27,6 +27,19 @@
 .unplaced .hcap,.lvlwait>.hcps,.lvlwait .cstart{opacity:.42;filter:grayscale(.7);pointer-events:none}
 .hcap-cp{position:relative}
 .box.tpop{animation:tPop .38s cubic-bezier(.3,1.5,.5,1)}
+.dkring{position:relative;width:150px;height:150px;display:grid;place-items:center;margin-left:auto}
+.dkring svg{position:absolute;inset:0;width:100%;height:100%}
+.dkring #dkclock{position:relative;font-size:46px!important;text-shadow:none!important}
+.dkring #dkarc{transition:stroke-dashoffset .25s linear}
+.kick2.cpgold{animation:cpGold 1.4s ease}
+@keyframes cpGold{0%{color:inherit}20%{color:#d68c10;transform:scale(1.06)}60%{color:#d68c10;transform:none}100%{}}
+.cpburst{position:absolute;left:40px;top:50%;width:0;height:0;pointer-events:none}
+.cpburst i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:2px;background:#f3a949;opacity:0;
+  animation:cpSpark .85s cubic-bezier(.2,.8,.2,1) both}
+.cpburst i:nth-child(3n){background:#e8962f}
+.cpburst i:nth-child(3n+1){background:#fcd69a}
+@keyframes cpSpark{0%{opacity:1;transform:rotate(var(--a)) translateY(0) scale(.6)}100%{opacity:0;transform:rotate(var(--a)) translateY(calc(-1 * var(--d))) scale(1)}}
+@media (prefers-reduced-motion: reduce){.kick2.cpgold,.cpburst i{animation:none}}
 @keyframes tPop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion: reduce){.box.tpop{animation:none}}
 .hcap-cp .cpr2{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;transform-origin:50% 50%}
@@ -9221,9 +9234,23 @@ function repaintCp(k){
   });
   cpRepaintCounts();
 }
+/* the phone's capsule ring flashes gold when one is reached; a laptop has no
+   capsule, so the card's count does it: gold, and a burst from it */
+function cpCelebrate(){
+  const h=document.querySelector('.hcps .hcps-h .kick2'); if(!h) return;
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  h.classList.remove('cpgold'); void h.offsetWidth; h.classList.add('cpgold');
+  if(still) return;
+  const b=document.createElement('span'); b.className='cpburst'; b.setAttribute('aria-hidden','true');
+  b.innerHTML=Array.from({length:10},(_,i)=>`<i style="--a:${i*36}deg;--d:${34+(i%3)*12}px"></i>`).join('');
+  h.style.position='relative'; h.appendChild(b); setTimeout(()=>b.remove(), 1000);
+}
 /* every count of the check points on screen, from the tab to the heading */
 function cpRepaintCounts(){
   const p=(st.ov==='stage') ? cpProgress(st.ovStage||0) : cpProgress();
+  try{ const key=(st.ov==='stage'?'s'+(st.ovStage||0):'c'+curStage()), prev=(window._cpMetPrev||{})[key];
+    window._cpMetPrev=Object.assign({}, window._cpMetPrev||{}, {[key]:p.met});
+    if(wide() && prev!=null && p.met>prev) setTimeout(cpCelebrate, 60); }catch(e){}
   const cnt=document.getElementById('cpcount');
   if(cnt) cnt.textContent=p.met+' of '+p.of+(coachedView()?' signed off':' reached');
   const bar=document.getElementById('cpbar');
@@ -18083,7 +18110,7 @@ function dkOverHTML(){
           cuesOf(nq.it).length?`<ul>${cuesOf(nq.it).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}</div>`
         : cues.length ? `<div class="dkcues"><b>HOW TO DO IT</b><ul>${cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>` : '<span></span>'}
       <div class="dkline" aria-hidden="true"><i id="dkfill" style="width:${DK.total?Math.max(0,Math.min(100,DK.left/DK.total*100)):0}%"></i></div>
-      <div class="dkclock"><div id="dkclock">${fmtT(Math.max(0,DK.left))}</div>
+      <div class="dkclock">${rest ? `<div class="dkring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="54" fill="rgba(0,0,0,.32)" stroke="rgba(255,255,255,.22)" stroke-width="6"/><circle id="dkarc" cx="60" cy="60" r="54" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" transform="rotate(-90 60 60)" stroke-dasharray="339.3" stroke-dashoffset="${(339.3*(1-(DK.total?DK.left/DK.total:0))).toFixed(1)}"/></svg><div id="dkclock">${fmtT(Math.max(0,DK.left))}</div></div>` : `<div id="dkclock">${fmtT(Math.max(0,DK.left))}</div>`}
         <small>${rest ? 'rest' : esc(perSet(it.d, q.sets)||'')+(r&&dkAuto()?' &middot; then '+r+' s rest':'')}</small></div>
     </div>`;
 }
@@ -18130,14 +18157,27 @@ function dkHTML(){
 function dkPaint(){
   const box=document.getElementById('dk'); if(!box) return;
   const q=Q[DK.i];
-  if(q && DK.film!==q.it.v){ const fv=document.getElementById('dkvid'); if(fv){ fv.innerHTML=dkFilmHTML(q.it); DK.film=q.it.v; } }
+  if(q && DK.film!==q.it.v){ const fv=document.getElementById('dkvid'); if(fv){
+    /* the next drill slides in as the last slides out (Elliott, 13 Nov 2026) */
+    const oldEl=fv.firstElementChild, tmp=document.createElement('div'); tmp.innerHTML=dkFilmHTML(q.it);
+    const nu=tmp.firstElementChild; DK.film=q.it.v;
+    if(nu) fv.appendChild(nu);
+    const still=(()=>{ try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } })(), ease='cubic-bezier(.2,.8,.2,1)';
+    if(oldEl && nu && !still && typeof nu.animate==='function'){
+      oldEl.style.zIndex='1';
+      const a=oldEl.animate([{transform:'none'},{transform:'translateX(-100%)'}],{duration:440,easing:ease});
+      a.onfinish=()=>oldEl.remove();
+      nu.animate([{transform:'translateX(100%)'},{transform:'none'}],{duration:440,easing:ease});
+    } else if(oldEl) oldEl.remove();
+  } }
   const o=document.getElementById('dkover'); if(o) o.innerHTML=dkOverHTML();
   const c=document.getElementById('dkctl'); if(c) c.innerHTML=dkCtlHTML();
   const nx=document.getElementById('dknx'); if(nx) nx.innerHTML=dkNextHTML();
   const mo=document.getElementById('dkmo'); if(mo) mo.innerHTML=dkMoreHTML();
   dkNow();
 }
-function dkClock(){ const f=document.getElementById('dkfill'); if(f && DK.total) f.style.width=Math.max(0,Math.min(100,DK.left/DK.total*100))+'%';
+function dkClock(){ const arc=document.getElementById('dkarc'); if(arc && DK.total) arc.setAttribute('stroke-dashoffset',(339.3*(1-Math.max(0,DK.left)/DK.total)).toFixed(1));
+  const f=document.getElementById('dkfill'); if(f && DK.total) f.style.width=Math.max(0,Math.min(100,DK.left/DK.total*100))+'%';
   const c=document.getElementById('dkclock'); if(c){ c.textContent=fmtT(Math.max(0,DK.left)); c.classList.toggle('urgent', DK.left<=5 && DK.left>0 && DK.phase==='work'); } }
 /* the card the player is on, picked out in the list */
 function dkNow(){
