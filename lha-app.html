@@ -26,6 +26,9 @@
 .unplaced .ls-n{color:var(--grey2)!important;font-weight:500!important}
 .unplaced .hcap,.lvlwait>.hcps,.lvlwait .cstart{opacity:.42;filter:grayscale(.7);pointer-events:none}
 .hcap-cp{position:relative}
+.box.tpop{animation:tPop .38s cubic-bezier(.3,1.5,.5,1)}
+@keyframes tPop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.box.tpop{animation:none}}
 .hcap-cp .cpr2{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;transform-origin:50% 50%}
 .hcap-cp>span{position:relative;padding-left:6px}
 .hcap-cp b{font:600 16px/1.1 var(--sans);color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
@@ -2591,6 +2594,34 @@ button.px-step{cursor:pointer}
   .hcol{display:flex;flex-direction:column;gap:16px}
   .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
   .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
+  .hwk{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}
+  .hwk-d{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 0;border-radius:12px;background:rgba(0,64,61,.04)}
+  .hwk-d small{font:600 10px/1 var(--sans);letter-spacing:.1em;color:var(--grey2)}
+  .hwk-d b{font:600 15px/1 var(--sans);color:var(--ink)}
+  .hwk-d.on{background:var(--deep)} .hwk-d.on small,.hwk-d.on b{color:#fff}
+  .hwk-d.pt{background:var(--sage)} .hwk-d.pt b{color:var(--deep)}
+  .hwk-d.now{box-shadow:inset 0 0 0 1.5px var(--forest)}
+  .hls-r{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid rgba(0,64,61,.08);font:500 14px/1.3 var(--sans)}
+  .hls-r b{font:600 14px/1.3 var(--sans);color:var(--forest);white-space:nowrap;text-align:right}
+  .hls-r b span{display:block;font:500 11.5px/1.3 var(--sans);color:var(--grey2)}
+  .dkmore{padding:16px 18px;border-radius:20px;background:rgba(0,64,61,.04)}
+  .dkmore small{display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey)}
+  .dkmore p{margin:8px 0 0;font:400 15px/1.55 var(--sans);color:var(--ink)}
+  .dkmore-l{margin-top:8px;font:500 13.5px/1.4 var(--sans);color:var(--grey)}
+  .dkmore-l b{color:var(--forest)}
+  .ses-steps{list-style:none;margin:12px 0 0;padding:0}
+  .ses-steps li{display:flex;gap:14px;padding:12px 0;border-top:1px solid rgba(0,64,61,.08);font:500 15px/1.45 var(--sans);color:var(--ink)}
+  .ses-steps b{color:var(--forest)}
+  /* small movement only (Elliott, 13 Nov 2026) */
+  .dkline{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.18)}
+  .dkline i{display:block;height:100%;background:rgba(255,255,255,.85);transition:width .25s linear}
+  #fchat.fnew .fpill{animation:fpLift .9s ease}
+  #fchat.fnew .fpill i{animation:fpPop .5s cubic-bezier(.3,1.6,.5,1) .15s both}
+  #fchat.fnew .fpeek{animation:fpPeek .45s cubic-bezier(.2,.8,.2,1) .25s both}
+  @keyframes fpLift{0%{transform:none}30%{transform:translateY(-6px)}55%{transform:none}75%{transform:translateY(-2px)}100%{transform:none}}
+  @keyframes fpPop{from{transform:scale(0)}to{transform:scale(1)}}
+  @keyframes fpPeek{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){#fchat.fnew .fpill,#fchat.fnew .fpill i,#fchat.fnew .fpeek{animation:none}}
   /* Learn on a laptop: the films as a grid of cards, not a phone list */
   .scroll.s.lrnwide>*{max-width:1320px!important}
   .lrnwide .lrn-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}
@@ -3303,7 +3334,7 @@ function screenTodayWide(d, dl, total, ticked, mins, name){
         <button onclick="go('progress')">All of it</button></div>
       ${/* no tiles: the month, open on the last day they trained (Elliott,
            13 Nov 2026: "expand the latest day that they did a session") */''}
-      ${(()=>{ try{ return calLatestOpen(()=>trainingCalendar()); }catch(e){ return ''; } })()}
+      ${(()=>{ try{ return homeWeekHTML(); }catch(e){ return ''; } })()}
     </div>
   </div>
   <div style="height:26px"></div></div>`;
@@ -10346,6 +10377,32 @@ function checkinCard(){
 function calShift(by){ st.calOff=Math.max(0,Math.min(11,(st.calOff|0)+by)); st.calDay=null; save(); render(); }
 /* the day opens where it is, and is brought on screen if the week is low */
 let calPickedAt=0;
+/* coached Home: this week as seven days and the last session opened, so it
+   fits the screen; the month is on Progress (Elliott, 13 Nov 2026) */
+function homeWeekHTML(){
+  const ss=((st.prog&&st.prog.sessions)||[]).filter(x=>x&&x.at);
+  const mon=MONDAY(Date.now()), today=dayKey(Date.now()), L=['M','T','W','T','F','S','S'];
+  let n=0;
+  const cells=L.map((l,i)=>{ const t=mon+i*864e5, k=dayKey(t), list=ss.filter(x=>dayKey(x.at)===k);
+    const done=list.some(x=>x.done), part=list.length>0 && !done; if(list.length) n++;
+    return `<div class="hwk-d${done?' on':part?' pt':''}${k===today?' now':''}"><small>${l}</small><b>${new Date(t).getDate()}</b></div>`; }).join('');
+  const last=ss.length ? ss.reduce((a,b)=>a.at>b.at?a:b) : null;
+  const when=last ? new Date(last.at).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}) : '';
+  const items=last ? (last.items||[]).slice(0,4).map(it=>{
+      const amt = it.reps ? it.reps+(it.unit==='s'?'s':'')+(it.want?` <span>${it.want}${it.unit==='s'?'s':''} asked</span>`:'') : (it.of ? (it.got||0)+' of '+it.of+' sets' : '');
+      return `<div class="hls-r"><span>${esc(it.n||'')}</span><b>${amt}</b></div>`; }).join('') : '';
+  return `<div class="card" style="padding:18px 18px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="kick2">THIS WEEK</span>
+        <span style="font:500 12.5px/1 var(--sans);color:var(--grey)">${n} day${n===1?'':'s'} trained</span></div>
+      <div class="hwk">${cells}</div></div>
+    <div class="card" style="padding:18px 18px 14px">
+      <span class="kick2">LAST SESSION</span>
+      ${last ? `<div style="font:400 20px/1.2 var(--serif);margin-top:8px">${esc(when)}</div>
+        <div style="font:500 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">${last.done?'Finished':'Part of it'}${(last.actual||last.mins)?' &middot; '+(last.actual||last.mins)+' min':''}${last.of?' &middot; '+(last.got||0)+' of '+last.of+' sets':''}</div>
+        ${items?`<div style="margin-top:10px">${items}</div>`:''}`
+      : `<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Nothing logged yet. Your first session shows here.</div>`}
+    </div>`;
+}
 /* the month drawn with the last trained day open, when no day has been picked */
 function calLatestOpen(fn){
   if(st.calDay) return fn();
@@ -15310,19 +15367,9 @@ function drawOv(){
       </div>${restChip(after)}`;}).join('');
     const mins=qMins();
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
-    body=`<div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
-        ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes including rest${
-          ticked?' · '+ticked+' done':''}</div>
-      <!-- the same workout, run for you. It is the first thing on the list
-           rather than an alternative to it. -->
-      ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px"
-        onclick="closeOv();startQueue(0)">Start follow along</button>`}
-      <!-- Keep it for another day, or keep it for no signal as well. The
-           free session at a paid stage had neither: the row was hidden, so
-           the one workout somebody was given at their stage could not be
-           taken to a gym with no signal. It can now, and it opens until it
-           has been done. -->
-      ${(()=>{
+    /* Keep and Save: above the list on a phone, under it on a laptop, so
+       the drills come first (Elliott, 13 Nov 2026) */
+    const saveRowsHTML=(()=>{
         const urls=(Q||[]).map(q=>itUrl(q.it));
         const vs=[...new Set((Q||[]).map(q=>q.it&&q.it.v).filter(Boolean))];
         const key='q'+dlHash(vs), meta={kind:'q', wrist:!!st.ovList,
@@ -15338,8 +15385,22 @@ function drawOv(){
            films of a paid stage stop being handed out once it is spent, so
            a kept copy would open on another day and play nothing. */
         if(window._dlAuto){ window._dlAuto=0; setTimeout(()=>{ if(dlLists[key]) dlStart(key); }, 150); }
-        return `<div style="margin:-4px 0 14px">${meta.taste?'':keepRow(key, urls, meta)}${dlRow(key, urls, meta)}</div>`; })()}
+        return `<div style="margin:-4px 0 14px">${meta.taste?'':keepRow(key, urls, meta)}${dlRow(key, urls, meta)}</div>`; })();
+    body=`<div id="qcount" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin:-6px 0 14px">
+        ${qDrills()} drills · ${(Q||[]).length} sets · ${mins} minutes including rest${
+          ticked?' · '+ticked+' done':''}</div>
+      <!-- the same workout, run for you. It is the first thing on the list
+           rather than an alternative to it. -->
+      ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px"
+        onclick="closeOv();startQueue(0)">Start follow along</button>`}
+      <!-- Keep it for another day, or keep it for no signal as well. The
+           free session at a paid stage had neither: the row was hidden, so
+           the one workout somebody was given at their stage could not be
+           taken to a gym with no signal. It can now, and it opens until it
+           has been done. -->
+      ${dkOn()?'':saveRowsHTML}
       <div style="display:flex;flex-direction:column;gap:9px">${rows}</div>
+      ${dkOn()?`<div style="margin-top:18px">${saveRowsHTML}</div>`:''}
       ${(function(){ const a=asideList(); if(!a.length) return '';
         /* so a shorter session is explained rather than mysterious, and
            there is one place to change your mind */
@@ -16019,7 +16080,7 @@ function drawOv(){
     const setsN = ls ? ls.sets : q.length;
     const mins=st.lastSessionMins||0;
     const stat=(v,l)=>`<div style="flex:1;text-align:center">
-      <div class="h-sm" style="font-size:26px">${v}</div>
+      <div class="h-sm" style="font-size:26px" data-count="${parseInt(v,10)||0}" data-suf="${esc(String(v).replace(/^\d+/,''))}">${v}</div>
       <div style="font:600 9.5px/1 var(--sans);letter-spacing:.13em;color:var(--grey2);
         margin-top:6px">${l}</div></div>`;
     /* the moment a session ends is the one moment worth making a fuss of */
@@ -16027,7 +16088,7 @@ function drawOv(){
       <div class="burst">${Array.from({length:18},(_,i)=>
         `<i style="--a:${(i*20)}deg;--d:${60+(i%5)*22}px;--t:${(i%6)*90}ms;
           background:${['var(--amber)','var(--forest)','var(--sand)','var(--sage)'][i%4]}"></i>`).join('')}</div>
-      <div class="h-xl" style="font-size:58px;color:var(--forest);position:relative">${setsN}</div>
+      <div class="h-xl" style="font-size:58px;color:var(--forest);position:relative" data-count="${parseInt(setsN,10)||0}" data-suf="">${setsN}</div>
       <div class="kick2" style="margin-top:8px">${ls && !ls.done ? 'OF '+ls.of+' SETS DONE' : 'SETS DONE'}</div>
       <div class="h-lg" style="margin-top:20px">${onLadder
         ? (ls && !ls.done ? 'Part of it, logged.' : esc(qLabel||'That session')+', done.') : "That's "+esc(d.label)+' done.'}</div>
@@ -16129,9 +16190,24 @@ function drawOv(){
   if(sheet && sheetTop && !dk) sheet.scrollTop=sheetTop;
   if(dk){ const nl=$('#ov').querySelector('.dklist'); if(nl && listTop) nl.scrollTop=listTop; dkNow(); }
   if(sheet && !OV_HELD(st.ov)) bindSheetDrag(sheet);
+  if(st.ov==='summary' && !again) countUp(sheet);
   mountCaptions();
 }
 
+/* the numbers at the end of a session run up to what was done */
+function countUp(root){
+  if(!root) return;
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  if(still) return;
+  const els=[...root.querySelectorAll('[data-count]')].filter(e=>Number(e.dataset.count)>0);
+  if(!els.length) return;
+  const t0=performance.now(), dur=800;
+  const frame=t=>{ const k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3);
+    els.forEach(el=>{ el.textContent=Math.round(Number(el.dataset.count)*e)+(el.dataset.suf||''); });
+    if(k<1) requestAnimationFrame(frame); };
+  els.forEach(el=>{ el.textContent='0'+(el.dataset.suf||''); });
+  requestAnimationFrame(frame);
+}
 /* Drag the sheet down to dismiss it. Only starts when the sheet is already
    scrolled to the top, so a downward swipe through a long list still scrolls
    the list rather than throwing it away. */
@@ -17713,7 +17789,7 @@ function qTickAll(keys,el){
   save(); listKeep();
   if(on && dkPageMode) dkClockStart();
   if(on && dkOn() && list.includes('q'+DK.i)){ const g=dkGroup(DK.i); setTimeout(()=>{ dkHalt(); if(g.l>=Q.length-1){ DK.phase='end'; } else dkLoad(g.l+1); dkPaint(); }, 0); }
-  if(el) el.classList.toggle('on', on);
+  if(el){ el.classList.toggle('on', on); if(on){ el.classList.remove('tpop'); void el.offsetWidth; el.classList.add('tpop'); } }
   const db=document.getElementById('dosebox-'+list[0]); if(db) db.innerHTML=doseAreaHTML(list[0], list);
   const row=el&&(el.closest('.lrow')||el.closest('div[style*="border-radius:16px"]'));
   if(row) row.style.background = on ? '#faf8f5' : '#fff';
@@ -17963,7 +18039,8 @@ function dkMark(i){
 }
 function dkRowPaint(i){
   const g=dkGroup(i), k=g.keys[0], on=g.keys.some(x=>(st.qTick||{})[x]);
-  const box=document.getElementById('box-'+k); if(box) box.classList.toggle('on', on);
+  const box=document.getElementById('box-'+k); if(box){ const was=box.classList.contains('on'); box.classList.toggle('on', on);
+    if(on && !was){ box.classList.remove('tpop'); void box.offsetWidth; box.classList.add('tpop'); } }
   const db=document.getElementById('dosebox-'+k); if(db) db.innerHTML=doseAreaHTML(k, g.keys);
   const nm=document.getElementById('name-'+k);
   if(nm){ nm.style.color=on?'var(--grey2)':''; nm.style.textDecoration=on?'line-through':''; }
@@ -18005,6 +18082,7 @@ function dkOverHTML(){
       ${rest && nq ? `<div class="dkcues"><b>NEXT &middot; SET ${nq.set} OF ${nq.sets}</b><div style="margin-top:8px;font:600 16px/1.3 var(--sans)">${esc(nq.it.n)}</div>${
           cuesOf(nq.it).length?`<ul>${cuesOf(nq.it).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}</div>`
         : cues.length ? `<div class="dkcues"><b>HOW TO DO IT</b><ul>${cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>` : '<span></span>'}
+      <div class="dkline" aria-hidden="true"><i id="dkfill" style="width:${DK.total?Math.max(0,Math.min(100,DK.left/DK.total*100)):0}%"></i></div>
       <div class="dkclock"><div id="dkclock">${fmtT(Math.max(0,DK.left))}</div>
         <small>${rest ? 'rest' : esc(perSet(it.d, q.sets)||'')+(r&&dkAuto()?' &middot; then '+r+' s rest':'')}</small></div>
     </div>`;
@@ -18023,6 +18101,16 @@ function dkCtlHTML(){
     <span class="dkauto"><span><b>Moves on by itself</b><small>${on?'Rest, then the next set, on its own':'Waits for you after every set'}</small></span>
       <button class="dksw${on?' on':''}" role="switch" aria-checked="${on}" aria-label="Moves on by itself" onclick="dkAutoFlip()"><span></span></button></span>`;
 }
+/* under the player: what the drill is for and what you did last time */
+function dkMoreHTML(){
+  if(DK.phase==='end') return '';
+  const q=Q[DK.i]; if(!q) return '';
+  const it=q.it, d=drillById(it.v)||{}, desc=it.desc||d.desc||'';
+  const last=lastReps(it.v), hist=repsHistory(it.v).slice(0,4), u=doseUnit(it.d)==='s'?'s':'';
+  if(!desc && !last) return '';
+  return `<div class="dkmore"><small>THIS DRILL</small>${desc?`<p>${esc(desc)}</p>`:''}${last?`<div class="dkmore-l">Last time <b>${last.reps}${u}</b> &middot; ${esc(agoShort(last.at))}${
+    hist.length>1?` &middot; before that ${hist.slice(1).map(x=>x.reps+u).join(', ')}`:''}</div>`:''}</div>`;
+}
 /* the next drill, not the next set: what to get ready for */
 function dkNextHTML(){
   if(DK.phase==='end') return '';
@@ -18037,7 +18125,7 @@ function dkNextHTML(){
 function dkHTML(){
   const q=Q[DK.i]; DK.film=q?q.it.v:'';
   return `<div class="dkstage"><div class="dkvid" id="dkvid">${q?dkFilmHTML(q.it):''}</div><div id="dkover">${dkOverHTML()}</div></div>
-    <div class="dkctl" id="dkctl">${dkCtlHTML()}</div><div id="dknx">${dkNextHTML()}</div>`;
+    <div class="dkctl" id="dkctl">${dkCtlHTML()}</div><div id="dknx">${dkNextHTML()}</div><div id="dkmo">${dkMoreHTML()}</div>`;
 }
 function dkPaint(){
   const box=document.getElementById('dk'); if(!box) return;
@@ -18046,9 +18134,11 @@ function dkPaint(){
   const o=document.getElementById('dkover'); if(o) o.innerHTML=dkOverHTML();
   const c=document.getElementById('dkctl'); if(c) c.innerHTML=dkCtlHTML();
   const nx=document.getElementById('dknx'); if(nx) nx.innerHTML=dkNextHTML();
+  const mo=document.getElementById('dkmo'); if(mo) mo.innerHTML=dkMoreHTML();
   dkNow();
 }
-function dkClock(){ const c=document.getElementById('dkclock'); if(c){ c.textContent=fmtT(Math.max(0,DK.left)); c.classList.toggle('urgent', DK.left<=5 && DK.left>0 && DK.phase==='work'); } }
+function dkClock(){ const f=document.getElementById('dkfill'); if(f && DK.total) f.style.width=Math.max(0,Math.min(100,DK.left/DK.total*100))+'%';
+  const c=document.getElementById('dkclock'); if(c){ c.textContent=fmtT(Math.max(0,DK.left)); c.classList.toggle('urgent', DK.left<=5 && DK.left>0 && DK.phase==='work'); } }
 /* the card the player is on, picked out in the list */
 function dkNow(){
   document.querySelectorAll('.lrow.dknow').forEach(r=>r.classList.remove('dknow'));
@@ -23017,6 +23107,16 @@ function screenSessions(){
   const opt=(k,l)=>`<button onclick="leaveTo('/session.html?kind=${k}')" style="flex:1;min-height:56px;border-radius:16px;cursor:pointer;
     border:0;background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);box-shadow:0 10px 24px rgba(0,102,99,.25);
     font:600 15px/1.2 var(--sans)">${l}${ipPrice('session'+k)?'<span style="display:block;font:500 12.5px/1 var(--sans);opacity:.85;margin-top:5px">'+esc(ipPrice('session'+k))+'</span>':''}</button>`;
+  if(wide()) return `<div class="scroll s cowide">${ipHead('1-2-1 &middot; OverGravity, Shadwell','One to '+ipEm('one.'))}
+    <div class="cogrid" style="padding-top:18px">
+      <div class="cocol"><div class="card" style="padding:22px 24px">
+        <div style="font:400 16px/1.5 var(--sans);color:var(--ink)">An hour or ninety minutes with ${esc(coachLabel())}, on whatever is in your way.</div>
+        <div style="display:flex;gap:12px;margin-top:18px">${opt(60,'60 min')}${opt(90,'90 min')}</div></div>
+        ${next||''}</div>
+      <div class="cocol"><div class="card" style="padding:22px 24px"><div class="kick2">WHAT HAPPENS NEXT</div>
+        <ol class="ses-steps"><li><b>1</b>Pay now to hold a session.</li><li><b>2</b>We agree the time in the chat within 48 hours.</li><li><b>3</b>Credited if you start coaching within 14 days.</li></ol></div>
+        ${ipLadderLine()}</div>
+    </div><div style="height:60px"></div></div>`;
   return `<div class="scroll s">${ipHead('1-2-1 &middot; OverGravity, Shadwell','One to '+ipEm('one.'))}
     ${next?`<div class="pad" style="padding-top:18px">${next}</div>`:''}
     <div class="pad" style="padding-top:18px"><div class="card" style="padding:18px 20px">
@@ -23760,8 +23860,8 @@ function ladderStripHTML(o){
     : (o.home && yourLvl>-1) ? `<button class="ls-line" onclick="openStage(${yourLvl})">${
       (earned && yourLvl===cur+1) ? `<b>${esc(STAGES[cur].n)}</b> done. ${esc(STAGES[yourLvl].n)} is next, with the full Ladder.`
         : `Your answers put you at <b>${esc(STAGES[yourLvl].n)}</b>, which opens with the full Ladder.`} <span>${PRICE_TRIAL()>0?'Try it free':sellsLadder()?'See the full Ladder':'See what is in it'} &rarr;</span></button>`
-    : o.home ? `<button class="ls-line" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">${
-      esc(STAGES[0].n)} is free. <span>The rest come with the full Ladder &rarr;</span></button>` : `<div class="ls-free">
+    : (o.home && (coachedView() || !sellsLadder())) ? `<button class="ls-line" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">${
+      esc(STAGES[0].n)} is free. <span>The rest come with the full Ladder &rarr;</span></button>` : o.home ? '' : `<div class="ls-free">
       <span style="grid-column:1 / ${FREE_STAGES+1}">Free</span>
       <button style="grid-column:${FREE_STAGES+1} / ${STAGES.length+1}" onclick="openStage(${Math.min(last, Math.max(FREE_STAGES, cur+1))})">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#006663" stroke-width="2.4" stroke-linecap="round"
@@ -27701,7 +27801,7 @@ function sideChatHTML(float){
 /* where the chat floats: anywhere on a laptop once opened, and as a pill on
    the screens the chat belongs to (sideChatOn) */
 const fchatAllowed = () => { try{ return wide() && !!st.token && !st.preview; }catch(e){ return false; } };
-let fchatAnim=false;
+let fchatAnim=false, fchatSeenN=-1;
 function fchatSet(open){
   st.fchat = open ? 'open' : 'min'; save();
   if(open){ chatSeenAtOpen=st.seenMsgAt||0; markChatSeen(); fchatAnim=true; }
@@ -27717,7 +27817,8 @@ function fchatHTML(){
   /* coached Home already shows the newest reply as a card of its own */
   const words=(last && !(coachedView() && st.tab==='today')) ? String(last.text||'').trim() : '';
   const peek=words ? `<button class="fpeek" onclick="fchatSet(true)"><b>${esc(coachLabel().toUpperCase())}</b>${esc(words.length>110 ? words.slice(0,108).trim()+'…' : words)}</button>` : '';
-  return `<div id="fchat">${peek}<button class="fpill" onclick="fchatSet(true)" aria-label="Chat with ${esc(coachLabel())}${n?', '+n+' new':''}">
+  const fresh = n>0 && n>fchatSeenN; fchatSeenN=n;
+  return `<div id="fchat"${fresh?' class="fnew"':''}>${peek}<button class="fpill" onclick="fchatSet(true)" aria-label="Chat with ${esc(coachLabel())}${n?', '+n+' new':''}">
     <span class="scph">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>Chat with ${esc(coachLabel())}${n?`<i>${n}</i>`:''}</button></div>`;
 }
 function sideBookingsHTML(){
@@ -29509,7 +29610,7 @@ function render(){
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${PREVIEW_ALL?'everything unlocked':esc(st.client||st.email||'client')} &middot; read only</div>`:'')
-    +deskHead(bar)+topBar()+screens[st.tab]()+sideHTML()+fchatHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
+    +deskHead(tabs.length<2?'':bar)+topBar()+screens[st.tab]()+sideHTML()+fchatHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
   /* nothing was redrawn, so there is nothing to wire up again: watchScroll
      and watchPull add listeners, and would add a second set to the same box */
   if(skipped) return;
