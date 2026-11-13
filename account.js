@@ -31,8 +31,8 @@
   };
   var chipHTML = function () {
     return on
-      ? '<a class="acct-link" href="/lha-app.html?ref=site-acct' + tq + '" title="Signed in as ' + esc(email) + '"><span class="acct-av">' + esc(initials()) + '</span>Your account</a>'
-      : '<a class="acct-link" href="/lha-app.html?signin=1&amp;ref=site-acct' + tq + '">Sign in</a>';
+      ? '<a class="acct-link" data-app-direct href="/lha-app.html?ref=site-acct' + tq + '" title="Signed in as ' + esc(email) + '" aria-label="Your account"><span class="acct-av">' + esc(initials()) + '</span>Your account</a>'
+      : '<a class="acct-link" data-app-direct href="/lha-app.html?signin=1&amp;ref=site-acct' + tq + '">Sign in</a>';
   };
   /* a page's own button made the account button (the homepage's top right): its look is kept,
      its words and link follow the sign in */

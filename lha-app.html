@@ -963,7 +963,9 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 .lglass.g3 button.on{width:44px;color:var(--deep)}
 .lglass.g3 button:not(.on) span{display:none}
 .lglass.g3 .lglass-th{width:44px;transform:translateX(calc(var(--i,0) * 44px))}
-@media (min-width:375px){
+/* from 340px: the app in the website's window on a phone is about 350 wide,
+   and the section you are in should still say its name (13 Nov 2026) */
+@media (min-width:340px){
  .lglass.g3 button:not(.on){width:40px}
  .lglass.g3 button.on{width:112px}
  .lglass.g3 button.on span{display:inline}
@@ -12382,7 +12384,7 @@ function loadBookings(){
       /* somebody whose only history here is a booking (a class or a 1-2-1
          booked on the website) opens In person, once; their choice after
          that is theirs */
-      if(st.viewChosen==null && !st.in && !quizzed() && !((st.prog&&st.prog.sessions)||[]).length && st.bookings.length){
+      if(st.viewChosen==null && !st.in && !st.coached && !quizzed() && !((st.prog&&st.prog.sessions)||[]).length && st.bookings.length){
         st.viewChosen='auto'; st.inPerson=true; st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free';
         if(['home','ladder','coaching','quiz','start'].indexOf(st.tab)>-1) st.tab='classes'; }
       save(); if(!st.ov) render(); } }).catch(()=>{});
@@ -12495,7 +12497,11 @@ function nextSessionHTML(){
 function bookingsHTML(){
   if(!st.token) return '';
   if(!bookingsAsked){ bookingsAsked=true; loadBookings(); }
-  const list=(st.bookings||[]).filter(b=>b.status==='booked' || b.status==='toArrange' || (Date.now()-new Date(b.when).getTime())<7*864e5);
+  /* one that has happened is not still coming up: a 1-2-1 from five weeks ago
+     sat there with Add to calendar (13 Nov 2026). Past ones stay a week, as DONE. */
+  const gone=b=>b.when && new Date(b.when).getTime() < Date.now()-3*3600e3;
+  const list=(st.bookings||[]).filter(b=>b.status==='toArrange' || (b.status==='booked' && !gone(b)) || (b.when && (Date.now()-new Date(b.when).getTime())<7*864e5))
+    .map(b=>(b.status==='booked' && gone(b)) ? Object.assign({}, b, {status:'done', ics:'', moveTo:[], canCancel:false, change:''}) : b);
   if(!list.length) return '';
   const when=b=>b.when?new Date(b.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'Time to be agreed';
   return `<div class="card" style="padding:16px 18px;margin-bottom:16px">
@@ -19182,7 +19188,7 @@ function goSection(to){
   if(to==='classes'){ st.coView=false; st.ipPick=1; setView('inperson');
     const t=secTabFor('classes',['classes','bookings','sessions'],'classes'); if(t!=='classes') go(t); return; }
   if(to==='co'){
-    st.inPerson=false; st.ipPick=0; st.coView=true;
+    st.inPerson=false; st.ipPick=0; st.coView=true; if(!st.in) st.viewChosen='coaching';
     if(st.in){ st.asFree=false; st.viewChosen='coaching'; save(); closeMenu();
       go(msgsNew()>0 ? 'ask' : secTabFor('co',['today','plan','progress','ask'],'today')); return; }
     save(); closeMenu();
@@ -19190,8 +19196,9 @@ function goSection(to){
     go((msgsNew()>0) ? 'cochat' : answerNew()>0 ? 'cocheck' : secTabFor('co',['cocheck','cochat'].concat(coPlansOn()?['coplans']:[]),'cocheck'));
     return;
   }
-  /* a ladder: the Handstand one, or the Muscle Up one */
-  st.coView=false; st.ipPick=0;
+  /* a ladder: the Handstand one, or the Muscle Up one. A choice made, so
+     nothing moves them to Classes on its own after this */
+  st.coView=false; st.ipPick=0; st.viewChosen='ladder';
   if(st.in && !st.asFree){ st.inPerson=false; save(); switchView(true);
     if(st.asFree && (to==='mu')!==isMU()) pickLadder(to); return; }
   if(st.inPerson){ st.inPerson=false; st.viewChosen='ladder'; }
@@ -21054,7 +21061,8 @@ function screenHome(){
       <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
       <div style="font:400 21px/1.2 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
       ${fcOfferHTML("buyPlan('checks')")}</div></div>` : ''}
-    ${fcProgress() && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
+    ${/* and for a class booker trying the app, who never answered them (13 Nov 2026) */''}
+    ${(fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
 
     <!-- ── build today's session ──────────────────────────────────
@@ -27460,7 +27468,9 @@ function tourPlaceAt(el){
      its top part, so nothing lit is hidden (Elliott, 18 Oct 2026). A full
      screen one (the player) is lit whole, with the card over its foot. */
   const full = r.height > vhh * .9;
-  const h = full ? Math.min(vhh - 8, r.height + pad*2) : Math.max(24, Math.min(r.height + pad*2, cardY - 12 - top));
+  /* a tab in the bar sits under the card, not over it: lit whole */
+  const below = r.top >= cardY;
+  const h = (full || below) ? Math.min(vhh - 8, r.height + pad*2) : Math.max(24, Math.min(r.height + pad*2, cardY - 12 - top));
   const px = v => Math.round(v) + 'px';
   /* the hole slides; CSS transitions carry it */
   if(hole.style.top !== px(top)) hole.style.top = px(top);
@@ -27470,7 +27480,7 @@ function tourPlaceAt(el){
   /* a pointer on the card's top edge, under the middle of what is lit, so
      it is plain which part of the screen the words are about */
   const cr = card.getBoundingClientRect(), cx = Math.max(28, Math.min(cr.width - 28, (left + w/2) - cr.left));
-  card.style.setProperty('--px', cx + 'px'); card.classList.toggle('tour-ptr', !full);
+  card.style.setProperty('--px', cx + 'px'); card.classList.toggle('tour-ptr', !full && !below);
 }
 /* The lit part follows what it points at for as long as the step is up.
    It was measured once, as the step opened, and on a phone the page is
@@ -27562,13 +27572,17 @@ function paintTour(){
      What it points at is scrolled up clear of it. */
   card.style.top = 'auto';
   card.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 14px)';
+  /* a tab along the bottom (Learn, 13 Nov 2026): the card sits above the bar
+     rather than scrolling the whole app up to reach it */
+  const inBar = el.closest('nav.tabbar');
+  if(inBar) card.style.bottom = (Math.round(window.innerHeight - inBar.getBoundingClientRect().top) + 12)+'px';
   const vhh = window.innerHeight;
   /* the start of what it points at goes just under the top bar whenever
      any of it would sit behind the card or above the screen */
   const cardY = tourCardY(card);
   { const r0 = el.getBoundingClientRect();
     const stick0=document.querySelector('#app .segstick'), top0=(stick0 && !stick0.contains(el)) ? stick0.getBoundingClientRect().bottom+4 : 70;
-    if((r0.bottom > cardY - 12 || r0.top < top0) && r0.height < vhh * .9){
+    if(!inBar && (r0.bottom > cardY - 12 || r0.top < top0) && r0.height < vhh * .9){
       const sc = el.closest('.scroll, .sheet') || document.scrollingElement;
       /* room at the foot while the tour runs, so the last thing on a page
          can still come up clear of the card */
@@ -27955,6 +27969,10 @@ document.addEventListener('DOMContentLoaded',function(){
     { const to=q.get('to'); if(to==='classes' || to==='coaching') st.landTo=to;
       else if(q.get('setpw')==='1' && q.get('ref')==='booked') st.landTo='classes';
       if(st.landTo){ save(); if(st.token){ try{ history.replaceState(null,'',location.pathname); }catch(e){} landSection(); } } }
+    /* straight from booking a class in this tab: the email they booked with
+       is already known, so it is filled in (13 Nov 2026) */
+    if((q.get('setpw')==='1' || q.get('signin')==='1') && !st.token && !st.email){
+      try{ const bk=JSON.parse(sessionStorage.getItem('lha_bk')||'null'); if(bk && bk.e) st.email=String(bk.e).trim().toLowerCase(); }catch(e){} }
     if(q.get('setpw')==='1' && !st.token){ try{ history.replaceState(null,'',location.pathname); }catch(e){}
       st.tab='reset'; st.signinFirst=true; save(); setTimeout(()=>{ try{ resetFirst=true; resetStep=0; resetMsg=''; render(); }catch(e){} }, 0); }
     if(q.get('signin')==='1'){ try{ history.replaceState(null,'',location.pathname); }catch(e){}

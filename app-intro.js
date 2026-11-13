@@ -18,7 +18,7 @@
   function mount(I, opts){
   opts = opts || {}; addCss();
   var D = document;
-  I.innerHTML = HTML + '<div class="awi-cta"><button type="button" class="awi-go">' + (opts.go || 'Find out your stage') + '</button><button type="button" class="awi-log">' + (opts.login || 'Log in') + '</button>' + (opts.store ? STORE : '') + '</div>';
+  I.innerHTML = HTML + '<div class="awi-cta"><button type="button" class="awi-go">' + (opts.go || 'Find out your stage') + '</button><button type="button" class="awi-log">' + (opts.login || 'Sign in') + '</button>' + (opts.store ? STORE : '') + '</div>';
   var bg = I.querySelector('.awi-bg'),
       ft = I.querySelector('.awi-ft'), tabsEl = I.querySelector('.awi-tabs'), scene = I.querySelector('.awi-scene'),
       fi = 0, twoT = null, timers = [];
