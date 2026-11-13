@@ -2351,7 +2351,7 @@ button.px-step{cursor:pointer}
   #app.hdesk #side{right:var(--dgut);padding-left:8px;padding-right:36px}
   .scroll.s.hwide{padding-left:calc(var(--dgut) + 16px)!important}
   .scroll.s.hwide>*{max-width:none!important}
-  #dhead{flex:none;position:relative;z-index:40;background:rgba(244,244,245,.86);
+  #dhead{flex:none;position:relative;z-index:40;background:rgba(252,252,252,.9);
     backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);
     border-bottom:1px solid rgba(0,64,61,.10)}
   #dhead .drow{max-width:1320px;margin:0 auto;padding:12px 36px;display:flex;align-items:center;gap:26px;box-sizing:border-box}
@@ -2573,6 +2573,14 @@ button.px-step{cursor:pointer}
   .hcol{display:flex;flex-direction:column;gap:16px}
   .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
   .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
+  /* a whiter ground on a laptop (Elliott, 13 Nov 2026): the same washes,
+     lighter, over near white; the cards keep their hairline and shadow */
+  #app.hdesk{background:
+    radial-gradient(circle at 15% 8%,rgba(0,102,99,.04),transparent 40%),
+    radial-gradient(circle at 90% 30%,rgba(143,190,202,.07),transparent 45%),
+    radial-gradient(circle at 30% 80%,rgba(243,169,73,.03),transparent 40%),
+    #fcfcfc}
+  body:has(#app.hdesk){background:#fcfcfc}
   /* a stage opened from the ladder, on a laptop: the film, the words and the
      button side by side, not a phone card stretched across the page
      (Elliott, 13 Nov 2026) */
@@ -2636,6 +2644,9 @@ button.px-step{cursor:pointer}
   .dkdays{display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)}
   .dkdays button{min-height:40px;padding:0 16px;border:0;border-radius:11px;background:transparent;cursor:pointer;font:600 13.5px/1 var(--sans);color:var(--grey)}
   .dkdays button[aria-selected="true"]{background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)}
+  .pipcard{position:relative;width:100%;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    background:#11150f;color:rgba(255,255,255,.88);line-height:1.4;font:600 14px/1.4 var(--sans);border-radius:inherit}
+  .pipcard button{min-height:40px;padding:0 18px;border-radius:999px;border:0;background:#fff;color:var(--deep);font:600 13.5px/1 var(--sans);cursor:pointer}
   .lrow.dknow{border-color:rgba(243,169,73,.75)!important;box-shadow:inset 0 0 0 1px rgba(243,169,73,.55);background:#fffaf2!important}
   .hlist{padding:16px 16px 10px!important}
   .hlist-t{font:400 21px/1.08 var(--serif);margin-top:8px}
@@ -6484,6 +6495,51 @@ function pipToggle(v){
     else { const r=v.requestPictureInPicture(); if(r&&r.catch) r.catch(()=>{}); }
   }catch(err){}
 }
+/* ── picture in picture that lasts (13 Nov 2026) ─────────────────────
+   A page change replaces the page, and a film taken off a page is paused,
+   so the floating window froze the moment you went anywhere else in the
+   app. While it floats the film lives outside the page; its place shows a
+   card with a way back; when the window closes it goes back to its place,
+   or stops if that place has gone. Laptops only: a phone keeps its dock. */
+let pipKeep=null;
+function pipHold(){
+  let h=document.getElementById('pipHold');
+  if(!h){ h=document.createElement('div'); h.id='pipHold'; h.setAttribute('aria-hidden','true');
+    h.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;overflow:hidden;opacity:0;pointer-events:none;z-index:-1';
+    document.body.appendChild(h); }
+  return h;
+}
+function pipEnter(v){
+  if(!v || v.tagName!=='VIDEO' || !wide() || (pipKeep && pipKeep.v===v) || (v.closest && v.closest('#pipHold'))) return;
+  try{
+    const playing=!v.paused, inTheatre=!!(vpFrom && vpFrom.wrap && vpFrom.wrap.contains(v));
+    const card=document.createElement('div'); card.className='pipcard';
+    card.innerHTML='<span>Playing in picture in picture</span><button type="button">Bring it back</button>';
+    card.querySelector('button').addEventListener('click', ev=>{ ev.stopPropagation(); pipExit(v); });
+    if(v.parentElement) v.parentElement.insertBefore(card, v);
+    pipHold().appendChild(v);
+    pipKeep={v, card};
+    /* the full screen player shuts, so the page is there to use */
+    if(inTheatre) vpClose();
+    if(playing && v.paused) v.play().catch(()=>{});
+  }catch(err){}
+}
+function pipExit(v){
+  try{ if(document.pictureInPictureElement===v) document.exitPictureInPicture();
+    else if(v.webkitSetPresentationMode) v.webkitSetPresentationMode('inline'); }catch(e){}
+}
+function pipLeave(v){
+  const k=pipKeep; if(!k || k.v!==v) return;
+  pipKeep=null;
+  if(k.card && k.card.isConnected){
+    const wrap=k.card.parentElement; k.card.replaceWith(v);
+    if(wrap && v.dataset.vp && !wrap.querySelector('.vp-bar')) wrap.appendChild(vpBar(v,false));
+  } else { try{ v.pause(); }catch(e){} v.remove(); }
+}
+document.addEventListener('enterpictureinpicture', e=>pipEnter(e.target), true);
+document.addEventListener('leavepictureinpicture', e=>pipLeave(e.target), true);
+document.addEventListener('webkitpresentationmodechanged', e=>{ const v=e.target; if(!v || v.tagName!=='VIDEO') return;
+  if(v.webkitPresentationMode==='picture-in-picture') pipEnter(v); else pipLeave(v); }, true);
 /* chapters in the phase intros, from the labels on screen in each film
    (Elliott, 12 Nov 2026: "points on the video, like chapters on YouTube").
    [seconds, name]; a film without a list plays as before. */
@@ -6506,7 +6562,7 @@ function vpBar(v, theatre){
    +'<span class="vp-t" data-a="dur">0:00</span>'
    +(theatre && vpChapters(v)?'<button class="vp-btn" data-a="chaps" aria-label="Chapters">'+VP_CHAPS+'</button>':'')
    +(theatre?'<button class="vp-btn" data-a="speed" aria-label="Speed"></button>':'')
-   +(theatre?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
+   +((theatre && !wide())?'<button class="vp-btn" data-a="turn" aria-label="Rotate">'+VP_TURN+'</button>':'')
    /* a film you can keep watching while you carry on reading the page,
       or while you set yourself up on the floor */
    /* the film's sound. The follow along had no control for it at all, so
@@ -6568,7 +6624,7 @@ function vpBar(v, theatre){
     paint(); };
   const pip=q('pip');
   if(pip) pip.onclick=e=>{ e.stopPropagation(); pipToggle(v); };
-  if(theatre) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
+  if(theatre && q('turn')) q('turn').onclick=e=>{ e.stopPropagation(); vpRotate(); };
   /* speed, one setting for every film in the theatre, kept (9 Nov 2026:
      "there is no way to speed up the video") */
   const spd=q('speed');
@@ -6706,7 +6762,7 @@ function vpClose(){
   wrap.setAttribute('style', css);
   parent.insertBefore(wrap, next || null);
   if(vpMark && vpMark.parentElement) vpMark.remove();
-  wrap.appendChild(vpBar(v,false));
+  if(v) wrap.appendChild(vpBar(v,false));
   if(v){ try{ v.currentTime=at; }catch(e){} if(playing) v.play().catch(()=>{}); }
   const t=document.getElementById('theatre'); if(t) t.classList.remove('on');
   document.body.style.overflow='';
@@ -6724,6 +6780,8 @@ function vpKeys(e){
   if(e.key===' '){ e.preventDefault(); v.paused?filmPlay(v):v.pause(); }
   if(e.key==='ArrowRight') v.currentTime=Math.min(v.duration||0, v.currentTime+5);
   if(e.key==='ArrowLeft') v.currentTime=Math.max(0, v.currentTime-5);
+  if(e.key==='m' || e.key==='M'){ toggleSound(v.muted); }
+  if((e.key==='p' || e.key==='P') && vpPipOk(v)) pipToggle(v);
 }
 function vpRotate(){ vpTurn=(vpTurn+90)%180; vpFit(); vpWake(); }
 /* the chapters as a list over the film: tap one to go there */
