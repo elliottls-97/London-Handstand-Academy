@@ -15,7 +15,7 @@
 .hcap-cp b{font:600 16px/1.1 var(--sans);color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
 .hcap-cp small{display:flex;align-items:center;gap:6px;margin-top:3px;font:500 14px/1.1 var(--sans);color:var(--grey);white-space:nowrap}
 .hcap-cp small em{font-style:normal}
-.cpr-tk{flex:none;width:17px;height:17px;border-radius:50%;background:#19b3aa;display:inline-flex;align-items:center;justify-content:center}
+.cpr-tk{flex:none;width:17px;height:17px;border-radius:50%;background:#d68c10;display:inline-flex;align-items:center;justify-content:center}
 .cpr-tk[hidden]{display:none}
 
 /* the Stage cleared sheet (Elliott's canvas, 19 Oct 2026): resting styles
@@ -19467,15 +19467,18 @@ function cpRingRun(el){
     const doneMix=Math.max(0,Math.min(1,S.doneMix==null?1:S.doneMix)), moving=!!S.moving;
     const amberMix=done?1-doneMix:0, greenMix=done?doneMix:0, amber=amberMix>.5;
     /* yellow while it fills (Elliott, 12 Nov 2026: "the checkpoint circle might want to be
-       yellow"), green once the stage is done */
-    let deep=[214,128,32], bright=[243,169,73];
-    deep=lerp(deep,[30,122,114],greenMix); bright=lerp(bright,[96,182,170],greenMix);
+       yellow"), and more yellow the more of it is done, ending gold rather than
+       turning green (13 Nov 2026: "as more complete it becomes more yellow instead
+       of the green"): one done is a pale sand, nearly all a full amber */
+    const fill=0.3+0.7*Math.min(1,frac);
+    let deep=lerp([238,206,140],[226,152,34],fill), bright=lerp([250,228,176],[248,192,70],fill);
+    deep=lerp(deep,[222,150,18],greenMix); bright=lerp(bright,[252,206,74],greenMix);
     if(open && !done){ deep=lerp(deep,[170,98,18],.35); bright=lerp(bright,[214,128,32],.35); }
     const hot=[252,214,150];
     const NB=16, reached=frac*P;
     /* open: the ring says so, not the pill's whole inside (Elliott, 19 Oct
        2026: change the colour of the circle when check points is open) */
-    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="${open?'rgba(214,128,32,0.45)':'rgba(243,169,73,0.28)'}" stroke-width="5"/>`;
+    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="${open?'rgba(214,128,32,0.40)':'rgba(243,169,73,0.16)'}" stroke-width="5"/>`;
     if(reached>0.5) for(let i=0;i<NB;i++){
       let col=lerp(deep,bright,Math.min(1,((i+0.5)/NB)*(reached/P)));
       const len=reached/NB, t0=Math.max(0,i*len-1.2), t1=Math.min(reached,(i+1)*len+1.2), n=Math.max(2,Math.ceil((t1-t0)/3));
@@ -19488,20 +19491,20 @@ function cpRingRun(el){
     const sparksOn=sparkT>=0 && sparkT<=1;
     if(sparksOn){ const travel=6+36*sparkT;
       SP.forEach((b,i)=>{ out+=`<circle cx="${f1(b[0]*W+b[2]*travel)}" cy="${f1(b[1]*H+b[3]*travel)}" r="${b[4]/2}"
-        fill="${i%2?'#f3a949':'#19b3aa'}" opacity="${(1-sparkT).toFixed(2)}"/>`; }); }
+        fill="${i%2?'#f3a949':'#ffd98a'}" opacity="${(1-sparkT).toFixed(2)}"/>`; }); }
     svg.innerHTML=out;
     let track=[253,248,240];
-    if(done) track=lerp([253,245,232],[232,246,244],doneMix);
+    if(done) track=lerp([253,245,232],[254,243,212],doneMix);
     if(swellT>0) track=lerp(track,[253,240,218],swellT);
     btn.style.background=hex(track);
-    const glowRgb=amber?'250,200,120':'47,211,200';
+    const glowRgb='250,200,120';
     svg.style.filter = swellT>0.02 ? `drop-shadow(0 0 6px rgba(${glowRgb},${f1(.95*swellT)})) drop-shadow(0 0 16px rgba(${glowRgb},${f1(.6*swellT)}))`
-      : moving ? 'drop-shadow(0 0 5px rgba(25,179,170,0.55))' : 'none';
+      : moving ? 'drop-shadow(0 0 5px rgba(243,169,73,0.65))' : 'none';
     svg.style.transform = swellT>0.02 ? `scale(${(1+.03*swellT).toFixed(3)})` : '';
     const tickT=S.tickT==null?-1:S.tickT;
     if(tick){ if(tickT<0) tick.hidden=true; else { tick.hidden=false;
       tick.style.transform='scale('+(tickT<.7?1.18*(tickT/.7):1.18-.18*((tickT-.7)/.3)).toFixed(3)+')';
-      tick.style.background=hex(lerp([243,169,73],[0,102,99],doneMix)); } }
+      tick.style.background=hex(lerp([243,169,73],[214,140,16],doneMix)); } }
     if(num && S.count!=null) num.textContent=cpCountWords(S.count, S.total||of);
   };
   const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
@@ -19592,7 +19595,7 @@ function capsuleHTML(go, label, pillOnly){
   return `<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
-        style="background:${(P.of&&P.met>=P.of)?'#e8f6f4':'#f2f7f7'}">
+        style="background:${(P.of&&P.met>=P.of)?'#fef3d4':'#fdf8f0'}">
         ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
         <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of ? cpCountWords(P.met, P.of) : 'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
