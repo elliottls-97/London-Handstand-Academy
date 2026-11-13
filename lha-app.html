@@ -2342,7 +2342,15 @@ button.px-step{cursor:pointer}
     backdrop-filter:none;-webkit-backdrop-filter:none;padding-top:26px}
   #app.hdesk .coachseg{left:40px!important}
   #app.hdesk .composer{left:0}
-  #app.hdesk.haside #dhead{margin-right:calc(-1 * var(--aside))}
+  #app.hdesk.haside #dhead{margin-right:calc(-1 * (var(--aside) + var(--dgut)))}
+  /* the page and its side column sit inside the header's 1320px, so there is
+     no gap opening between them on a wide window (Elliott, 13 Nov 2026: "too
+     much margin especialy between the learn and the calendar") */
+  #app.hdesk{--dgut:max(0px, calc((100vw - 1320px) / 2))}
+  #app.hdesk.haside{padding-right:calc(var(--aside) + var(--dgut))}
+  #app.hdesk #side{right:var(--dgut);padding-left:8px;padding-right:36px}
+  .scroll.s.hwide{padding-left:calc(var(--dgut) + 16px)!important}
+  .scroll.s.hwide>*{max-width:none!important}
   #dhead{flex:none;position:relative;z-index:40;background:rgba(244,244,245,.86);
     backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);
     border-bottom:1px solid rgba(0,64,61,.10)}
@@ -2564,6 +2572,7 @@ button.px-step{cursor:pointer}
   .hduo>*{min-width:0}
   .hcol{display:flex;flex-direction:column;gap:16px}
   .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
+  .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
   .hlist{padding:16px 16px 10px!important}
   .hlist-t{font:400 21px/1.08 var(--serif);margin-top:8px}
   .hlist-t em{color:var(--forest);font-style:normal}
@@ -21590,7 +21599,13 @@ function screenHome(){
      check points open in their own card beside it rather than under the pill */
   const W=wide();
   const startLabel = W ? `Start session<small class="hcap-sub">${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small>` : 'Start session';
-  const homeRow = !trialPending() ? `${capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W)}${cpDayCardHTML(true)}` : '';
+  /* on a laptop the check points pill goes: the list itself is on the page,
+     so it moves up under the ladder and Start sits over Learn (Elliott, 13 Nov 2026) */
+  const homeRow = trialPending() ? '' : W ? (cpDayCardHTML(true) || '<span hidden></span>')
+    : `${capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W)}${cpDayCardHTML(true)}`;
+  const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
+      <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
+      <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>` : '';
   const sessIds = _rest ? ((typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills) || []) : (((_day && dayDrills(_day, curStage())) || S.drillIds || []));
 
     /* the question box, under the rail on a phone so the films come first
@@ -21633,7 +21648,7 @@ function screenHome(){
     ${trialPending() ? firstPlacedHTML() : homeLadderHTML(homeRow)}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
-    ${(W && !trialPending()) ? `<div class="hduo hduo2 rise rise-2">${homeCpsHTML()}${learnListHTML()}</div>` : ''}
+    ${(W && !trialPending()) ? `<div class="hduo hduo2 rise rise-2">${homeCpsHTML()}<div class="hcol">${deskStart}${learnListHTML()}</div></div>` : ''}
 
     <!-- ── build today's session ──────────────────────────────────
          On a phone this is one green button and the two questions are
