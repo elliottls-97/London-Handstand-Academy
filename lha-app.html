@@ -2399,6 +2399,14 @@ button.px-step{cursor:pointer}
   #side .composer>*{max-width:none!important}
   #side .bub>div,#side .bub>a{max-width:86%!important}
   #app.hchat #side{padding-left:14px;padding-right:22px}
+  /* an account made by booking: the class first */
+  .chello{padding-top:26px!important}
+  .chcard{display:flex;flex-wrap:wrap;padding:0!important;overflow:hidden;margin-top:24px}
+  .chcard>img{flex:1 1 220px;min-width:0;width:220px;min-height:300px;max-height:380px;object-fit:cover}
+  .chcard>div{flex:2 1 320px}
+  .chalso{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:12px}
+  .chal{display:flex;gap:14px;align-items:center;padding:12px!important;text-align:left;cursor:pointer;border-radius:22px}
+  .chal img{flex:none;width:76px;height:76px;border-radius:16px;object-fit:cover}
   /* Progress: the log and over time side by side, the page at full width */
   .scroll.s.progwide>*{max-width:1260px!important}
   .progduo{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;align-items:start;padding:8px 20px 40px;box-sizing:border-box}
@@ -19441,6 +19449,8 @@ function goSection(to){
    a class page opens Classes, or Bookings when a class is coming up, the
    form check page opens Coaching. The homepage says nothing, so the app
    opens wherever they were last. Kept through a sign in. */
+const nextClassBooking = () => (st.bookings||[]).filter(b=>b && b.status==='booked' && b.when && new Date(b.when).getTime()>Date.now())
+  .sort((a,b)=>new Date(a.when)-new Date(b.when))[0] || null;
 const upcomingClass = () => (st.bookings||[]).some(b=>b && b.status==='booked' && b.when && new Date(b.when).getTime()>Date.now());
 function landSection(){
   const to=st.landTo; if(!to || !st.token) return false;
@@ -22065,8 +22075,52 @@ function ipSessionLine(){
       <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">60 or 90 minutes with ${esc(coachLabel())}${from?', from '+esc(from):''}.</span></span>
     <span style="flex:none;font:400 18px/1 var(--sans);color:var(--grey2)">&rsaquo;</span></button>`;
 }
+/* ── an account made by booking a class, on a laptop (13 Nov 2026) ──
+   The class is the thing they came for, so it leads: the booking with the
+   way there, then the other three things the account can do, small. Once:
+   it goes when they leave Classes. */
+function classHelloHTML(b){
+  const d=new Date(b.when), day=d.toLocaleDateString('en-GB',{weekday:'long',timeZone:'Europe/London'});
+  const tile=`<div style="width:74px;flex:none;text-align:center;border-radius:16px;padding:10px 0;background:var(--deep);color:var(--on-primary)">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.1em">${esc(d.toLocaleDateString('en-GB',{weekday:'short',timeZone:'Europe/London'}).toUpperCase())}</div>
+    <div style="font:400 34px/1.05 var(--serif)">${d.toLocaleDateString('en-GB',{day:'numeric',timeZone:'Europe/London'})}</div>
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.1em">${esc(d.toLocaleDateString('en-GB',{month:'short',timeZone:'Europe/London'}).toUpperCase())}</div></div>`;
+  const time=d.toLocaleTimeString('en-GB',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:'Europe/London'}).replace(':00','').replace(/\s/g,'').toLowerCase();
+  const name=(st.client||'').split(' ')[0];
+  const also=(img,kick,h,line,on)=>`<button class="card chal" onclick="${on}"><img src="${img}" alt="" loading="lazy">
+    <span style="flex:1;min-width:0"><span class="kick2" style="display:block;color:var(--forest)">${kick}</span>
+      <b style="display:block;margin-top:7px;font:400 20px/1.15 var(--serif);color:var(--ink)">${h}</b>
+      <span style="display:block;margin-top:4px;font:500 13px/1.4 var(--sans);color:var(--grey)">${line}</span></span></button>`;
+  return `<div class="pad chello">
+    <div class="kick2" style="color:var(--forest)">BOOKED &middot; YOUR ACCOUNT IS READY</div>
+    <div style="font:400 46px/.98 var(--serif);letter-spacing:-.015em;margin-top:10px">See you on ${ipEm(esc(day)+(name?', '+esc(name):'')+'.')}</div>
+    <div class="card chcard">
+      <img src="/assets/site/arch2-group-kick-ups.jpg" alt="A class at OverGravity">
+      <div style="flex:1;min-width:0;padding:24px 26px">
+        <div style="display:flex;gap:16px;align-items:center">${tile}
+          <div style="flex:1;min-width:0"><div style="font:400 26px/1.08 var(--serif)">${esc(b.title||'Your class')}</div>
+          <div style="font:500 14px/1.45 var(--sans);color:var(--grey);margin-top:5px">${esc(time)}${b.place?' &middot; '+esc(b.place):''}</div></div></div>
+        ${calLinks(b)}
+        <div style="margin-top:16px;display:flex;flex-direction:column;gap:2px;font:500 14px/1.45 var(--sans)">
+          <div style="padding:9px 0;border-top:1px solid rgba(0,64,61,.08)"><span style="color:var(--forest);font-weight:700">&check;</span>&nbsp; Paid. Your receipt is in your email.</div>
+          <div style="padding:9px 0;border-top:1px solid rgba(0,64,61,.08)"><span style="color:var(--forest);font-weight:700">&check;</span>&nbsp; A reminder the day before.</div>
+        </div>
+      </div>
+    </div>
+    <div class="kick2" style="margin-top:22px;color:var(--grey)">ALSO IN YOUR ACCOUNT</div>
+    <div class="chalso">
+      ${also('/assets/site/story/now-lake-v3.jpg','THE APP &middot; FIRST STAGE FREE','Train before Saturday.','A handstand programme, in an app.',"st.classHello=0;goSection('hs')")}
+      ${also('/assets/form-check/slide-away-poster.jpg','COACHING &middot; FIRST FORM CHECK FREE','Get Elliott&rsquo;s eyes on it.','Send one clip, get a video back.',"st.classHello=0;goSection('co')")}
+      ${also('/assets/site/arch2-spotted-handstand.jpg','1-2-1 &middot; IN PERSON','One to one.','60 or 90 minutes with Elliott.',"st.classHello=0;go('sessions')")}
+    </div>
+  </div>`;
+}
 function screenClasses(){
   const card=classesCardHTML(12,'page');
+  const hb = (wide() && st.classHello) ? nextClassBooking() : null;
+  if(hb) return `<div class="scroll s progwide">${classHelloHTML(hb)}
+    <div class="pad" style="padding-top:26px"><div class="kick2" style="color:var(--grey);margin-bottom:12px">MORE DATES</div>${card || ''}</div>
+    <div style="height:80px"></div></div>`;
   return `<div class="scroll s">${ipHead('In person &middot; OverGravity, Shadwell','Come to a '+ipEm('class.'))}
     ${(()=>{ const q=pushQuizHTML(); return q?`<div class="pad">${q}</div>`:''; })()}
     <div class="pad" style="padding-top:18px">${card || ipEmpty('No dates on sale right now.','New ones show here first.')}</div>
@@ -26616,7 +26670,7 @@ function acctMenuHTML(){
       <b>${b}</b>${sub?`<span>${sub}</span>`:''}</span>${end||''}</button>`;
   const chev='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#686868" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
   const tag=t=>`<em>${t}</em>`;
-  const nb=(typeof upcomingClass==='function') ? upcomingClass() : null;
+  const nb=nextClassBooking();
   const checks=!!(st.checks && st.checks.on);
   const name=st.client || (st.email ? st.email.split('@')[0] : 'You');
   return `<div class="dmenu" role="menu" aria-label="Your account">
@@ -26732,6 +26786,7 @@ function sideHTML(){
   if(t==='home' && !co) bits.splice(1, 0, placeNoteHTML(true));
   /* on a laptop the bookings sit beside the classes (13 Nov 2026), so
      Bookings loses its tab there; the 1-2-1 goes under them */
+  if(t==='classes' && wide() && st.classHello && nextClassBooking()) return '';
   if(t==='classes' && wide()){ bits.length=0; bits.push(sideBookingsHTML()); }
   if(sideChatOn()){ bits.length=0; bits.push(sideChatHTML()); }
   const h=bits.filter(Boolean).join('');
@@ -28409,6 +28464,7 @@ function render(){
      should land on it rather than being dropped back on Today. */
   if(!coached && st.tab==='progress'){ st.tab='ladder'; st.ladderTab='progress'; save(); }
   if(inPerson && wide() && st.tab==='bookings') st.tab='classes';
+  if(st.classHello && st.tab!=='classes'){ st.classHello=0; save(); }
   if(sec==='co' && wide() && !coachedView() && st.tab==='coaching' && st.coTab==='chat') st.coTab='check';
   if(coached && wide() && st.tab==='ask' && !st.paused && !st.preview) st.tab='today';
   /* a coached client on a laptop: their check points open on Home, beside
@@ -28509,7 +28565,7 @@ document.addEventListener('DOMContentLoaded',function(){
     /* Sign in on the website (12 Nov 2026): one account for the site and the app */
     /* from a class booking (12 Nov 2026): straight to choosing a password, with a code by email */
     { const to=q.get('to'); if(to==='classes' || to==='coaching') st.landTo=to;
-      else if(q.get('setpw')==='1' && q.get('ref')==='booked') st.landTo='classes';
+      else if(q.get('setpw')==='1' && q.get('ref')==='booked'){ st.landTo='classes'; st.classHello=1; }
       if(st.landTo){ save(); if(st.token){ try{ history.replaceState(null,'',location.pathname); }catch(e){} landSection(); } } }
     /* straight from booking a class in this tab: the email they booked with
        is already known, so it is filled in (13 Nov 2026) */
