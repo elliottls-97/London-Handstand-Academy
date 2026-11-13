@@ -2399,6 +2399,31 @@ button.px-step{cursor:pointer}
   #side .composer>*{max-width:none!important}
   #side .bub>div,#side .bub>a{max-width:86%!important}
   #app.hchat #side{padding-left:14px;padding-right:22px}
+  /* the welcome for a new account */
+  .scroll.s.hello{display:block!important;padding:0!important}
+  .scroll.s.hello>.hwrap{max-width:1320px!important;margin:0 auto;padding:40px 36px 48px;box-sizing:border-box}
+  .hh{margin:10px 0 0;font:400 52px/.98 var(--serif);letter-spacing:-.015em;color:var(--ink)}
+  .hp{margin:12px 0 0;font:500 16px/1.5 var(--sans);color:var(--grey)}
+  .hdoors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-top:26px}
+  .hdoor{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-height:min(500px,56vh);
+    padding:0;border:0;border-radius:28px;overflow:hidden;text-align:left;cursor:pointer;color:#fff;background:#11150f;
+    box-shadow:0 1px 2px rgba(0,64,61,.05),0 14px 34px rgba(0,64,61,.16);transition:transform .15s}
+  .hdoor:hover{transform:translateY(-2px)}
+  .hdoor img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .hshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,24,23,.15) 0%,rgba(0,24,23,0) 30%,rgba(0,24,23,.9) 80%)}
+  .hdoor.on{box-shadow:0 0 0 5px var(--amber),0 14px 34px rgba(0,64,61,.2)}
+  .htick{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:50%;box-sizing:border-box;
+    border:2px solid rgba(255,255,255,.85);background:rgba(0,0,0,.25);display:grid;place-items:center;font:700 18px/1 var(--sans)}
+  .hdoor.on .htick{border:0;background:var(--amber);color:var(--ink)}
+  .htxt{position:relative;display:block;padding:22px}
+  .hk{display:block;font:600 11px/1 var(--sans);letter-spacing:.14em;color:#8fe3d6}
+  .hhd{display:block;margin-top:10px;font:400 28px/1.05 var(--serif)}
+  .hl{display:block;margin-top:8px;font:500 14px/1.45 var(--sans);color:rgba(255,255,255,.86)}
+  .hfoot{display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:26px}
+  .hgo{width:auto!important;min-height:62px;padding:0 40px!important}
+  .hgo[disabled]{opacity:.45;cursor:default}
+  .hnote{flex:1 1 320px;min-width:0;font:500 14.5px/1.5 var(--sans);color:var(--grey)}
+  .hskip{border:0;background:none;cursor:pointer;font:600 14.5px/1 var(--sans);color:var(--forest);padding:10px 0}
   /* Booking, your account, buying form checks: a panel down the right of
      the page, with the page still there beside it, not a phone sheet or a
      box in the middle (13 Nov 2026) */
@@ -26054,7 +26079,10 @@ function doJoin(ev){
         try{ loadProgress(); }catch(e){} }
       /* back where they were, or Train, and on into the session if that is
          what asked (joinLand) */
+      const errand = st.joinFor && st.joinFor!=='track';
+      const back = st.joinBack;
       const nextUp=joinLand();
+      if(wide() && st.token && !nextUp && !errand && (!back || back==='home') && st.wantUpgrade==null && !st.wantPlan && !st.welcomed) st.tab='hello';
       save(); render();
       if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
       /* they came here to buy a stage, so finish the errand rather than
@@ -26521,7 +26549,7 @@ function railFoot(){
 let acctMenu=false;
 function deskHead(bar){
   if(!wide() || st.preview && false) return '';
-  const sec=section(), cur = sec==='classes' ? 'classes' : sec==='co' ? 'co' : 'hs';
+  const sec=section(), cur = st.tab==='hello' ? '' : sec==='classes' ? 'classes' : sec==='co' ? 'co' : 'hs';
   const coached=!!(st.in || st.coached);
   const items = coached
     ? [['co',coachedView()?'Your programme':coWord()],['hs','Handstand'],['classes','Classes']]
@@ -26582,6 +26610,55 @@ function acctMenuHTML(){
     ${row("fbOpen()",'Tell us what you think','',chev)}
     ${row("signOut()",'Sign out','','')}
   </div>`;
+}
+/* ── a new account on a laptop: what are you here for? (13 Nov 2026) ──
+   Somebody who makes an account may want the app, a class, coaching or a
+   1-2-1, and more than one. They pick as many as they like, carry on with
+   the first, and the rest stay in the menu and the account menu to add
+   later. Only for a new account made without an errand: one made by
+   booking a class, buying, or saving a workout goes straight back to it. */
+const HELLO=[
+  ['app','/assets/site/story/now-lake-v3.jpg','THE APP &middot; FIRST STAGE FREE','A handstand programme, in an app.',
+    'The Handstand Ladder: six stages, from your first kick up to a freestanding hold. It finds your level and builds each session.'],
+  ['cls','/assets/site/arch2-group-kick-ups.jpg','A CLASS &middot; SATURDAYS','Come to a class.',
+    'In person at OverGravity, Shadwell. Every level, an hour.'],
+  ['co','/assets/form-check/slide-away-poster.jpg','COACHING &middot; FIRST FORM CHECK FREE','Get Elliott&rsquo;s eyes on it.',
+    'Send one clip. He draws on it and sends a video back with the one thing to change.'],
+  ['one','/assets/site/arch2-spotted-handstand.jpg','1-2-1 &middot; IN PERSON','One to one.',
+    '60 or 90 minutes with Elliott in Shadwell.']];
+function helloPick(k){ st.wants=Object.assign({}, st.wants||{}); st.wants[k]=!st.wants[k]; save(); render(); }
+function helloGo(skip){
+  const w=st.wants||{}, first=skip ? null : HELLO.map(h=>h[0]).find(k=>w[k]);
+  st.welcomed=Date.now(); save();
+  if(first==='cls'){ goSection('classes'); go('classes'); return; }
+  if(first==='one'){ goSection('classes'); go('sessions'); return; }
+  if(first==='co'){ goSection('co'); return; }
+  if(first==='app' && !quizzed()){ startQuizFromSession(); return; }
+  goSection('hs'); go('home');
+}
+function screenHello(){
+  const w=st.wants||{}, n=HELLO.filter(h=>w[h[0]]).length;
+  const name=(st.client||'').split(' ')[0];
+  const names={app:'the app',cls:'classes',co:'coaching',one:'a 1-2-1'};
+  const first=HELLO.map(h=>h[0]).find(k=>w[k]);
+  const note = !n ? 'Nothing is charged for choosing. Each one shows its price before you pay.'
+    : 'We start with '+names[first]+'. '+(n>1?'The others are in the menu at the top whenever you want them.':'Anything else is in the menu at the top.');
+  return `<div class="scroll s hello"><div class="hwrap">
+    <div class="kick2" style="color:var(--forest)">WELCOME${name?', '+esc(name.toUpperCase()):''} &middot; YOUR ACCOUNT IS READY</div>
+    <h1 class="hh">What are you <em style="color:var(--forest);font-style:normal">here for?</em></h1>
+    <p class="hp">Pick as many as you like. You can add the others later.</p>
+    <div class="hdoors" role="group" aria-label="What are you here for?">
+      ${HELLO.map(([k,img,kick,h,line])=>`<button class="hdoor${w[k]?' on':''}" aria-pressed="${!!w[k]}" onclick="helloPick('${k}')">
+        <img src="${img}" alt="" loading="lazy"><span class="hshade"></span>
+        <span class="htick">${w[k]?'&check;':''}</span>
+        <span class="htxt"><span class="hk">${kick}</span><span class="hhd">${h}</span><span class="hl">${line}</span></span></button>`).join('')}
+    </div>
+    <div class="hfoot">
+      <button class="btn hgo" onclick="helloGo()" ${n?'':'disabled'}>${n?'Carry on':'Choose one to start'}</button>
+      <span class="hnote">${note}</span>
+      <button class="hskip" onclick="helloGo(true)">Not sure yet, show me around</button>
+    </div>
+  </div></div>`;
 }
 function sideChatHTML(){
   if(!st.token) return `<div class="card sidecard"><div class="kick2">CHAT WITH ${esc(coachLabel().toUpperCase())}</div>
@@ -28251,6 +28328,7 @@ function render(){
   if(st.tab==='joinedout' && !st.token){ swap(screenJoinedOut()); return; }
   if(st.tab==='reset'){ swap(screenReset()); return; }
   if(st.tab==='signin' && !st.in){ swap(screenSignIn()); return; }
+  if(st.tab==='hello'){ if(wide() && st.token){ swap(deskHead('')+screenHello()); return; } st.tab='home'; }
   if(!st.mode && !st.in){
     /* the iPhone app opens on the website's animated page (app-intro.js),
        without Coaching. Mounted once: a redraw while it plays would start
