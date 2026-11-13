@@ -2416,6 +2416,35 @@ button.px-step{cursor:pointer}
   #side .composer>*{max-width:none!important}
   #side .bub>div,#side .bub>a{max-width:86%!important}
   #app.hchat #side{padding-left:14px;padding-right:22px}
+  /* the chat on a laptop floats over the page, bottom right. It never moves
+     the page and never greys it (Elliott, 13 Nov 2026: "chat box would hover
+     over content not move it", "but not grey out content") */
+  #fchat{position:fixed;right:24px;bottom:24px;z-index:45;display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+  #fchat>*{pointer-events:auto}
+  #fchat .schatcard{display:flex;flex-direction:column;padding:0;overflow:hidden;border-radius:24px;
+    width:min(400px,calc(100vw - 48px));height:min(640px,calc(100dvh - var(--dh,122px) - 40px));min-height:380px;
+    box-shadow:0 24px 60px rgba(0,48,46,.20),0 2px 6px rgba(0,48,46,.08)}
+  #fchat.fcin .schatcard{animation:fchatUp .26s cubic-bezier(.2,.8,.2,1)}
+  @keyframes fchatUp{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+  #fchat .schat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px;background:rgba(244,244,245,.55)}
+  #fchat .composer{position:static!important;left:auto!important;right:auto!important;bottom:auto!important;
+    flex:none;padding:10px 12px 12px!important;background:#fff;border-top:1px solid rgba(0,64,61,.08)}
+  #fchat .composer>*{max-width:none!important}
+  #fchat .bub>div,#fchat .bub>a{max-width:86%!important}
+  .fcmin{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(0,64,61,.14);background:#fff;
+    cursor:pointer;display:grid;place-items:center;color:var(--deep)}
+  .fcmin:hover{border-color:var(--forest)}
+  .fpill{display:flex;align-items:center;gap:12px;padding:7px 20px 7px 7px;border-radius:999px;background:#fff;
+    border:1px solid rgba(0,64,61,.12);box-shadow:0 12px 30px rgba(0,48,46,.16),0 1px 3px rgba(0,48,46,.08);
+    cursor:pointer;font:600 15px/1 var(--sans);color:var(--ink)}
+  .fpill:hover{border-color:var(--forest)}
+  .fpill .scph{width:40px;height:40px}
+  .fpill i{font-style:normal;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;
+    background:var(--amber);color:var(--ink);display:grid;place-items:center;font:700 11px/1 var(--sans)}
+  .fpeek{max-width:320px;text-align:left;padding:13px 16px;border-radius:18px 18px 6px 18px;background:#fff;
+    border:1px solid rgba(0,64,61,.12);box-shadow:0 12px 30px rgba(0,48,46,.14);cursor:pointer;
+    font:500 14px/1.45 var(--sans);color:var(--ink)}
+  .fpeek b{display:block;font:600 12px/1 var(--sans);letter-spacing:.06em;color:var(--forest);margin-bottom:6px}
   /* a locked stage: its film on the left, the offer on the right */
   .sheet:has(.upduo){max-width:1000px!important;width:min(1000px,92vw)!important;padding:26px 30px 30px!important}
   .upduo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px;align-items:start}
@@ -12495,7 +12524,7 @@ const sideChatOn = () => { try{ if(!wide() || !st.token || st.preview) return fa
   if(coachedView()) return ['today','plan','progress'].includes(st.tab) && !st.paused;
   if(st.tab==='hscheck') return true;
   return section()==='co' && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
-const onChatScreen = () => st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat') || sideChatOn();
+const onChatScreen = () => st.tab==='ask' || (fchatAllowed() ? st.fchat==='open' : (st.tab==='coaching' && coTab()==='chat'));
 function chatScroller(){ const l=document.getElementById('chatList'); return l ? l.closest('.scroll') : null; }
 function chatToEnd(smooth){
   const sc=chatScroller(); if(!sc) return;
@@ -25412,6 +25441,7 @@ function coScroll(k, smooth){
    account has, so go('ask') quietly fell back to Today from every button
    that used it. One helper, and it lands on the conversation either way. */
 function goAsk(){
+  if(fchatAllowed()){ fchatSet(true); return; }
   if(coachedView()){ go('ask'); return; }
   st.coTab='chat'; save();
   if(st.tab!=='coaching') go('coaching'); else setCoTab('chat');
@@ -25419,8 +25449,9 @@ function goAsk(){
 function askAbout(k){
   const p=CO_PLANS.find(x=>x.k===k);
   if(!askDraft) askDraft='About '+(p?p.who.toLowerCase():'coaching')+': ';
-  if(coachedView()){ go('ask'); return; }
-  setCoTab('chat');
+  if(fchatAllowed()) fchatSet(true);
+  else if(coachedView()){ go('ask'); return; }
+  else setCoTab('chat');
   setTimeout(()=>{ const i=document.getElementById('askIn');
     if(i){ i.value=askDraft; i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } },420);
 }
@@ -25710,7 +25741,7 @@ function screenCoaching(){
             ? 'Watched.'
             : 'A coach is watching it and picking the one thing to change.', true],
           ['Answer ready', done
-            ? (sideChatOn() ? 'It is in the chat, on the right.' : 'It is in the Chat tab.')
+            ? (fchatAllowed() ? 'It is in the chat, bottom right.' : 'It is in the Chat tab.')
             : (fcPaid()?'Within 48 hours':'Within 7 days')+'. You\'ll get an email the moment it lands.', done],
         ];
         return `<div class="card" style="padding:22px;border:1.5px solid ${done?'var(--forest)':'var(--amber)'}">
@@ -25848,7 +25879,7 @@ function screenCoaching(){
         <span style="font:400 15px/1 var(--serif);color:var(--forest)">${(st.faq||{})[i]?'−':'+'}</span></div>
       ${(st.faq||{})[i]?`<div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">${esc(a)}</div>`:''}
     </div>`).join('');
-  const tab=coTab();
+  const tab=(fchatAllowed() && !awaitingBlock()) ? 'check' : coTab();
   const nUnread=unreadMsgs();
   const seg=`<div class="rise rise-1 segrow" style="margin:18px 20px 0;display:flex;background:rgba(0,64,61,.07);
       border-radius:14px;padding:4px;gap:4px">
@@ -26784,8 +26815,7 @@ function markChatSeen(){
 const coTab = () => awaitingBlock() ? 'chat' : (st.coTab || (unreadMsgs()>0 ? 'chat' : 'check'));
 function setCoTab(k){
   /* on a laptop the chat is already beside the page: go to its latest message */
-  if(k==='chat' && (st.tab==='coaching' || st.tab==='hscheck') && sideChatOn() && document.querySelector('#side #chatList')){
-    chatToEnd(true); const t=document.getElementById('askIn'); if(t) t.focus(); return; }
+  if(k==='chat' && fchatAllowed()){ fchatSet(true); return; }
   /* the two halves are tabs along the bottom now: go there, so the bar follows */
   if(st.tab!=='coaching'){ go(k==='chat' ? 'cochat' : 'cocheck'); return; }
   st.coTab=k; save();
@@ -27160,17 +27190,41 @@ function screenHello(){
     </div>
   </div></div>`;
 }
-function sideChatHTML(){
+function sideChatHTML(float){
   if(!st.token) return `<div class="card sidecard"><div class="kick2">CHAT WITH ${esc(coachLabel().toUpperCase())}</div>
     <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:10px">Ask me anything. An account first, so a reply has somewhere to land.</div>
     <button class="btn" style="width:100%;margin-top:14px" onclick="goJoin()">Create an account to ask</button></div>`;
   const empty='Nothing here yet.<br>Ask about a drill, something that hurts, or '+(IOS_APP?'where to start':'which plan fits')+'.';
   return `<div class="card schatcard">
     <div class="schead"><span class="scph">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>
-      <span style="flex:1;min-width:0"><b>Chat with ${esc(coachLabel())}</b><span>Usually replies within 48 hours</span></span></div>
+      <span style="flex:1;min-width:0"><b>Chat with ${esc(coachLabel())}</b><span>Usually replies within 48 hours</span></span>${float?`
+      <button class="fcmin" onclick="fchatSet(false)" aria-label="Minimise the chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`:''}</div>
     <div class="scroll schat" onscroll="chatJumpPaint()">${chatPushBar()}<div id="chatList" class="clist" data-empty="${esc(empty)}">${chatThreadHTML(empty)}</div><div id="chatEnd"></div></div>
     ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}
   </div>`;
+}
+/* where the chat floats: anywhere on a laptop once opened, and as a pill on
+   the screens the chat belongs to (sideChatOn) */
+const fchatAllowed = () => { try{ return wide() && !!st.token && !st.preview; }catch(e){ return false; } };
+let fchatAnim=false;
+function fchatSet(open){
+  st.fchat = open ? 'open' : 'min'; save();
+  if(open){ chatSeenAtOpen=st.seenMsgAt||0; markChatSeen(); fchatAnim=true; }
+  render(); fchatAnim=false;
+  if(open){ chatOpened(); setTimeout(()=>{ const t=document.getElementById('askIn'); if(t) t.focus(); }, 80); }
+}
+function fchatHTML(){
+  if(!fchatAllowed()) return '';
+  if(st.fchat==='open') return `<div id="fchat" class="${fchatAnim?'fcin':''}" role="dialog" aria-label="Chat with ${esc(coachLabel())}">${sideChatHTML(true)}</div>`;
+  if(!sideChatOn()) return '';
+  const n=unreadMsgs();
+  const last=n ? coachMsgs().slice(-1)[0] : null;
+  /* coached Home already shows the newest reply as a card of its own */
+  const words=(last && !(coachedView() && st.tab==='today')) ? String(last.text||'').trim() : '';
+  const peek=words ? `<button class="fpeek" onclick="fchatSet(true)"><b>${esc(coachLabel().toUpperCase())}</b>${esc(words.length>110 ? words.slice(0,108).trim()+'…' : words)}</button>` : '';
+  return `<div id="fchat">${peek}<button class="fpill" onclick="fchatSet(true)" aria-label="Chat with ${esc(coachLabel())}${n?', '+n+' new':''}">
+    <span class="scph">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>Chat with ${esc(coachLabel())}${n?`<i>${n}</i>`:''}</button></div>`;
 }
 function sideBookingsHTML(){
   const list = st.token ? bookingsHTML() : '';
@@ -27222,7 +27276,7 @@ function sideHTML(){
      Bookings loses its tab there; the 1-2-1 goes under them */
   if(t==='classes' && wide() && st.classHello && nextClassBooking()) return '';
   if(t==='classes' && wide()){ bits.length=0; bits.push(sideBookingsHTML()); }
-  if(sideChatOn()){ bits.length=0; bits.push(sideChatHTML()); }
+  if(sideChatOn()) return '';
   const h=bits.filter(Boolean).join('');
   return h ? `<aside id="side">${h}</aside>` : '';
 }
@@ -27264,6 +27318,9 @@ function switchView(toFree, ok){
 
 function go(t){
   fxReadClose();
+  /* on a laptop the chat is the floating window, not a tab (13 Nov 2026);
+     a paused or preview account still has the Chat tab */
+  if((t==='cochat' || (t==='ask' && !st.paused)) && fchatAllowed()){ fchatSet(true); return; }
   if(t==='cocheck'){ st.coTab='check'; t='coaching'; }
   else if(t==='cochat'){ st.coTab='chat'; t='coaching'; }
   if(t==='more'){ openMenu(); return; }
@@ -27313,6 +27370,7 @@ function videoPlaceholder(label,dur,dark){
 
 /* the chat button lands on the chat, not the top of the page it is buried in */
 function openChat(){
+  if(fchatAllowed()){ fchatSet(st.fchat!=='open'); return; }
   /* st.in is true for a coached account even while it is looking at the
      ladder, and Ask is not a tab that exists over there, so the render
      fell back to the first tab: pressing Messages took you to Train.
@@ -28953,7 +29011,7 @@ function render(){
       background:#a4503c;color:#fff;text-align:center;padding:5px 10px;
       font:700 10px/1.4 var(--sans);letter-spacing:.12em;text-transform:uppercase;
       pointer-events:none">Preview &middot; ${PREVIEW_ALL?'everything unlocked':esc(st.client||st.email||'client')} &middot; read only</div>`:'')
-    +deskHead(bar)+topBar()+screens[st.tab]()+sideHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
+    +deskHead(bar)+topBar()+screens[st.tab]()+sideHTML()+fchatHTML()+`<nav class="tabbar" data-tour="tabs">${railSwitch()}${bar}${railFoot()}</nav>`);
   /* nothing was redrawn, so there is nothing to wire up again: watchScroll
      and watchPull add listeners, and would add a second set to the same box */
   if(skipped) return;
