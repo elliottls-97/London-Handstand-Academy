@@ -24294,32 +24294,49 @@ function agoShort(ms){
 function doseAreaHTML(k, keys){
   const i=Number(String(k).slice(1)), q=(Q||[])[i]||{}, it=q.it||{}, nSets=keys.length;
   const tk=st.qTick||{}, nOn=keys.filter(x=>tk[x]).length, done=nOn>0;
-  const u=doseUnit(it.d), want=recommendedReps(it), step=u==='s'?5:1;
+  const u=doseUnitOf(it), want=recommendedReps(it), step=u==='s'?5:1, w=doseWords(it,nSets);
   const logged=done?keys.map(x=>(st.reps||{})[x]).find(x=>x!=null):null;
   const n=logged!=null?logged:want, diff=done?n-want:0, sets=done?nOn:nSets;
   const b=(fn,by,lab,aria,off)=>`<button onclick="event.stopPropagation();${fn}('${k}',${by})" aria-label="${aria}"${off?' disabled title="'+esc(off)+'"':''}
     style="flex:none;width:32px;height:32px;border-radius:50%;border:1px solid rgba(0,64,61,.18);background:#fff;
     color:var(--deep);cursor:${off?'default':'pointer'};font:500 18px/1 var(--sans);display:grid;place-items:center;padding:0;${off?'opacity:.35':''}">${lab}</button>`;
   const lab=t=>`<span style="min-width:${nSets>1?92:74}px;text-align:center;font:700 13px/1.2 var(--sans);color:${done?'var(--forest)':'var(--deep)'};font-variant-numeric:tabular-nums">${t}</span>`;
-  const line=h=>`<div style="display:flex;align-items:center;gap:7px">${h}</div>`;
+  const line=h=>`<div style="display:flex;align-items:center;flex-wrap:wrap;gap:7px">${h}</div>`;
   const secs=work(it,q.g||q.grp)|0;
   /* before it is done the number is the plan's own words, and a hold's is its clock */
-  const mid = done ? lab(n+(u==='s'?'s':' reps')+(nSets>1?'':' done'))
-    : ((u==='s' || !String(it.d||'').trim()) && secs>0)
+  /* done, it says what was done in the plan's own terms: "7 each side", "35s each way" */
+  const amt = u==='s' ? n+'s'+(w.side?' '+w.side:'')
+    : n+' '+(w.noun?w.noun+' ':(w.side?'':(n===1?'rep':'reps')))+w.side;
+  /* more or fewer sits under the number, inside the stepper: beside it, a phone pushed it onto a line of its own */
+  const vs = diff ? `<span style="display:block;margin-top:2px;font:600 11px/1 var(--sans);color:var(--grey)">${diff>0?diff+' more':(-diff)+' fewer'}</span>` : '';
+  const mid = (done && (w.numeric || !w.per)) ? lab(esc(amt.trim())+(nSets>1||w.side?'':' done')+vs)
+    : done ? lab(esc(w.per))
+    : (u==='s' && secs>0)
       ? `<button id="clk-${k}" data-secs="${secs}" data-key="${k}" onclick="event.stopPropagation();rowClock('${k}')" aria-label="Time this set"
           style="min-width:${nSets>1?92:74}px;border:0;background:rgba(0,102,99,.08);border-radius:9px;padding:6px 9px;cursor:pointer;
           font:700 13px/1.2 var(--sans);color:var(--forest);font-variant-numeric:tabular-nums">${esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</button>`
-      : lab(esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp)||(want+' reps')));
-  const reps=line(b('tickAmt',-step,'&minus;',u==='s'?'Held it for less':'Did fewer', n<=step?'Not ticked is missed':'')
+      : lab(esc(w.per||lenLabel(it,q.g||q.grp)||(want+' reps')));
+  /* "as far as you get" or "up and down the mat" has no number to step */
+  const reps = (w.per && !w.numeric) ? line(mid)
+    : line(b('tickAmt',-step,'&minus;',u==='s'?'Held it for less':'Did fewer', n<=step?'Not ticked is missed':'')
     +mid
-    +b('tickAmt',step,'+',u==='s'?'Held it for longer':'Did more')
-    +(diff?`<span style="font:600 12px/1 var(--sans);color:var(--grey)">${diff>0?diff+' more':(-diff)+' fewer'}</span>`:''));
+    +b('tickAmt',step,'+',u==='s'?'Held it for longer':'Did more'));
   if(nSets<2) return reps;
   const setLine=line(b('tickSets',-1,'&minus;','One set fewer', sets<=1?'Not ticked is missed':'')
     +lab(done?sets+' of '+nSets+' sets done':nSets+' sets')
     +b('tickSets',1,'+','One set more', sets>=nSets?'All of them':''));
   return `<div style="display:flex;flex-direction:column;gap:6px">${reps}${setLine}</div>`;
 }
+/* What one set is counted in, read from the plan's own words, so "2 × 5
+   each side" still says each side once it is done (Elliott, 13 Nov 2026). */
+function doseWords(it, nSets){
+  const per=String(perSet(it.d,nSets)||'');
+  const side=(per.match(/\b(?:each|per)\s+(?:side|way|arm|leg|direction|hand)\b|\bboth\s+(?:ways|sides)\b|\beach\b/i)||[''])[0].toLowerCase();
+  const noun=(per.match(/\d\s*(goes|steps|breaths|rounds)\b/i)||[])[1];
+  return {per, side, noun:noun?noun.toLowerCase():'', numeric:/\d/.test(per)};
+}
+/* seconds or reps; no dose at all is a hold the clock knows the length of */
+const doseUnitOf = it => (!String(it.d||'').trim() && (work(it)|0)>0) ? 's' : doseUnit(it.d);
 /* the tick's look on one row, without redrawing the list */
 function rowTickLook(k, on){
   const box=document.getElementById('box-'+k);
@@ -24345,7 +24362,7 @@ function tickSets(k, by){
   rowTickLook(k, true);
   qCount();
 }
-const u_step = it => doseUnit(it.d)==='s' ? 5 : 1;
+const u_step = it => doseUnitOf(it)==='s' ? 5 : 1;
 /* more or fewer than asked; on a drill not ticked yet that is also the tick */
 function tickAmt(k, by){
   const box=document.getElementById('dosebox-'+k);
