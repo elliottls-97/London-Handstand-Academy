@@ -11877,7 +11877,7 @@ function reviewCardHTML(){
 
 function loadSubmissions(){
   if(!st.token) return;
-  fetch(AUTH.submissions,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
+  return fetch(AUTH.submissions,{headers:authed()}).then(r=>r.ok?r.json():null).then(d=>{
     if(!d||!d.submissions) return;
     const open=d.submissions.find(s=>s.status==='submitted');
     const was=st.awaitingReview;
@@ -12378,7 +12378,7 @@ function sendAsk(retryText){
 let bookingsAsked=false;
 function loadBookings(){
   if(!st.token) return;
-  fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
+  return fetch('/api/app/me/bookings',{headers:authed()}).then(r=>r.ok?r.json():null)
     .then(d=>{ if(d){ st.bookings=d.bookings||[]; st.sessCredits=d.credits||null;
       if(st.landBookings){ st.landBookings=false; if(st.tab==='classes' && inPersonView() && upcomingClass()) st.tab='bookings'; }
       /* somebody whose only history here is a booking (a class or a 1-2-1
@@ -12386,7 +12386,8 @@ function loadBookings(){
          that is theirs */
       if(st.viewChosen==null && !st.in && !st.coached && !quizzed() && !((st.prog&&st.prog.sessions)||[]).length && st.bookings.length){
         st.viewChosen='auto'; st.inPerson=true; st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free';
-        if(['home','ladder','coaching','quiz','start'].indexOf(st.tab)>-1) st.tab='classes'; }
+        /* their booking when one is coming up (13 Nov 2026) */
+        if(['home','ladder','coaching','quiz','start'].indexOf(st.tab)>-1) st.tab = upcomingClass() ? 'bookings' : 'classes'; }
       save(); if(!st.ov) render(); } }).catch(()=>{});
 }
 /* One cancel at a time. Two taps sent two requests, both found the same
@@ -15594,18 +15595,31 @@ function doLogin(ev){
   fetch(AUTH.login,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email,password})})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{
+    .then(d=>signedIn(d, email))
+    /* No signal and a server fault both said the password was wrong, so a
+       person with the right one went off to reset it (16 Oct 2026, review). */
+    .catch(code=>{ const m=$('#authMsg');
+      if(st.token && st.email===email) return;   /* signed in; something after it threw */
+      if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
+        : (code===400||code===401||code===403||code===404) ? 'That email and password did not match.'
+        : typeof code==='number' ? 'The server did not answer properly. Try again in a moment.'
+        : 'Could not reach the server. Check you are online, then try again.'; });
+}
+/* signed in with a password: the account, then where it opens */
+function signedIn(d, email){
       /* a coach signing in here wants the coach view, not a client screen */
       if(d.coach){ leaveTo('/lha-coach.html'); return; }
       st.email=email; st.token=d.token; st.client=d.client;
       st.in=!!d.coached; st.coached=!!d.coached; st.tier=String(d.tier||'');            /* coached tier only for actual coaching clients */
       st.plus=!!d.plus;
       let nextUp=null;
+      /* Train, not Progress: it opened Progress for everybody (13 Nov 2026) */
       if(!st.in){ st.mode='free'; st.quizDone=true;
         if(st.signinFrom==='joinFree' && st.joinFor==='next'){ st.signinFrom=null; nextUp=joinLand(); }
-        else if(!st.tab||st.tab==='signin') st.tab='ladder'; }
-      if(!nextUp) landSection();
+        else if(!st.tab||st.tab==='signin') st.tab='home'; }
+      const landed = !nextUp && landSection();
       save(); render(); loadEntitlement(); resumeSave();
+      if(!nextUp && !landed && !st.in) autoLand();
       if(nextUp) setTimeout(()=>startDay(nextUp.i, nextUp.kind), 250);
       /* a quiz just taken on this phone, not yet on the account */
       if(st.placeSent===false && st.intake && st.intake.level!=null){ try{ sendIntake(); }catch(e){} }
@@ -15615,15 +15629,26 @@ function doLogin(ev){
          picked up on a cold start, so signing in landed them back on the
          wall with nothing said */
       loadLadder(); loadState(); loadTrack(); codeResume();
-      if(!st.in && st.wantPlan) resumePlan(); })
-    /* No signal and a server fault both said the password was wrong, so a
-       person with the right one went off to reset it (16 Oct 2026, review). */
-    .catch(code=>{ const m=$('#authMsg');
-      if(st.token && st.email===email) return;   /* signed in; something after it threw */
-      if(m) m.textContent = code===429 ? 'Too many tries. Wait a few minutes.'
-        : (code===400||code===401||code===403||code===404) ? 'That email and password did not match.'
-        : typeof code==='number' ? 'The server did not answer properly. Try again in a moment.'
-        : 'Could not reach the server. Check you are online, then try again.'; });
+      if(!st.in && st.wantPlan) resumePlan();
+}
+/* ── where a sign in opens, when nothing asked for a place ───────────
+   Once the account has been read: a form check with a coach, or answered
+   in the last fortnight, opens Coaching; a class coming up for somebody
+   who has never used the Ladder opens their booking; a coaching client
+   before block one opens Start; everybody else Train. If they have moved
+   by the time it knows, they are left where they are. (13 Nov 2026) */
+function autoLand(){
+  const t0=st.tab;
+  Promise.all([loadEntitlement(), loadSubmissions(), loadBookings()].map(p=>Promise.resolve(p).catch(()=>null))).then(()=>{
+    if(st.tab!==t0 || st.ov || st.in || !st.token) return;
+    if(awaitingBlock()){ st.coView=true; st.inPerson=false; st.ipPick=0; st.tab='start'; }
+    else if(st.awaitingReview || st.checkOpen || (st.lastReview && st.lastReview>Date.now()-14*864e5 && st.lastReview>(st.seenReview||0))){
+      st.coView=true; st.inPerson=false; st.ipPick=0; st.viewChosen='coaching'; st.tab='coaching'; st.coTab='check'; }
+    else if(upcomingClass() && !quizzed()){ st.inPerson=true; st.ipPick=1; st.coView=false; st.viewChosen='inperson';
+      st.quizDone=true; st.oriented=true; st.tab='bookings'; }
+    else return;
+    save(); render();
+  });
 }
 function requestCode(){
   const v=($('#emailIn')||{}).value||'';
@@ -25509,7 +25534,7 @@ function doResetConfirm(ev){
       /* as a sign in does, or a new phone sat on the welcome screen until
          /me answered, and for good if it did not (16 Oct 2026, review) */
       if(!st.in){ st.mode=st.mode||'free'; st.quizDone=true; }
-      st.tab='ladder'; landSection(); save(); render(); loadEntitlement();
+      st.tab='home'; const landed=landSection(); save(); render(); loadEntitlement(); if(!landed && !st.in) autoLand();
       /* Finish as a sign in does. This read nothing back, so a new phone
          showed Foundations with nothing done, and its next save wrote that
          empty week, ladder and quiz over what the account had. */
