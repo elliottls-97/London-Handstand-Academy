@@ -2591,6 +2591,10 @@ button.px-step{cursor:pointer}
   .hcol{display:flex;flex-direction:column;gap:16px}
   .hduo2{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)!important}
   .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
+  .scroll.s.cowide>*{max-width:1320px!important}
+  .cogrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start;padding:0 22px 48px}
+  .cocol{min-width:0;display:flex;flex-direction:column;gap:12px}
+  .cocol>.rise{padding-left:0!important;padding-right:0!important}
   /* a stage opened from the ladder, on a laptop: the film, the words and the
      button side by side, not a phone card stretched across the page
      (Elliott, 13 Nov 2026) */
@@ -2643,6 +2647,7 @@ button.px-step{cursor:pointer}
   .dknext small{display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey)}
   .dknext b{display:block;font:600 16px/1.2 var(--sans);margin-top:6px}
   .dknext span span{display:block;font:500 13px/1.3 var(--sans);color:var(--grey);margin-top:3px}
+  .dknext em{display:block;font-style:normal;font:500 13px/1.4 var(--sans);color:var(--forest);margin-top:5px}
   /* the page form: under the header, no scrim, no sheet */
   #ov.dkpage{top:var(--dh,122px);z-index:39;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
     align-items:stretch!important;justify-content:center!important;animation:none!important}
@@ -17967,12 +17972,14 @@ function dkOverHTML(){
   const q=Q[DK.i]; if(!q) return '';
   const it=q.it, rest=DK.phase==='rest', end=DK.phase==='end', nq=Q[DK.i+1];
   const order=[...new Set(Q.map(x=>x.it.v))], di=order.indexOf(it.v)+1;
-  const r=dkRestSecs(DK.i), cues=(((it.cues&&it.cues.length)?it.cues:((drillById(it.v)||{}).cues||[]))).slice(0,3);
+  const cuesOf=x=>(((x.cues&&x.cues.length)?x.cues:((drillById(x.v)||{}).cues||[]))).slice(0,3);
+  const r=dkRestSecs(DK.i), cues=cuesOf(it);
   if(end) return `<div class="dkend"><b>That is the lot.</b><span>Every set is ticked on the right.</span></div>`;
   return `<div class="dktop"><span class="dkpill">${di} OF ${order.length}${q.grp?' &middot; '+esc(String(q.grp).toUpperCase()):''}</span>
       <span class="dkpill dkset">${rest?'REST':'SET '+q.set+' OF '+q.sets}</span></div>
     <div class="dkbot">
-      ${rest && nq ? `<div class="dkcues"><b>NEXT</b><div style="margin-top:8px;font:600 16px/1.3 var(--sans)">${esc(nq.it.n)}</div><div style="font:500 13px/1.3 var(--sans);opacity:.85">Set ${nq.set} of ${nq.sets}</div></div>`
+      ${rest && nq ? `<div class="dkcues"><b>NEXT &middot; SET ${nq.set} OF ${nq.sets}</b><div style="margin-top:8px;font:600 16px/1.3 var(--sans)">${esc(nq.it.n)}</div>${
+          cuesOf(nq.it).length?`<ul>${cuesOf(nq.it).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}</div>`
         : cues.length ? `<div class="dkcues"><b>HOW TO DO IT</b><ul>${cues.map(c=>`<li>${esc(c)}</li>`).join('')}</ul></div>` : '<span></span>'}
       <div class="dkclock"><div id="dkclock">${fmtT(Math.max(0,DK.left))}</div>
         <small>${rest ? 'rest' : esc(perSet(it.d, q.sets)||'')+(r&&dkAuto()?' &middot; then '+r+' s rest':'')}</small></div>
@@ -17999,7 +18006,8 @@ function dkNextHTML(){
   const url=itUrl(nq.it), uid=url&&uidOfUrl(url);
   return `<button class="dknext" onclick="dkPick(${g.l+1})">
     ${uid?`<img src="${esc(streamThumb(uid))}" alt="" loading="lazy">`:''}
-    <span style="flex:1;min-width:0"><small>UP NEXT</small><b>${esc(nq.it.n)}</b><span>${esc(nq.sets>1?nq.sets+' sets of '+(perSet(nq.it.d, nq.sets)||''):(nq.it.d||''))}</span></span>
+    <span style="flex:1;min-width:0"><small>UP NEXT</small><b>${esc(nq.it.n)}</b><span>${esc(nq.sets>1?nq.sets+' sets of '+(perSet(nq.it.d, nq.sets)||''):(nq.it.d||''))}</span>${
+      (()=>{ const c=((nq.it.cues&&nq.it.cues.length)?nq.it.cues:((drillById(nq.it.v)||{}).cues||[]))[0]; return c?`<em>${esc(c)}</em>`:''; })()}</span>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`;
 }
 function dkHTML(){
@@ -20063,7 +20071,7 @@ const coPlansOn = () => sells() && !st.in;
    not already coached, where coaching is not sold or named */
 const coWord = () => (IOS_APP && !st.coached && !st.in) ? 'Form check' : 'Coaching';
 /* the Form check and Chat tabs are both the coaching screen, either half */
-const tabOn = id => id==='cocheck' ? (st.tab==='coaching' && coTab()==='check')
+const tabOn = id => id==='cocheck' ? ((st.tab==='coaching' && coTab()==='check') || (st.tab==='coaching' && wide()) || (st.tab==='coplans' && wide()))
   : id==='cochat' ? (st.tab==='coaching' && coTab()==='chat') : st.tab===id;
 function coTabsList(){
   if(typeof awaitingBlock==='function' && awaitingBlock()) return [['start','Start'],['cochat','Chat']];
@@ -26375,6 +26383,46 @@ function screenCoaching(){
         <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
           Sent ${esc(when(st.applied))}. Elliott reads every one himself and comes
           back within 48 hours.</div></div>` : '';
+  /* ── one Coaching page on a laptop, for someone not coached ─────────
+     Elliott, 13 Nov 2026: "coaching without a coaching account has coaching
+     plans and the form checks upgrade offer", "1 tab". The free form check
+     and the form checks plan on the left, coaching on the right. */
+  if(wide() && !st.in && !coachedView() && !(typeof awaitingBlock==='function' && awaitingBlock()) && sells()){
+    const checksOn=!!(st.checks && st.checks.on);
+    const steps = hadFormCheck() ? '' : `<div class="card" style="padding:16px 14px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+          ${['Film one attempt','A coach watches it',fcPaid()?'A video back in 48 hours':'A video back within 7 days']
+            .map((t,i)=>`<div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font:400 20px/1 var(--serif);color:var(--forest)">${i+1}</span>
+              <span style="font:500 13px/1.35 var(--sans)">${t}</span></div>`).join('')}
+        </div></div>`;
+    const fcPlan = checksOn ? '' : `<div class="card" style="padding:20px 22px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+          <span class="kick2">FORM CHECKS</span>
+          <span style="font:400 24px/1 var(--serif);color:var(--deep);white-space:nowrap">${esc(st.checksAddon?PRICE('checksadd'):PRICE('checks'))}<span
+            style="font:400 12px/1 var(--sans);color:var(--grey2)"> ${st.checksAddon?'a month on top':'a month'}</span></span></div>
+        <div style="font:400 24px/1.15 var(--serif);margin-top:8px">Your handstand, <em style="color:var(--forest);font-style:normal">every fortnight.</em></div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">Up to 3 clips a fortnight, each answered on video within 48 hours${st.checksAddon?', added to your Ladder':', with the whole Ladder'}.${(!st.freeCheckUsed)?' Your first one is free.':''}</div>
+        <button class="btn2" style="width:100%;margin-top:14px" onclick="buyPlan('checks')">${st.checksAddon?'Add form checks':'Start form checks'}</button></div>`;
+    const clips2 = (signedIn && myClips().length) ? clipsBody() : '';
+    return `<div class="scroll s cowide"><div class="cogrid">
+      <div class="cocol">
+        ${head}
+        <div data-tour="formcheck">${checkCard}</div>
+        ${steps}
+        ${fcPlan}
+        ${clips2}
+      </div>
+      <div class="cocol" id="coPlansCol">
+        <div class="rise" style="padding:18px 0 0">
+          <div class="kick2" style="color:var(--forest);margin-top:14px">COACHING</div>
+          <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">A programme written <em style="color:var(--forest);font-style:normal">for you.</em></div></div>
+        ${applied}
+        ${coachingPicker()}
+        <div class="card" style="padding:20px"><div class="kick2">COMMON QUESTIONS</div><div style="margin-top:12px">${faqs}</div></div>
+      </div>
+    </div></div>`;
+  }
   if(coOffer) return `<div class="scroll s">
     
     ${st.tab==='coplans' ? head : `<div style="padding:${wide()?'18px':'calc(env(safe-area-inset-top) + 84px)'} 20px 0">
@@ -27741,6 +27789,7 @@ function switchView(toFree, ok){
 
 function go(t){
   fxReadClose();
+  if(t==='coplans' && wide() && !coachedView() && !st.in) t='coaching';
   if(dkPageMode && st.ov==='list' && t!=='plan') closeOv();
   /* on a laptop the chat is the floating window, not a tab (13 Nov 2026);
      a paused or preview account still has the Chat tab */
@@ -29393,7 +29442,8 @@ function render(){
     window._cpsWide=1; st.homeCps=true; window._hcpsAt=Date.now(); }
   const tabs=inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
     : coached ? TABS.coached.filter(([id])=>!(id==='ask' && wide() && !st.paused && !st.preview))
-    : sec==='co' ? coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView()))
+    : sec==='co' ? ((wide() && !coachedView() && !st.in && !(typeof awaitingBlock==='function' && awaitingBlock()) && sells()) ? [['cocheck','Coaching']]
+      : coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView())))
     : wide() ? TABS.free.concat([['hscheck', hadFormCheck()?'Form checks':'Form check']])
     : TABS.free
     /* a session buyer who has not taken the quiz has no stage yet, so no
