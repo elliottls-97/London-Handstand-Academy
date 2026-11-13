@@ -983,6 +983,16 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 }
 /* the oldest small phones: the ladder pill keeps its room, the week gives way */
 @media (max-width:340px){ .wk-squeeze{display:none!important} }
+/* drill by drill on the smallest phones: a smaller still and buttons, so the
+   amount between them still reads on one line */
+@media (max-width:359px){
+  .lrow .lthumb{width:44px!important;height:44px!important}
+  .lrow .lrow-top{gap:8px!important}
+  .lrow .stp{width:32px!important;height:32px!important;font-size:18px!important}
+  .lrow .stp-hold{width:32px!important}
+  .lrow .stp-lab{font-size:12px!important}
+  .lrow .stp-line{gap:2px!important}
+}
 .ls-from-r{animation:lsFromR .4s cubic-bezier(.2,.8,.2,1) both}
 .ls-from-l{animation:lsFromL .4s cubic-bezier(.2,.8,.2,1) both}
 @keyframes lsFromR{from{transform:translateX(32px);opacity:0}}
@@ -13597,7 +13607,7 @@ function rowClockStop(done){
   if(!rowT) return;
   clearInterval(rowT.raf);
   const el=document.getElementById('clk-'+rowT.k);
-  if(el){ el.textContent=rowT.label; el.style.background='rgba(0,102,99,.08)';
+  if(el){ el.innerHTML=rowT.label; el.style.background='rgba(0,102,99,.08)';
           el.style.color='var(--forest)'; }
   const key=rowT.k; rowT=null;
   if(done){ cue();
@@ -13613,14 +13623,14 @@ function rowClock(k){
   if(!el) return;
   const secs=Number(el.dataset.secs)||0;
   if(secs<=0) return;                       /* a rep drill has nothing to count */
-  rowT={k, label:el.textContent, ends:Date.now()+secs*1000, raf:0};
+  rowT={k, label:el.innerHTML, ends:Date.now()+secs*1000, raf:0};
   const paint=()=>{
     if(!rowT) return;
     const el2=document.getElementById('clk-'+rowT.k);
     if(!el2 || !el2.isConnected) return rowClockStop(false);
     const left=Math.ceil((rowT.ends-Date.now())/1000);
     if(left<=0) return rowClockStop(true);
-    el2.textContent=left+'s';
+    el2.innerHTML=CLK_STOP+'<span>'+left+'s</span>';
     el2.style.background='var(--forest)';
     el2.style.color='var(--on-primary)';
   };
@@ -14498,10 +14508,10 @@ function drawOv(){
       const moreOpen=rowMore.has(k);
       return `<div class="lrow" style="background:${on?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);
         border-radius:18px;padding:10px 10px 10px 12px">
-        <div style="display:flex;gap:12px;align-items:center">
+        <div class="lrow-top" style="display:flex;gap:12px;align-items:center">
           <div class="box ${on?'on':''}" id="box-${k}"
             onclick="qTickAll('${keysJson}',this)">✓</div>
-          ${it.url?`<button style="flex:none;padding:0;width:56px;height:56px;
+          ${it.url?`<button class="lthumb" style="flex:none;padding:0;width:56px;height:56px;
             border-radius:13px;overflow:hidden;position:relative;background:#000;border:0;cursor:pointer"
             aria-label="${openD?'Hide the demo':'Watch the demo'}"
             onclick="toggleRowMore('${k}',true);toggleListDemo('${k}',this)" data-url="${esc(it.url)}"
@@ -24297,40 +24307,58 @@ function doseAreaHTML(k, keys){
   const u=doseUnitOf(it), want=recommendedReps(it), step=u==='s'?5:1, w=doseWords(it,nSets);
   const logged=done?keys.map(x=>(st.reps||{})[x]).find(x=>x!=null):null;
   const n=logged!=null?logged:want, diff=done?n-want:0, sets=done?nOn:nSets;
-  const b=(fn,by,lab,aria,off)=>`<button onclick="event.stopPropagation();${fn}('${k}',${by})" aria-label="${aria}"${off?' disabled title="'+esc(off)+'"':''}
-    style="flex:none;width:32px;height:32px;border-radius:50%;border:1px solid rgba(0,64,61,.18);background:#fff;
-    color:var(--deep);cursor:${off?'default':'pointer'};font:500 18px/1 var(--sans);display:grid;place-items:center;padding:0;${off?'opacity:.35':''}">${lab}</button>`;
-  const lab=t=>`<span style="min-width:${nSets>1?92:74}px;text-align:center;font:700 13px/1.2 var(--sans);color:${done?'var(--forest)':'var(--deep)'};font-variant-numeric:tabular-nums">${t}</span>`;
-  const line=h=>`<div style="display:flex;align-items:center;flex-wrap:wrap;gap:7px">${h}</div>`;
+  /* Calm until it is used (Elliott, 13 Nov 2026): fifty outlined circles
+     down a list shouted louder than the drill names, so before a drill is
+     done they are faint and grey, and full strength once it is. 40px,
+     because they are pressed mid set with sweaty hands. */
+  const B=40;
+  const b=(fn,by,lab,aria,off)=>`<button class="stp" onclick="event.stopPropagation();${fn}('${k}',${by})" aria-label="${aria}"${off?' disabled title="'+esc(off)+'"':''}
+    style="flex:none;width:${B}px;height:${B}px;border-radius:50%;padding:0;display:grid;place-items:center;
+    ${done?'border:1px solid rgba(0,64,61,.18);background:#fff;color:var(--deep)':'border:1px solid transparent;background:rgba(0,64,61,.05);color:var(--grey2)'};
+    cursor:${off?'default':'pointer'};font:500 20px/1 var(--sans);${off?'opacity:.35':''}">${lab}</button>`;
+  /* a button that is not there yet keeps its room, so the two lines stay lined up */
+  const hold=`<span class="stp-hold" aria-hidden="true" style="flex:none;width:${B}px"></span>`;
+  const lab=t=>`<span class="stp-lab" style="flex:1 1 0;min-width:0;text-align:center;font:700 13px/1.2 var(--sans);color:${done?'var(--forest)':'var(--deep)'};font-variant-numeric:tabular-nums">${t}</span>`;
+  const line=h=>`<div class="stp-line" style="display:flex;align-items:center;gap:4px;width:100%">${h}</div>`;
   const secs=work(it,q.g||q.grp)|0;
-  /* before it is done the number is the plan's own words, and a hold's is its clock */
   /* done, it says what was done in the plan's own terms: "7 each side", "35s each way" */
   const amt = u==='s' ? n+'s'+(w.side?' '+w.side:'')
     : n+' '+(w.noun?w.noun+' ':(w.side?'':(n===1?'rep':'reps')))+w.side;
   /* more or fewer sits under the number, inside the stepper: beside it, a phone pushed it onto a line of its own */
   const vs = diff ? `<span style="display:block;margin-top:2px;font:600 11px/1 var(--sans);color:var(--grey)">${diff>0?diff+' more':(-diff)+' fewer'}</span>` : '';
-  const mid = (done && (w.numeric || !w.per)) ? lab(esc(amt.trim())+(nSets>1||w.side?'':' done')+vs)
+  /* before it is done the number is the plan's own words, and a hold's is its
+     clock, with a play mark so it reads as something to press */
+  /* no "done" after it: the tick and the struck through name already say so */
+  const mid = (done && (w.numeric || !w.per)) ? lab(esc(amt.trim())+vs)
     : done ? lab(esc(w.per))
     : (u==='s' && secs>0)
-      ? `<button id="clk-${k}" data-secs="${secs}" data-key="${k}" onclick="event.stopPropagation();rowClock('${k}')" aria-label="Time this set"
-          style="min-width:${nSets>1?92:74}px;border:0;background:rgba(0,102,99,.08);border-radius:9px;padding:6px 9px;cursor:pointer;
-          font:700 13px/1.2 var(--sans);color:var(--forest);font-variant-numeric:tabular-nums">${esc(perSet(it.d,nSets)||lenLabel(it,q.g||q.grp))}</button>`
+      ? `<button class="stp-lab" id="clk-${k}" data-secs="${secs}" data-key="${k}" onclick="event.stopPropagation();rowClock('${k}')" aria-label="Start the timer for this set"
+          style="flex:1 1 0;min-width:0;border:0;background:rgba(0,102,99,.08);border-radius:10px;padding:7px 6px;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;gap:5px;
+          font:700 13px/1.2 var(--sans);color:var(--forest);font-variant-numeric:tabular-nums">${CLK_PLAY}<span>${esc(w.per||lenLabel(it,q.g||q.grp))}</span></button>`
       : lab(esc(w.per||lenLabel(it,q.g||q.grp)||(want+' reps')));
   /* "as far as you get" or "up and down the mat" has no number to step */
-  const reps = (w.per && !w.numeric) ? line(mid)
+  const reps = (w.per && !w.numeric) ? line(hold+mid+hold)
     : line(b('tickAmt',-step,'&minus;',u==='s'?'Held it for less':'Did fewer', n<=step?'Not ticked is missed':'')
     +mid
     +b('tickAmt',step,'+',u==='s'?'Held it for longer':'Did more'));
-  if(nSets<2) return reps;
+  if(nSets<2) return `<div style="width:100%;max-width:230px">${reps}</div>`;
+  /* the sets plus only shows once there is a set to give back; at all of
+     them it was a dead button on every row */
   const setLine=line(b('tickSets',-1,'&minus;','One set fewer', sets<=1?'Not ticked is missed':'')
-    +lab(done?sets+' of '+nSets+' sets done':nSets+' sets')
-    +b('tickSets',1,'+','One set more', sets>=nSets?'All of them':''));
-  return `<div style="display:flex;flex-direction:column;gap:6px">${reps}${setLine}</div>`;
+    +lab(sets<nSets?sets+' of '+nSets+' sets':nSets+' sets')
+    +(sets<nSets?b('tickSets',1,'+','One set more'):hold));
+  return `<div style="display:flex;flex-direction:column;gap:6px;width:100%;max-width:230px">${reps}${setLine}</div>`;
 }
+/* the timer's two faces: play while it waits, stop while it counts */
+const CLK_PLAY='<svg width="9" height="10" viewBox="0 0 9 10" aria-hidden="true" style="flex:none"><path d="M1 1l7 4-7 4z" fill="currentColor"/></svg>';
+const CLK_STOP='<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true" style="flex:none"><rect x="1" y="1" width="7" height="7" rx="1.5" fill="currentColor"/></svg>';
 /* What one set is counted in, read from the plan's own words, so "2 × 5
    each side" still says each side once it is done (Elliott, 13 Nov 2026). */
 function doseWords(it, nSets){
-  const per=String(perSet(it.d,nSets)||'');
+  let per=String(perSet(it.d,nSets)||'').trim();
+  /* a bare "5" is five reps; say so */
+  if(/^\d+(\s*[\u2013\u2014-]\s*\d+)?$/.test(per)) per+=' reps';
   const side=(per.match(/\b(?:each|per)\s+(?:side|way|arm|leg|direction|hand)\b|\bboth\s+(?:ways|sides)\b|\beach\b/i)||[''])[0].toLowerCase();
   const noun=(per.match(/\d\s*(goes|steps|breaths|rounds)\b/i)||[])[1];
   return {per, side, noun:noun?noun.toLowerCase():'', numeric:/\d/.test(per)};
