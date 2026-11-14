@@ -78,7 +78,11 @@
     + 'body.has-eb .lsh.fixed{top:40px}'
     + (zi ? '.lsh{z-index:' + zi + '}' : '');
 
-  var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + APP + x[0] + '">' + esc(x[1]) + '</a>'; }).join('')
+  /* signed out, Classes is the class page itself, with the photos, coaches
+     and reviews; signed in, it is the classes in the app (Elliott, 14 Nov 2026:
+     "classes main landing page has gone when im not signed in") */
+  var hrefOf = function (k) { return (!signed && k === 'classes') ? '/handstand-class' : APP + k; };
+  var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + hrefOf(x[0]) + '">' + esc(x[1]) + '</a>'; }).join('')
     + '<span class="lsh-sep" aria-hidden="true"></span>'
     + site.map(function (x) { return '<a class="lsh-a s' + (on === x[0] ? ' on' : '') + '" href="' + x[2] + '"' + (on === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</a>'; }).join('');
   var chat = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6.2A8 8 0 1 1 21 12z"/></svg>';
@@ -86,7 +90,7 @@
     ? '<a class="lsh-msg" data-nowin href="' + APP + 'chat" aria-label="Messages">' + chat + '</a>'
       + '<a class="lsh-acct" data-nowin href="' + APP + 'menu" aria-label="Your account"><span class="lsh-ini">' + esc(ini) + '</span><span class="lsh-name">' + esc(first || 'You') + '</span></a>'
     : '<a class="lsh-btn" data-nowin href="' + APP + 'signin">Sign in</a><a class="lsh-btn go" data-nowin href="' + APP + 'join">Create account</a>';
-  var menu = items.map(function (x) { return '<a data-nowin href="' + APP + x[0] + '"' + (on === x[0] ? ' class="on"' : '') + '>' + esc(x[1]) + '</a>'; }).join('')
+  var menu = items.map(function (x) { return '<a data-nowin href="' + hrefOf(x[0]) + '"' + (on === x[0] ? ' class="on"' : '') + '>' + esc(x[1]) + '</a>'; }).join('')
     + '<hr>' + site.map(function (x) { return '<a href="' + x[2] + '"' + (on === x[0] ? ' class="on"' : '') + '>' + x[1] + '</a>'; }).join('')
     + (signed ? '' : '<hr><a data-nowin href="' + APP + 'join">Create account</a>');
   var burger = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
