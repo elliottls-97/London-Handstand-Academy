@@ -30,8 +30,8 @@
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
   var APP = '/lha-app.html?go=';
   var items = coached
-    ? [['co', 'Your programme'], ['hs', 'Handstand'], ['classes', 'Classes']]
-    : [['hs', 'Handstand'], ['classes', 'Classes'], ['co', 'Coaching']];
+    ? [['co', 'Your programme'], ['hs', 'Training'], ['classes', 'Classes']]
+    : [['hs', 'Training'], ['classes', 'Classes'], ['co', 'Coaching']];
   var site = [['learn', 'Learn', '/learn/'], ['about', 'About', '/#story']];
 
   var css = ''
