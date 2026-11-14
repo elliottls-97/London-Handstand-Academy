@@ -103,5 +103,13 @@
   var mb = h.querySelector('.lsh-mb'), mn = h.querySelector('.lsh-menu');
   mb.addEventListener('click', function (e) { e.stopPropagation(); var o = mn.classList.toggle('open'); mb.setAttribute('aria-expanded', String(o)); });
   mn.addEventListener('click', function (e) { if (e.target.closest('a')) { mn.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); } });
-  D.addEventListener('click', function (e) { if (!h.contains(e.target)) { mn.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); } });
+  /* close it from anywhere: a press outside (caught before the page's own
+     handlers, some of which stop the click going further), Escape, or a scroll */
+  var shut = function () { if (mn.classList.contains('open')) { mn.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); } };
+  var y0 = 0;
+  mb.addEventListener('click', function () { y0 = window.scrollY; });
+  D.addEventListener('pointerdown', function (e) { if (!mn.contains(e.target) && !mb.contains(e.target)) shut(); }, true);
+  D.addEventListener('click', function (e) { if (!mn.contains(e.target) && !mb.contains(e.target)) shut(); }, true);
+  D.addEventListener('keydown', function (e) { if (e.key === 'Escape') shut(); });
+  window.addEventListener('scroll', function () { if (Math.abs(window.scrollY - y0) > 40) shut(); }, { passive: true });
 })();
