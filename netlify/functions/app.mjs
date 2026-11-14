@@ -1008,14 +1008,38 @@ async function appleRevoke(refresh) {
    salted with SIGNING_SECRET. The plain password is never stored
    anywhere on the server, so a leak of this variable doesn't hand
    anyone an account. Changing SIGNING_SECRET invalidates them all. */
-async function pwHash(plain) {
+/* 14 Nov 2026: every account has its own salt now. One shared salt meant two
+   people with the same password stored the same value, and the salt was the
+   signing secret, so changing that secret would have wiped every password.
+   A new hash reads v2$rounds$salt$hash. An old one (no v2$) is still checked
+   the old way, and is rewritten as v2 the next time that person signs in. */
+const PW_ROUNDS = 210000;
+async function pwDerive(plain, salt, rounds) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(plain),
     { name: 'PBKDF2' }, false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: new TextEncoder().encode(process.env.SIGNING_SECRET || ''),
-      iterations: 100000, hash: 'SHA-256' }, key, 256);
+    { name: 'PBKDF2', salt, iterations: rounds, hash: 'SHA-256' }, key, 256);
   return Buffer.from(bits).toString('base64');
 }
+const pwHashOld = plain => pwDerive(plain, new TextEncoder().encode(process.env.SIGNING_SECRET || ''), 100000);
+async function pwHash(plain) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return ['v2', PW_ROUNDS, Buffer.from(salt).toString('base64'), await pwDerive(plain, salt, PW_ROUNDS)].join('$');
+}
+const pwSame = (a, b) => { if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i); return diff === 0; };
+/* does this password match what is stored, whichever way it was stored */
+async function pwCheck(plain, stored) {
+  if (!stored || typeof stored !== 'string' || !plain) return false;
+  if (stored.startsWith('v2$')) {
+    const [, rounds, salt, hash] = stored.split('$');
+    const n = Number(rounds);
+    if (!n || n < 10000 || n > 5000000 || !salt || !hash) return false;
+    return pwSame(await pwDerive(String(plain), new Uint8Array(Buffer.from(salt, 'base64')), n), hash);
+  }
+  return pwSame(await pwHashOld(String(plain)), stored);
+}
+const pwOld = stored => typeof stored === 'string' && !stored.startsWith('v2$');
 /* PASSWORDS in the environment is the starting point; once someone changes
    theirs the new hash lives on their account row and takes precedence. */
 async function hashFor(db, email) {
@@ -5862,12 +5886,10 @@ const handle = async (request) => {
     /* slow the guessing down */
     if (!(await pwGate(e))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
 
-    const got = await pwHash(String(body.password));
-    if (got.length !== stored.length) return bad();
-    let diff = 0;
-    for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ stored.charCodeAt(i);
-    if (diff) return bad();
+    if (!(await pwCheck(String(body.password), stored))) return bad();
     await pwClear(e);
+    /* stored the old way: now that the password is known to be right, store it the new way */
+    if (pwOld(stored)) { try { await ensureAcct(e); await saveAcct({ email: e, hash: await pwHash(String(body.password)) }); } catch {} }
     return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
                   client: name, coach: coachList().includes(e),
                   coached: await isCoached(e), plus: plusNow(acct) });
@@ -13019,7 +13041,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     const stored = await hashFor(db, who);
     if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
-    if (!stored || (await pwHash(current)) !== stored) {
+    if (!stored || !(await pwCheck(current, stored))) {
       return json({ error: 'Current password is wrong' }, 401);
     }
     await pwClear(who);
@@ -13289,7 +13311,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const stored = await hashFor(db, who);
     if (stored) {
       if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
-      if ((await pwHash(String(body.password || ''))) !== stored) return json({ error: 'That password is not right' }, 401);
+      if (!(await pwCheck(String(body.password || ''), stored))) return json({ error: 'That password is not right' }, 401);
       await pwClear(who);
     } else if (String(body.confirm || '').trim().toLowerCase() !== 'delete') {
       return json({ error: 'Type delete to confirm' }, 400);
@@ -13325,7 +13347,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* the password, so a borrowed phone cannot move the account */
     const stored = await hashFor(db, who);
     if (!(await pwGate(who))) return json({ error: 'Too many attempts. Try again shortly.' }, 429);
-    if (!stored || (await pwHash(String(body.password || ''))) !== stored) {
+    if (!stored || !(await pwCheck(String(body.password || ''), stored))) {
       return json({ error: 'Current password is wrong' }, 401);
     }
     await pwClear(who);
