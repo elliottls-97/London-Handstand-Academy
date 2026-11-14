@@ -81,7 +81,9 @@
   /* signed out, Classes is the class page itself, with the photos, coaches
      and reviews; signed in, it is the classes in the app (Elliott, 14 Nov 2026:
      "classes main landing page has gone when im not signed in") */
-  var hrefOf = function (k) { return (!signed && k === 'classes') ? '/handstand-class' : APP + k; };
+  /* and Coaching is the free form check page (Elliott, 14 Nov 2026: "coaching
+     not logged in could have the form check landing page") */
+  var hrefOf = function (k) { return (!signed && k === 'classes') ? '/handstand-class' : (!signed && k === 'co') ? '/form-check' : APP + k; };
   var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + hrefOf(x[0]) + '">' + esc(x[1]) + '</a>'; }).join('')
     + '<span class="lsh-sep" aria-hidden="true"></span>'
     + site.map(function (x) { return '<a class="lsh-a s' + (on === x[0] ? ' on' : '') + '" href="' + x[2] + '"' + (on === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</a>'; }).join('');
