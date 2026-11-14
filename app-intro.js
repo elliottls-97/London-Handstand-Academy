@@ -201,7 +201,7 @@
     bg.src = (opts.base || '') + '/assets/welcome/elliott-handstand.mp4'; var p = bg.play(); if(p && p.catch) p.catch(function(){});
     try{ var pp = pre.play(); if(pp && pp.then) pp.then(function(){ pre.pause(); pre.currentTime = 0; }).catch(function(){}); }catch(x){}
     clearTimeout(twoT);
-    twoT = setTimeout(function(){ if(I.hidden) return; I.classList.add('two'); feat(0); }, 5600);
+    twoT = setTimeout(function(){ if(I.hidden) return; I.classList.add('two'); feat(0); }, (opts && opts.twoAfter) || 5600);
   }
   function introStop(){ delete I.dataset.on; clearTimeout(twoT); clearScene(); try{ bg.pause(); }catch(x){} I.hidden = true; }
   I.querySelector('.awi-go').onclick = function(){ if(opts.onGo) opts.onGo(); };
