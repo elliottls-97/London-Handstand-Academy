@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v347';
+const CACHE_VERSION = 'lha-v348';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -38,6 +38,8 @@ const SHELL = [
   '/vidshrink.js',
   /* picks a Learn page's films, the saved ones included */
   '/learn/films.js',
+  /* the header every site page shares (14 Nov 2026) */
+  '/site-header.js',
   '/manifest.json',
   /* an installed app whose icon is not cached loses its icon the first time
      it opens without signal */
