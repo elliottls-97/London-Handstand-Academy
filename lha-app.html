@@ -27,6 +27,10 @@
 .unplaced .hcap,.lvlwait>.hcps,.lvlwait .cstart{opacity:.42;filter:grayscale(.7);pointer-events:none}
 .hcap-cp{position:relative}
 .box.tpop{animation:tPop .38s cubic-bezier(.3,1.5,.5,1)}
+.fckx{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,64,61,.06);
+  color:var(--grey);display:grid;place-items:center;cursor:pointer;padding:0;z-index:1}
+.fckx:hover{background:rgba(0,64,61,.12);color:var(--deep)}
+.fckeep>.fckx{top:-4px;right:0}
 .dkring{position:relative;width:150px;height:150px;display:grid;place-items:center;margin-left:auto}
 .dkring svg{position:absolute;inset:0;width:100%;height:100%}
 .dkring #dkclock{position:relative;font-size:46px!important;text-shadow:none!important}
@@ -8832,7 +8836,7 @@ function cpBuyBody(){
   const row=[...document.querySelectorAll('[data-ck]')].find(x=>x.dataset.ck===st.cpBuyK);
   const nm=((row&&row.querySelector('.lc-t b'))||{}).textContent||'';
   const waiting=!!(st.checkOpen || st.awaitingReview);
-  const offer = sells() ? fcOfferHTML("buyPlan('checks')") : iosChecksOfferHTML();
+  const offer = sells() ? fcOfferHTML("buyPlan('checks')", true) : iosChecksOfferHTML();
   return `<div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}FORM CHECK${nm?' · '+esc(nm.toUpperCase()):''}</div>
     <div style="font:400 32px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">Get ${esc(coachLabel())}&rsquo;s eyes <em style="color:var(--forest);font-style:normal">on it.</em></div>
     <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">${waiting
@@ -9047,7 +9051,7 @@ function replyClose(){
    One row and a button, the same on the reply and on the form check screen.
    Somebody already paying for the Ladder adds them for the add-on price
    (the server charges the add-on to a paid Ladder whatever the button says). */
-function fcOfferHTML(go){
+function fcOfferHTML(go, strong){
   const add=!!st.checksAddon, price=add ? PRICE('checksadd') : checksPrice();
   if(!price) return '';
   return `<div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
@@ -9056,10 +9060,22 @@ function fcOfferHTML(go){
           ? 'Up to 3 clips a fortnight, a video back on each with what to change next, added to your Ladder.'
           : 'Up to 3 clips a fortnight, a video back on each with what to change next, and the whole Ladder.'}</div></div>
       <div style="flex:none;text-align:right;font:400 20px/1 var(--serif);color:var(--deep)">${esc(price)}<span style="display:block;font:400 11.5px/1.2 var(--sans);color:var(--grey2);margin-top:3px">${add?'a month on top':'a month'}</span></div></div>
-    <button onclick="${go}" style="width:100%;margin-top:12px;min-height:52px;border:0;border-radius:16px;cursor:pointer;
-      background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);font:600 15px/1.2 var(--sans)">${add?'Add form checks, '+esc(price)+' a month':'Start form checks, '+esc(price)+' a month'}</button>`;
+    ${strong ? `<button onclick="${go}" class="btn" style="width:100%;margin-top:12px">${add?'Add form checks, '+esc(price)+' a month':'Start form checks, '+esc(price)+' a month'}</button>`
+      : `<button onclick="${go}" class="btn2" style="width:100%;margin-top:12px;min-height:46px;font-size:14.5px">${add?'Add form checks':'Start form checks'}</button>`}`;
 }
-const fcCanOffer = () => sells() && !st.in && !coachedView() && !(st.checks && st.checks.on) && !!st.token;
+const fcCanOffer = () => sells() && !st.in && !coachedView() && !(st.checks && st.checks.on) && !!st.token && fcKeepOn();
+/* the form checks offer is quieter and can be put away; it comes back after
+   a week (Elliott, 14 Nov 2026: "not quite so in your face and dismissable,
+   but it comes back every few days / 7 days") */
+const FC_KEEP_DAYS=7;
+const fcKeepOn = () => !(st.fcKeepHid && Date.now()-Number(st.fcKeepHid) < FC_KEEP_DAYS*864e5);
+const FC_KEEP_X = '<button class="fckx" onclick="event.stopPropagation();fcKeepHide(this)" aria-label="Hide this for a week" title="Hide for a week"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
+function fcKeepHide(el){
+  st.fcKeepHid=Date.now(); save();
+  const card=el && el.closest && el.closest('.fckeep');
+  if(card) card.remove(); else render();
+  toast('Hidden for a week.');
+}
 function replyHTML(m){
   const who=coachLabel(), cue=replyCue(m), rest=String(m.text||'').trim().replace(/\s+/g,' ').slice(cue.length).trim();
   const kept=cueKept(m.id||m.video);
@@ -9106,9 +9122,9 @@ function replyHTML(m){
         <button onclick="replyFilm()" style="${link}">Film it again</button>
         <button onclick="replyClose();goAsk()" style="${link}">Reply</button>
       </div>
-      ${offer?`<div class="card" style="margin-top:20px;padding:20px">
+      ${(offer && fcKeepOn())?`<div class="card fckeep" style="position:relative;margin-top:20px;padding:18px 20px">${FC_KEEP_X}
         <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
-        <div style="font:400 22px/1.2 var(--serif);margin-top:8px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+        <div style="font:400 19px/1.2 var(--serif);margin-top:8px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
         ${offerChecks?fcOfferHTML("replyClose();buyPlan('checks')"):''}
         <div style="display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,64,61,.1)">
           <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Coaching</div>
@@ -22189,9 +22205,9 @@ function screenHome(){
     ${sessionLineHTML()}
     ${obBannerHTML()}
     ${fcBannerHTML()}
-    ${(fcCanOffer() && st.lastReview && !st.awaitingReview) ? `<div class="rise rise-1" style="padding:12px 20px 0"><div class="card" style="padding:18px 18px 16px">
+    ${(fcCanOffer() && st.lastReview && !st.awaitingReview) ? `<div class="rise rise-1 fckeep" style="padding:12px 20px 0"><div class="card" style="position:relative;padding:16px 18px 14px">${FC_KEEP_X}
       <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
-      <div style="font:400 21px/1.2 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+      <div style="font:400 18px/1.25 var(--serif);margin-top:6px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
       ${fcOfferHTML("buyPlan('checks')")}</div></div>` : ''}
     ${/* and for a class booker trying the app, who never answered them (13 Nov 2026) */''}
     ${!W && !needsLevel() && (fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
@@ -26327,8 +26343,8 @@ function screenCoaching(){
                 <button class="btn" style="flex:1;margin:0" onclick="openReply('', ${jsq(ans.video)})">Watch the reply</button>
                 <button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="st.seenReview=st.lastReview;save();render()">Got it</button></div>
             </div></div>
-            ${fcCanOffer() ? `<div class="card" style="padding:22px;margin-top:16px"><div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
-              <div style="font:400 24px/1.15 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+            ${fcCanOffer() ? `<div class="card fckeep" style="position:relative;padding:18px 20px 16px;margin-top:16px">${FC_KEEP_X}<div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
+              <div style="font:400 19px/1.2 var(--serif);margin-top:6px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
               ${fcOfferHTML("buyPlan('checks')")}</div>` : ''}`;
         }
         const steps = [
@@ -26374,9 +26390,9 @@ function screenCoaching(){
           <button onclick="goAsk()"
             style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;padding:10px;
             color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>
-          ${fcCanOffer() ? `<div class="kick2" style="color:var(--forest);margin-top:20px">KEEP ME ON IT</div>
-            <div style="font:400 20px/1.2 var(--serif);margin-top:6px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
-            ${fcOfferHTML("buyPlan('checks')")}` : ''}
+          ${fcCanOffer() ? `<div class="fckeep" style="position:relative;margin-top:20px">${FC_KEEP_X}<div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
+            <div style="font:400 18px/1.25 var(--serif);margin-top:6px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
+            ${fcOfferHTML("buyPlan('checks')")}</div>` : ''}
           ${(sells() && !st.in) ? `<div style="border-top:1px solid rgba(0,64,61,.08);margin-top:12px;padding-top:12px;
             font:400 13.5px/1.5 var(--sans);color:var(--grey)">Want a whole programme built around this?
             <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="seeCoaching()">See coaching</button></div>` : ''}
