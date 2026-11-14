@@ -4621,8 +4621,8 @@ const handle = async (request) => {
                   first.desc ? esc(first.desc) : '',
                   `${soon ? '' : 'A reminder comes the day before. '}${icsLinks ? icsLinks + '.' : ''}`,
                   wsChangeHTML(manage.join(' &middot; '), good.map(r => r.w), kept > 0, allGood.length > 1),
-                  wsNoPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
-          cta: wsNoPw ? { href: toClasses(wsLink), label: 'Choose a password' } : { href: toClasses(`${SITE}/lha-app.html`), label: 'Open the app' },
+                  wsNoPw ? `<b>Free with your booking:</b> an account in the Handstand Ladder app, with the first stage, your bookings in one place and a free form check. It is under ${esc(e)}: create your account with the button below.` : ''].filter(Boolean),
+          cta: wsNoPw ? { href: toClasses(wsLink), label: 'Create your account' } : { href: toClasses(`${SITE}/lha-app.html`), label: 'Open the app' },
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       /* held for somebody silenced by name: it goes in their messages, and
          the coach is told it was held */
@@ -8058,8 +8058,8 @@ const handle = async (request) => {
                 fr ? `${esc(fr.nm)} has a place too, and gets their own confirmation and reminder.` : '',
                 wsChangeHTML((await Promise.all(targets.map(async ([tSlug, tw]) => `<a href="${await wsManageLink(tSlug, e, sid, tw.when)}" style="color:#006663">${targets.length > 1
                   ? 'Change ' + esc(gwF.day(tw)) : 'Move or cancel your booking'}</a>`))).join(' &middot; '), targets.map(t => t[1]), false),
-                noPw ? `Your booking is in the Handstand Ladder app too, where the first stage is free. Your username is ${esc(e)}: choose a password with the button below.` : ''].filter(Boolean),
-        cta: noPw ? { href: link, label: 'Choose a password' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
+                noPw ? `<b>Free with your booking:</b> an account in the Handstand Ladder app, with the first stage, your bookings in one place and a free form check. It is under ${esc(e)}: create your account with the button below.` : ''].filter(Boolean),
+        cta: noPw ? { href: link, label: 'Create your account' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       await coachAlert(null, 'business', { title: 'New booking: ' + nm + (fr ? ' and ' + fr.nm : ''), body: gwF.subject, tag: 'book:' + nm });
       if (await coachMail(null, 'business')) await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Booking: ${nm} for ${gwF.subject}`, mail({ title: `${esc(nm)} has booked${targets.length > 1 ? ' ' + targets.length + ' sessions' : ''}.`,
