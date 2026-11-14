@@ -14,6 +14,10 @@
   var on = (me && me.getAttribute('data-on')) || '';
   var hide = (me && me.getAttribute('data-hide')) || '';
   var fixed = !!(me && me.hasAttribute('data-fixed'));
+  var zi = (me && me.getAttribute('data-z')) || '';
+  /* inside the app's own window (an iframe or ?embed=1) the page shows no
+     header at all; the website editor's preview keeps it */
+  var embedded = (window.self !== window.top || /[?&]embed=1/.test(location.search)) && !/[?&]siteedit=1/.test(location.search);
   var st = {};
   try { st = JSON.parse(localStorage.getItem('lha_app') || '{}') || {}; } catch (e) {}
   var signed = !!st.token, coached = !!(st.in || st.coached);
@@ -32,7 +36,7 @@
 
   var css = ''
     + (hide ? hide + '{display:none!important}' : '')
-    + '.lsh{position:sticky;top:0;z-index:60;background:rgba(252,252,252,.9);backdrop-filter:blur(22px) saturate(180%);'
+    + '.lsh{position:sticky;top:0;z-index:60;margin:0;padding:0;background:rgba(252,252,252,.9);backdrop-filter:blur(22px) saturate(180%);'
     + '-webkit-backdrop-filter:blur(22px) saturate(180%);border-bottom:1px solid rgba(0,64,61,.10);font-family:Figtree,system-ui,sans-serif}'
     + '.lsh *{box-sizing:border-box}'
     /* a page's own link and nav styles must not reach in (the Learn pages set capitals and spacing) */
@@ -70,9 +74,11 @@
     + '.lsh-menu hr{border:0;height:1px;background:rgba(0,64,61,.10);margin:6px 8px}'
     + '}'
     + '@media (min-width:1080px){.lsh-gap{display:none}}'
-    + '.lsh.fixed{position:fixed;left:0;right:0;top:0}';
+    + '.lsh.fixed{position:fixed;left:0;right:0;top:0}'
+    + 'body.has-eb .lsh.fixed{top:40px}'
+    + (zi ? '.lsh{z-index:' + zi + '}' : '');
 
-  var nav = items.map(function (x) { return '<a class="lsh-a" data-nowin href="' + APP + x[0] + '">' + esc(x[1]) + '</a>'; }).join('')
+  var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + APP + x[0] + '">' + esc(x[1]) + '</a>'; }).join('')
     + '<span class="lsh-sep" aria-hidden="true"></span>'
     + site.map(function (x) { return '<a class="lsh-a s' + (on === x[0] ? ' on' : '') + '" href="' + x[2] + '"' + (on === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</a>'; }).join('');
   var chat = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L3 21l2-6.2A8 8 0 1 1 21 12z"/></svg>';
@@ -80,12 +86,14 @@
     ? '<a class="lsh-msg" data-nowin href="' + APP + 'chat" aria-label="Messages">' + chat + '</a>'
       + '<a class="lsh-acct" data-nowin href="' + APP + 'menu" aria-label="Your account"><span class="lsh-ini">' + esc(ini) + '</span><span class="lsh-name">' + esc(first || 'You') + '</span></a>'
     : '<a class="lsh-btn" data-nowin href="' + APP + 'signin">Sign in</a><a class="lsh-btn go" data-nowin href="' + APP + 'join">Create account</a>';
-  var menu = items.map(function (x) { return '<a data-nowin href="' + APP + x[0] + '">' + esc(x[1]) + '</a>'; }).join('')
+  var menu = items.map(function (x) { return '<a data-nowin href="' + APP + x[0] + '"' + (on === x[0] ? ' class="on"' : '') + '>' + esc(x[1]) + '</a>'; }).join('')
     + '<hr>' + site.map(function (x) { return '<a href="' + x[2] + '"' + (on === x[0] ? ' class="on"' : '') + '>' + x[1] + '</a>'; }).join('')
     + (signed ? '' : '<hr><a data-nowin href="' + APP + 'join">Create account</a>');
   var burger = '<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 
-  var style = D.createElement('style'); style.textContent = css; D.head.appendChild(style);
+  var style = D.createElement('style');
+  if (embedded) { style.textContent = hide ? hide + '{display:none!important}' : ''; D.head.appendChild(style); return; }
+  style.textContent = css; D.head.appendChild(style);
   var h = D.createElement('header'); h.className = 'lsh' + (fixed ? ' fixed' : '');
   h.innerHTML = '<div class="lsh-row"><a class="lsh-logo" href="/" aria-label="London Handstand Academy, home"><img src="/assets/site/full-logo.png" alt="London Handstand Academy"></a>'
     + '<nav class="lsh-nav" aria-label="Main">' + nav + '</nav><span class="lsh-gap"></span>' + right
