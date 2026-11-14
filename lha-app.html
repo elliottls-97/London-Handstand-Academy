@@ -27,6 +27,16 @@
 .unplaced .hcap,.lvlwait>.hcps,.lvlwait .cstart{opacity:.42;filter:grayscale(.7);pointer-events:none}
 .hcap-cp{position:relative}
 .box.tpop{animation:tPop .38s cubic-bezier(.3,1.5,.5,1)}
+.dkscrub{display:flex;align-items:center;gap:10px;margin-top:-4px}
+.dkfp{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);display:grid;place-items:center;cursor:pointer;padding:0}
+.dkfp svg{transform:scale(.8)}
+.dkft{flex:none;font:600 12px/1 var(--sans);color:var(--grey);font-variant-numeric:tabular-nums;min-width:30px}
+.dktrack{position:relative;flex:1;height:22px;cursor:pointer;touch-action:none}
+.dktrack::before{content:'';position:absolute;left:0;right:0;top:9px;height:4px;border-radius:2px;background:rgba(0,64,61,.12)}
+.dktrack i{position:absolute;left:0;top:9px;height:4px;border-radius:2px;background:var(--forest)}
+.dktrack b{position:absolute;top:4px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:#fff;border:2px solid var(--forest);box-sizing:border-box;transition:transform .15s}
+.dktrack:hover b,.dktrack.drag b{transform:scale(1.25)}
+.dktrack:focus-visible{outline:2px solid var(--forest);outline-offset:3px;border-radius:6px}
 .fckx{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,64,61,.06);
   color:var(--grey);display:grid;place-items:center;cursor:pointer;padding:0;z-index:1}
 .fckx:hover{background:rgba(0,64,61,.12);color:var(--deep)}
@@ -16233,7 +16243,7 @@ function drawOv(){
     <div style="padding-top:14px">${body}</div>`}</div>`;
   const sheet=$('#ov').querySelector('.sheet');
   if(sheet && sheetTop && !dk) sheet.scrollTop=sheetTop;
-  if(dk){ const nl=$('#ov').querySelector('.dklist'); if(nl && listTop) nl.scrollTop=listTop; dkNow(); }
+  if(dk){ const nl=$('#ov').querySelector('.dklist'); if(nl && listTop) nl.scrollTop=listTop; dkNow(); dkScrubBind(); }
   if(sheet && !OV_HELD(st.ov)) bindSheetDrag(sheet);
   if(st.ov==='summary' && !again) countUp(sheet);
   mountCaptions();
@@ -18100,10 +18110,22 @@ function dkSetDone(){
   const was=DK.run; DK.left=0; dkPhaseEnd();
   if(was && dkAuto() && DK.phase!=='end' && !DK.run) dkToggle(true);
 }
+/* back and on move a whole exercise (Elliott, 14 Nov 2026: they stepped a set
+   at a time, so on a drill of three sets nothing seemed to happen). On lands
+   on the next drill's first set not yet done; back restarts the set once it is
+   under way, and otherwise goes to the start of the drill before. */
 function dkStep(by){
-  const was=DK.run;
-  if(by<0 && DK.phase==='work' && DK.left<DK.total-3){ DK.left=DK.total; dkPaint(); return; }
-  dkLoad(DK.i+by); dkPaint();
+  const was=DK.run, g=dkGroup(DK.i);
+  if(DK.phase==='end' && by<0){ DK.phase='work'; dkLoad(g.f); dkPaint(); return; }
+  if(by>0){
+    if(g.l>=Q.length-1) return;
+    let j=g.l+1; const n=dkGroup(j); while(j<n.l && (st.qTick||{})['q'+j]) j++;
+    dkLoad(j);
+  } else {
+    if(DK.phase==='work' && DK.left<DK.total-3){ DK.left=DK.total; dkPaint(); return; }
+    if(DK.i>g.f) dkLoad(g.f); else if(g.f>0) dkLoad(dkGroup(g.f-1).f); else dkLoad(0);
+  }
+  dkPaint();
   if(was) dkToggle(true);
 }
 function dkPick(i){ const g=dkGroup(i); let j=g.f; while(j<g.l && (st.qTick||{})['q'+j]) j++;
@@ -18136,11 +18158,11 @@ function dkCtlHTML(){
   const end=DK.phase==='end', on=dkAuto();
   const ic=(d)=>`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
   if(end) return `<button class="btn" style="flex:1;margin:0" onclick="finishChecklist()">Done for today</button>`;
-  return `<button class="dkb" onclick="dkStep(-1)" aria-label="Back a set">${ic('M15 6l-6 6 6 6')}</button>
+  return `<button class="dkb" onclick="dkStep(-1)" aria-label="The exercise before" title="The exercise before">${ic('M15 6l-6 6 6 6')}</button>
     <button class="dkplay" onclick="dkToggle()" aria-label="${DK.run?'Pause':'Play'}">${DK.run
       ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="#f7f4f1" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
       : '<svg width="18" height="20" viewBox="0 0 17 19" fill="#f7f4f1" aria-hidden="true" style="margin-left:3px"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg>'}</button>
-    <button class="dkb" onclick="dkStep(1)" aria-label="On a set">${ic('M9 6l6 6-6 6')}</button>
+    <button class="dkb" onclick="dkStep(1)" aria-label="The next exercise" title="The next exercise">${ic('M9 6l6 6-6 6')}</button>
     <button class="btn2" style="margin:0;min-height:48px;padding:0 18px" onclick="dkSetDone()">${DK.phase==='rest'?'Skip the rest':'Set done'}</button>
     <span style="flex:1"></span>
     <span class="dkauto"><span><b>Moves on by itself</b><small>${on?'Rest, then the next set, on its own':'Waits for you after every set'}</small></span>
@@ -18170,7 +18192,33 @@ function dkNextHTML(){
 function dkHTML(){
   const q=Q[DK.i]; DK.film=q?q.it.v:'';
   return `<div class="dkstage"><div class="dkvid" id="dkvid">${q?dkFilmHTML(q.it):''}</div><div id="dkover">${dkOverHTML()}</div></div>
+    <div class="dkscrub" id="dkscrub" aria-label="The demo film"><button class="dkfp" id="dkfp" onclick="dkFilmPlay()" aria-label="Pause the demo"></button><span class="dkft" id="dkft0">0:00</span>
+      <div class="dktrack" id="dktrack" role="slider" aria-label="Where in the demo" tabindex="0"><i id="dkfill2"></i><b id="dkknob"></b></div><span class="dkft" id="dkft1">0:00</span></div>
     <div class="dkctl" id="dkctl">${dkCtlHTML()}</div><div id="dknx">${dkNextHTML()}</div><div id="dkmo">${dkMoreHTML()}</div>`;
+}
+/* the demo's own play, pause and place, apart from the session clock */
+function dkFilm(){ return document.querySelector('#dkvid video:last-child'); }
+function dkFilmPlay(){ const v=dkFilm(); if(!v) return; if(v.paused) v.play().catch(()=>{}); else v.pause(); dkScrubPaint(); }
+function dkScrubPaint(){
+  const v=dkFilm(), f=document.getElementById('dkfill2'), k=document.getElementById('dkknob'), b=document.getElementById('dkfp');
+  const a=document.getElementById('dkft0'), z=document.getElementById('dkft1');
+  const d=v && isFinite(v.duration) ? v.duration : 0, t=v ? v.currentTime : 0, pc=d ? Math.min(100, t/d*100) : 0;
+  if(f) f.style.width=pc+'%'; if(k) k.style.left=pc+'%';
+  if(a) a.textContent=vpTime(t); if(z) z.textContent=vpTime(d);
+  if(b){ const paused=!v || v.paused; b.innerHTML=paused ? VP_PLAY : VP_PAUSE; b.setAttribute('aria-label', paused?'Play the demo':'Pause the demo'); }
+}
+function dkScrubBind(){
+  const v=dkFilm(); if(v && !v._dkb){ v._dkb=1; ['timeupdate','play','pause','loadedmetadata','seeked'].forEach(e=>v.addEventListener(e, dkScrubPaint)); }
+  const tr=document.getElementById('dktrack'); if(!tr || tr._dkb) { dkScrubPaint(); return; } tr._dkb=1;
+  const seek=ev=>{ const v=dkFilm(); if(!v || !isFinite(v.duration)) return; const r=tr.getBoundingClientRect();
+    v.currentTime=Math.max(0,Math.min(1,(ev.clientX-r.left)/Math.max(1,r.width)))*v.duration; dkScrubPaint(); };
+  tr.addEventListener('pointerdown', ev=>{ ev.preventDefault(); try{ tr.setPointerCapture(ev.pointerId); }catch(e){} tr.classList.add('drag'); seek(ev); });
+  tr.addEventListener('pointermove', ev=>{ if(tr.hasPointerCapture && tr.hasPointerCapture(ev.pointerId)) seek(ev); });
+  const up=()=>tr.classList.remove('drag'); tr.addEventListener('pointerup', up); tr.addEventListener('pointercancel', up);
+  tr.addEventListener('keydown', ev=>{ const v=dkFilm(); if(!v) return;
+    if(ev.key==='ArrowRight'){ v.currentTime=Math.min(v.duration||0, v.currentTime+2); ev.preventDefault(); }
+    if(ev.key==='ArrowLeft'){ v.currentTime=Math.max(0, v.currentTime-2); ev.preventDefault(); } dkScrubPaint(); });
+  dkScrubPaint();
 }
 function dkPaint(){
   const box=document.getElementById('dk'); if(!box) return;
@@ -18192,6 +18240,7 @@ function dkPaint(){
   const c=document.getElementById('dkctl'); if(c) c.innerHTML=dkCtlHTML();
   const nx=document.getElementById('dknx'); if(nx) nx.innerHTML=dkNextHTML();
   const mo=document.getElementById('dkmo'); if(mo) mo.innerHTML=dkMoreHTML();
+  dkScrubBind();
   dkNow();
 }
 function dkClock(){ const arc=document.getElementById('dkarc'); if(arc && DK.total) arc.setAttribute('stroke-dashoffset',(339.3*(1-Math.max(0,DK.left)/DK.total)).toFixed(1));
