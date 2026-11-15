@@ -382,6 +382,13 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
 @media (max-width:359px){ .hcap-go{font-size:14px;padding-left:13px;gap:7px} .hcap-go>span{width:36px;height:36px}
   .hcap-cp{gap:8px;padding-left:10px} .hcap-cp b{font-size:15px} .hcap-cp small{font-size:13px} }
 .hcap-go:active,.hcap-cp:active{transform:scale(.985)}
+/* what each half is for, under it (Elliott, 15 Nov 2026): the check points
+   climb you, a session trains you for them */
+.hcap-why{display:flex;gap:6px;padding:8px 6px 0;font:500 12.5px/1.3 var(--sans);text-align:center}
+.hcap-why span{min-width:0;text-wrap:balance}
+.hcap-why .w-cp{flex:45 1 0;color:#8a5a12;font-weight:600}
+.hcap-why .w-go{flex:55 1 0;color:var(--grey)}
+.hcap:not(.hcap-c) .hcap-cp{box-shadow:inset 0 0 0 1.5px rgba(243,169,73,.55)}
 /* coached: the check points are the bar and Start is a play button at its
    end; they train from Plan (Elliott, 30 Oct 2026) */
 .hcap.hcap-c .hcap-cp{flex:1 1 auto}
@@ -9849,7 +9856,41 @@ function climbHTML(si, mode, use){
    were reached, and the next stage is a soft row at the foot saying how
    many are left. A row still opens onto its film and the logging, as a
    rung did, through the same climbTap and climbTick. */
-function cpListOrder(S){ const rev=S.rows.slice().reverse(); return rev.filter(r=>r.done).concat(rev.filter(r=>!r.done)); }
+/* still to do first, reached ones under them, so the top row is always the
+   next step (Elliott, 15 Nov 2026). A row reached a moment ago keeps its
+   place until cpSettle moves it, so the tick is seen where it happened. */
+let cpHeld={};
+function cpListOrder(S){ const rev=S.rows.slice().reverse(), sorted=r=>r.done && !cpHeld[r.c.k];
+  return rev.filter(r=>!sorted(r)).concat(rev.filter(sorted)); }
+/* two seconds after a tick, the reached row slides down to join the others
+   (and an untick slides back up). Not while a row is open: that would move
+   it out from under the finger, and the next full draw sorts it anyway. */
+let cpSettleT=null;
+function cpSettleSoon(k){ cpHeld[k]=1; clearTimeout(cpSettleT); cpSettleT=setTimeout(cpSettle, 2000); }
+function cpSettle(){
+  cpSettleT=null; cpHeld={};
+  let still=false; try{ still=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  document.querySelectorAll('.lc.cl[data-si]').forEach(el=>{
+    const body=el.querySelector('.lc-body'); if(!body || el.querySelector('.lc-r.open')) return;
+    const want=cpListOrder(climbState(lcSi(el.dataset.si))).map(r=>body.querySelector(':scope > .lc-r[data-ck="'+CSS.escape(r.c.k)+'"]')).filter(Boolean);
+    const now=[...body.querySelectorAll(':scope > .lc-r')];
+    if(want.length!==now.length || want.every((r,i)=>r===now[i])) return;
+    const y0=new Map(now.map(r=>[r, r.getBoundingClientRect().top]));
+    want.forEach(r=>body.appendChild(r));
+    if(still || typeof Element.prototype.animate!=='function'){ climbFit(el); return; }
+    want.forEach(r=>{ const d=y0.get(r)-r.getBoundingClientRect().top; if(Math.abs(d)<1) return;
+      const down=d<0;
+      r.style.position='relative'; r.style.zIndex=down?'2':'1';
+      /* the rows have no fill of their own, so one passing over the others
+         is lifted onto white while it travels */
+      if(down){ r.style.background='#fff'; r.style.borderRadius='16px'; r.style.boxShadow='0 10px 26px rgba(0,64,61,.16)'; }
+      const a=r.animate([{transform:'translateY('+d+'px)'},{transform:'translateY('+d*0.5+'px) scale('+(down?1.02:1)+')',offset:.5},{transform:'none'}],
+        {duration:down?750:650, easing:'cubic-bezier(.45,0,.2,1)'});
+      a.onfinish=a.oncancel=()=>{ ['position','zIndex','background','borderRadius','boxShadow'].forEach(p=>r.style[p]=''); };
+    });
+    climbFit(el);
+  });
+}
 function cpDoneDay(c){
   const h=cpLog()[c.k]||[];
   const hit=h.find(e=>e && cpHit(c, e.v)) || h[h.length-1];
@@ -9996,6 +10037,7 @@ function climbRepaint(){
       const b=el.querySelector('.lc-r[data-ck="'+r.c.k+'"]'); if(!b) return;
       /* the checklist has no next rung, and a ticked row stays where it is
          under the finger until the next full draw groups it with the done */
+      if(cl && b.classList.contains('on')!==r.done) cpSettleSoon(r.c.k);
       b.classList.toggle('on', r.done); if(!cl) b.classList.toggle('nx', r.j===S.next);
       const ring=b.querySelector('.lc-ring'), ringH=cl ? cpListRing(r) : climbRing(r, el.dataset.use);
       if(ring && ring.innerHTML.replace(/\s+/g,'')!==ringH.replace(/\s+/g,'')) ring.innerHTML=ringH;
@@ -20412,7 +20454,10 @@ function climbCardHTML(cs, S, P, x){
     ${x.above||''}
     <!-- the six handstands, theirs in amber, rising in one after another
          as on the Ladder tab (Elliott, 17 Oct 2026) -->
-    ${(coachedView() || !MU_ON) ? `<div style="margin-top:12px">${ladderStripHTML({home:true})}</div>` : `<button class="ls-dots" onclick="pickLadder('${isMU()?'hs':'mu'}')" aria-label="Switch to the ${isMU()?'Handstand':'Muscle Up'} Ladder">
+    ${/* while the phase film is up its picture has the six figures and the
+         stage's name, so the strip and its label wait until it has gone
+         (Elliott, 15 Nov 2026) */''}
+    ${x.film ? '' : (coachedView() || !MU_ON) ? `<div style="margin-top:12px">${ladderStripHTML({home:true})}</div>` : `<button class="ls-dots" onclick="pickLadder('${isMU()?'hs':'mu'}')" aria-label="Switch to the ${isMU()?'Handstand':'Muscle Up'} Ladder">
         <i class="${isMU()?'':'on'}"></i><i class="${isMU()?'on':''}"></i>
         <span>${isMU()?'Swipe back for the Handstand Ladder':'Swipe for the Muscle Up Ladder'}</span></button>
       <div class="ls-wrap" style="margin-top:6px"
@@ -20422,7 +20467,7 @@ function climbCardHTML(cs, S, P, x){
 `}
     <!-- the name of the ladder and the stage under the six figures, not over
          them (Elliott, 9 Nov 2026) -->
-    ${(wide()&&x.row)?'':`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:12px">
+    ${(x.film || (wide()&&x.row))?'':`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:12px">
       <span class="kick2" style="color:var(--forest)">${isMU()?'THE MUSCLE UP LADDER':'THE LADDER'}</span>
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">${(typeof needsLevel==='function' && needsLevel()) ? 'FIND YOUR LEVEL' : 'STAGE '+((clearShowing()!=null?clearShowing():cs)+1)+' OF '+n}</span></div>`}
     ${x.film||''}
@@ -20848,7 +20893,9 @@ function capsuleHTML(go, label, pillOnly){
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${(on && !pillOnly)?homeCpsHTML():''}`;
+    </div>${(!pillOnly && !on && !coachedView() && P.of && P.met<P.of) ? `<div class="hcap-why" aria-hidden="true">
+      <span class="w-cp">${STAGES[cs+1] ? 'Reach all '+P.of+' to climb' : 'Reach all '+P.of+' to finish'}</span>
+      <span class="w-go">Sessions train you for them</span></div>` : ''}${(on && !pillOnly)?homeCpsHTML():''}`;
 }
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
