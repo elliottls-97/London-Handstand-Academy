@@ -21,7 +21,7 @@
   var tq = to ? '&amp;to=' + to : '', tqRaw = to ? '&to=' + to : '';
 
   var css = '.acct-link{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-weight:600;white-space:nowrap}'
-    + '.acct-av{width:26px;height:26px;border-radius:50%;background:#00403d;color:#fff;display:inline-grid;place-items:center;font:600 11px/1 system-ui,sans-serif;letter-spacing:.02em}';
+    + '.acct-av{width:26px;height:26px;border-radius:50%;background:#1d5566;color:#fff;display:inline-grid;place-items:center;font:600 11px/1 system-ui,sans-serif;letter-spacing:.02em}';
   var st = document.createElement('style'); st.textContent = css; (document.head || document.documentElement).appendChild(st);
 
   var esc = function (t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };

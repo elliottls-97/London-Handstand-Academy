@@ -73,11 +73,11 @@
     var b=document.createElement('div');
     b.setAttribute('role','status');
     b.style.cssText='position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:70;max-width:440px;margin:0 auto;'+
-      'background:#fff;border:1px solid rgba(0,64,61,.14);border-radius:18px;padding:14px 16px;display:flex;gap:12px;align-items:center;'+
-      'box-shadow:0 1px 2px rgba(0,64,61,.05),0 12px 30px rgba(0,64,61,.14);font:400 14px/1.4 Figtree,system-ui,sans-serif;color:#111';
+      'background:#fff;border:1px solid rgba(29,85,102,.14);border-radius:18px;padding:14px 16px;display:flex;gap:12px;align-items:center;'+
+      'box-shadow:0 1px 2px rgba(29,85,102,.05),0 12px 30px rgba(29,85,102,.14);font:400 14px/1.4 Figtree,system-ui,sans-serif;color:#111';
     b.innerHTML='<span style="flex:1;min-width:0">The films are slow on this signal. Smaller ones?</span>'+
       '<button type="button" data-y style="flex:none;border:0;border-radius:12px;height:40px;padding:0 14px;cursor:pointer;'+
-      'background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1;font:600 13px/1 Figtree,system-ui,sans-serif">Data saver</button>'+
+      'background:linear-gradient(180deg,#2f93a9,#237f95);color:#f7f4f1;font:600 13px/1 Figtree,system-ui,sans-serif">Data saver</button>'+
       '<button type="button" data-n aria-label="No thanks" style="flex:none;border:0;background:none;cursor:pointer;font:400 20px/1 system-ui;color:#686868;padding:4px">&times;</button>';
     b.querySelector('[data-y]').onclick=function(){ put('lha_q','saver'); b.remove(); LHAF.refresh(); };
     b.querySelector('[data-n]').onclick=function(){ b.remove(); };
