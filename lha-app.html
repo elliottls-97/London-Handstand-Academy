@@ -13333,9 +13333,11 @@ function cancelBooking(slug){
   if(cancelling) return;
   const b=liveBooking(slug); if(!b) return;
   const msg = b.refundable && Number(b.back)>0 ? 'Cancel your place?\n\n'+penceTxt(b.back)+(b.guest?' goes back to the card that paid for it.':' comes back to your card.')
-    : b.credit ? 'Cancel your place?\n\nIt is more than '+(b.mindH||48)+' hours since you booked, so it is not refunded. It becomes a credit for one place at another class, emailed to you now.'
+    : b.credit ? 'Cancel your place?\n\nIt is less than '+(b.refundH||48)+' hours to the class, so it is not refunded. It becomes a credit for one place at another class, emailed to you now.'
     : 'Cancel your place?';
-  sure(msg, 'Cancel my place', ()=>{
+  /* Move is what we would rather people did (Elliott, 15 Nov 2026) */
+  const moveFirst = (b.moveTo||[]).length ? '\n\nOr keep your place and move it to another Saturday, free: press Move instead.' : '';
+  sure(msg+moveFirst, 'Cancel my place', ()=>{
     cancelling=slug; render();
     fetch('/api/app/workshop/cancel',{method:'POST',headers:authed(),body:JSON.stringify({slug})})
       .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not cancel')))
@@ -13465,7 +13467,7 @@ function bookingsHTML(){
         `<button class="rt" style="justify-content:space-between;width:100%" onclick="moveBooking(${jsq(b.slug)},${jsq(o.slug)})">
           <span>${esc(new Date(o.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}</span><span>Move here</span></button>`).join('')}</div>`:''}`).join('')}
     </div>
-    ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">${list.some(b=>b.canCancel&&b.newRule)?'Within 48 hours of booking, a cancel is refunded in full. After that, up to 24 hours before the class, a cancel becomes a credit for another class, and a move is free, once.':'Move or cancel a class up to 24 hours before; a cancel is refunded to your card.'}</div>`:''}
+    ${list.some(b=>b.canCancel)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:12px">${list.some(b=>b.canCancel&&b.newRule)?'Can\'t make it? Move to another date for free, once, any time before the class. Cancel more than 48 hours before for a full refund; after that a cancel becomes a credit for another class.':'Move or cancel a class up to 24 hours before; a cancel is refunded to your card.'}</div>`:''}
     ${/* a 1-2-1's room is hired by Elliott, so a cancel is his to answer */
       list.some(b=>b.session&&b.change)?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);margin-top:${list.some(b=>b.canCancel)?4:12}px">To cancel a 1-2-1, ask from Change: Elliott hires the room for it and comes back to you with a refund or a new date.</div>`:''}
   </div>`;
@@ -23012,7 +23014,7 @@ function wsBookBody(){
         return units>1 ? 'Book '+units+' places'+((c2!=null?c2:cost)>0?', '+wsPounds(c2!=null?c2:cost):'')
           : (Number(w.price)>0 ? 'Book, '+(c2!=null?(c2>0?wsPounds(c2):'free'):(w.priceLabel||wsPounds(w.price))) : 'Book my place'); })()}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move or cancel up to 24 hours before. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${Number(w.price)>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before, by email. Move free any time before; cancel more than 48 hours before for a refund. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
   </div>`;
 }
 /* the waiver, signed with each booking (12 Oct 2026): one tick, signed
@@ -23239,7 +23241,7 @@ function wsBookMultiBody(){
     ${wsConsentHTML()}
     <button class="btn" style="width:100%;margin-top:16px" ${wsb.busy?'disabled':''} onclick="wsBookGo()">${wsb.busy?'One moment…':'Book '+list.length+' classes'+(cost>0?', '+wsPounds(cost):'')}</button>
     <div style="min-height:18px;margin-top:8px;font:500 13px/1.45 var(--sans);color:var(--red)">${esc(wsb.msg)}</div>
-    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${cost>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before each, by email. Move or cancel up to 24 hours before. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);margin-top:6px">${cost>0?'Card or Apple Pay on the next page, through Stripe. ':''}A confirmation and a reminder the day before each, by email. Move free any time before; cancel more than 48 hours before for a refund. By booking you agree to the <a href="/terms" target="_blank" rel="noopener" style="color:var(--deep);font-weight:600">terms</a>.</div>
   </div>`;
 }
 function classesCardHTML(max, where){

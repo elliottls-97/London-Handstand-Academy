@@ -73,8 +73,11 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
   function draw(d){
     var head='<div class="kick">Your booking</div><h1>'+esc(d.title)+'</h1><div class="when">'+esc(day(d.when))+'</div>'+(d.place?'<div class="meta">'+esc(d.place)+'</div>':'');
     if(d.status==='cancelled'||d.status==='refunded'){ box.innerHTML=head+'<div class="card"><b>This place is cancelled.</b>'+(d.status==='refunded'?' It was refunded.':d.creditCode?' Your credit code is <b>'+esc(d.creditCode)+'</b>.':'')+' <a href="/handstand-class#book" style="color:var(--forest)">Book another date</a>.</div>'; return; }
-    if(!d.canChange){ box.innerHTML=head+'<div class="card"><b>It is less than '+d.cutoff+' hours away,</b> so it can no longer be moved or cancelled online. Can’t make it? Email <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a> and Elliott will do what he can.</div>'; return; }
+    if(!d.canChange){ box.innerHTML=head+'<div class="card"><b>'+(d.cutoff>0?'It is less than '+d.cutoff+' hours away,':'The class has started,')+'</b> so it can no longer be moved or cancelled online. Can’t make it? Email <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a> and Elliott will do what he can.</div>'; return; }
     var others=(d.others||[]), mates=(d.mates||[]), all=false;
+    /* Move is what we would rather people did (Elliott, 15 Nov 2026), so
+       when there is somewhere to move to, Cancel waits behind one tap */
+    var canMoveAny=d.canMove!==false && others.some(function(o){ return !o.mine && o.left>0; });
     var names=function(){ return mates.map(function(m){ return m.name||m.email; }).join(' and '); };
     var backNow=function(){ return all?d.backAll:d.back; };
     /* a friend booked with them: the change is for one or for all */
@@ -84,19 +87,21 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
       +'<p id="scnote" style="color:var(--grey);font-size:13.5px;margin:10px 0 0"></p></div>':'';
     box.innerHTML=head+scope
       +'<div class="card"><div class="price"><b>Move to another date</b><span>'+(d.canMove===false?'Moved once already':'Free, once')+'</span></div>'
+      +(canMoveAny?'<p style="color:var(--grey);font-size:14.5px;margin:4px 0 10px">Can’t make this one? Keep your place and bring it to another Saturday, at no cost.</p>':'')
       +(d.canMove===false?'<p style="color:var(--grey)">This place has moved once already. To change it again, cancel it and book the date you want.</p>':others.length?others.map(function(o){ var off=o.mine||o.left<=0;
           return '<button class="opt" data-to="'+esc(o.slug)+'"'+(off?' disabled':'')+'><span><span class="n">'+esc(day(o.when))+'</span><span class="m" style="display:block">'
             +(o.mine?'You already have this date':o.left<=0?'Full':o.left<=5?o.left+' places left':'Places available')+'</span></span><i>'+(off?'':'Move here &rarr;')+'</i></button>'; }).join('')
         :'<p style="color:var(--grey)">No other date is open yet. The next ones go out by email.</p>')
       +'<div class="msg" id="mmsg"></div></div>'
-      +'<div class="card"><div class="price"><b>Cancel</b><span id="cback">'+(d.back>0?pounds(d.back)+' back':d.credit?'A credit':(d.paid>0?'':'Nothing to refund'))+'</span></div>'
+      +(canMoveAny?'<p style="text-align:center;margin:4px 0 0"><button type="button" id="cxShow" style="background:none;border:0;padding:8px;font:500 14.5px var(--sans,inherit);color:var(--grey);text-decoration:underline;cursor:pointer">None of these dates work</button></p>':'')
+      +'<div id="cxWrap"'+(canMoveAny?' hidden':'')+'><div class="card"><div class="price"><b>Cancel</b><span id="cback">'+(d.back>0?pounds(d.back)+' back':d.credit?'A credit':(d.paid>0?'':'Nothing to refund'))+'</span></div>'
       +'<p id="cwhy" style="color:var(--grey);font-size:14.5px">'+(d.back>0?(d.guest?'Your place is given up, and '+pounds(d.back)+' goes back to the card that paid for it, in a few days.'
   :d.group?'The places booked with it are charged at their own price now, so '+pounds(d.back)+' comes back to your card.'
   :'The '+pounds(d.back)+' you paid goes back to your card, in a few days.')
-  :d.credit?'It is more than '+(d.mindH||48)+' hours since you booked, so the place is not refunded. Cancel and it becomes a credit: a code for one place at any '+esc(d.title)+', good for three months, emailed to you now.'
+  :d.credit?'It is less than '+(d.refundH||48)+' hours to the class, so the place is not refunded. Cancel and it becomes a credit: a code for one place at any '+esc(d.title)+', good for three months, emailed to you now.'
   :'Your place is given up and freed for somebody else.')+'</p>'
-      +'<button class="ghost" id="cx">Cancel my place</button><div class="msg" id="cmsg"></div></div>'
-      +'<div class="fine">'+(d.newRule===false?'You can move or cancel up to '+d.cutoff+' hours before the start; a cancel is refunded. ':'Within '+(d.mindH||48)+' hours of booking, a cancel is a full refund. After that, up to '+d.cutoff+' hours before, a cancel becomes a credit for another class, and a move is free, once. Inside '+d.cutoff+' hours there is no refund or credit. ')+'Questions? <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a></div>';
+      +'<button class="ghost" id="cx">Cancel my place</button><div class="msg" id="cmsg"></div></div></div>'
+      +'<div class="fine">'+(d.newRule===false?'You can move or cancel up to '+d.cutoff+' hours before the start; a cancel is refunded. ':'Move for free, once, any time before the class. Cancel more than '+(d.refundH||48)+' hours before for a full refund; after that a cancel becomes a credit for another class, good for three months. ')+'Questions? <a href="mailto:info@londonhandstandacademy.com" style="color:var(--forest)">info@londonhandstandacademy.com</a></div>';
     var paintScope=function(){
       var me=document.getElementById('sc-me'), al=document.getElementById('sc-all'); if(!me) return;
       me.classList.toggle('on',!all); al.classList.toggle('on',all);
@@ -106,7 +111,7 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
       var cb=document.getElementById('cback'); if(cb) cb.textContent=backNow()>0?pounds(backNow())+' back':d.credit?(all?'A credit each':'A credit'):(d.paid>0?'':'Nothing to refund');
       var cw=document.getElementById('cwhy'); if(cw) cw.textContent = backNow()>0
         ? (all?'All your places are given up, and '+pounds(backNow())+' goes back to the card that paid, in a few days.':d.guest?'Your place is given up, and '+pounds(backNow())+' goes back to the card that paid for it, in a few days.':d.group?'The places booked with it are charged at their own price now, so '+pounds(backNow())+' comes back to your card.':'The '+pounds(backNow())+' you paid goes back to your card, in a few days.')
-        : d.credit?'It is more than '+(d.mindH||48)+' hours since you booked, so the place is not refunded. Cancel and '+(all?'each of you gets':'it becomes')+' a credit: a code for one place at any '+d.title+', good for three months, emailed now.'
+        : d.credit?'It is less than '+(d.refundH||48)+' hours to the class, so the place is not refunded. Cancel and '+(all?'each of you gets':'it becomes')+' a credit: a code for one place at any '+d.title+', good for three months, emailed now.'
         : 'Your place is given up and freed for somebody else.';
       /* a change of who it is for starts the confirm again: the button kept
          "refund £20" for one, and a tap cancelled both for £45 (review, 22 Oct 2026) */
@@ -129,6 +134,7 @@ input:focus{outline:2px solid var(--forest);outline-offset:0;border-color:var(--
         if(r&&r.partial){ done('Your place has moved.','Yours is now on '+esc(day(o&&o.when))+'. The others could not move: '+esc(r.partial)); return; }
         done('You have moved.',(all?'Your places are':'Your place is')+' now on '+esc(day(o&&o.when))+'.'); })
         .catch(function(e){ lockAll(false); m.textContent=String(e); }); }; });
+    var cxs=document.getElementById('cxShow'); if(cxs) cxs.onclick=function(){ document.getElementById('cxWrap').hidden=false; cxs.parentNode.remove(); };
     var cx=document.getElementById('cx'); cx.onclick=function(){
       if(cx.dataset.sure!=='1'){ cx.dataset.sure='1'; cx.textContent='Yes, cancel '+(all?'them':'it')+(backNow()>0?' and refund '+pounds(backNow()):d.credit?' for a credit':''); return; }
       if(working) return;
