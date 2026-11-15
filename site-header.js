@@ -44,7 +44,7 @@
     + '.lsh nav{position:static;background:none;border:0;padding:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;width:auto;height:auto}'
     + '.lsh .lsh-menu{position:absolute}'
     + '.lsh-row{max-width:1320px;margin:0 auto;padding:12px 36px;display:flex;align-items:center;gap:26px}'
-    + '.lsh-logo img{height:46px;width:auto;display:block;filter:brightness(0) saturate(100%) invert(35%) sepia(22%) saturate(900%) hue-rotate(135deg) brightness(96%) contrast(90%)}'
+    + '.lsh-logo img{height:46px;width:auto;display:block;filter:brightness(0) saturate(100%) invert(36%) sepia(30%) saturate(1000%) hue-rotate(144deg) brightness(110%) contrast(90%)}'
     + '.lsh-nav{flex:1;min-width:0;display:flex;align-items:center;gap:24px}'
     + '.lsh-a{padding:10px 0;font:500 15px/1 Figtree,system-ui,sans-serif;color:#5a5a5a;text-decoration:none;border-bottom:2px solid transparent}'
     + '.lsh-a.s{color:#686868}'
