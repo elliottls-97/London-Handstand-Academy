@@ -241,8 +241,9 @@ h1,h2,h3{font-family:var(--disp);text-transform:uppercase;font-weight:900;line-h
 .hero .sub{font-size:clamp(16px,2.4vw,19px);color:rgba(255,255,255,.9);max-width:560px;margin-bottom:26px;}
 .hero .loc-line{display:inline-flex;align-items:center;gap:8px;font-family:var(--disp);font-weight:800;text-transform:uppercase;letter-spacing:1px;font-size:14px;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);padding:8px 16px;border-radius:999px;margin-bottom:24px;}
 .hero-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
-.hero-app{color:#fff;font-weight:600;font-size:15px;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5);text-underline-offset:4px;padding:8px 2px}
-.hero-app:hover{text-decoration-color:#fff}
+.hero-app{display:inline-block;color:#fff;font-weight:600;font-size:15px;text-decoration:none;padding:14px 22px;border:1.5px solid rgba(255,255,255,.6);border-radius:999px;line-height:1.25}
+.hl-ds{flex:none;display:flex;gap:6px}
+.hero-app:hover{border-color:#fff;background:rgba(255,255,255,.08)}
 .hl-more{display:inline-block;margin:6px 4px 0;color:#fff;font:600 14px/1.35 var(--body);text-decoration:underline;text-decoration-color:rgba(255,255,255,.5);text-underline-offset:4px}
 @media (max-width:760px){.hero-app{text-align:center}}
 #sec-appad{scroll-margin-top:80px}
@@ -2181,11 +2182,18 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     var all=up.filter(function(d){ return !d.tbc; }), L=all.slice(0,2);
     if(!L.length){ box.hidden=true; return; }
     var tz={timeZone:'Europe/London'};
-    box.innerHTML='<div class="hl-k">Coming up</div>'+L.map(function(d){ var i=up.indexOf(d), dt=new Date(d.start), sk=isSk(d);
+    /* the same class on more than one Saturday is one box with the dates
+       side by side (Elliott, 15 Nov 2026: "one box now instead of 2, so the
+       app button can be more clear") */
+    var kindKey=function(d){ return (isSk(d)?'s':'a')+'|'+span(d)+'|'+d.price+'|'+(d.topic||''); }, groups=[];
+    L.forEach(function(d){ var k=kindKey(d), g=groups.filter(function(x){ return x.k===k; })[0]; if(g) g.items.push(d); else groups.push({k:k,items:[d]}); });
+    var badge=function(d){ var dt=new Date(d.start);
+      return '<span class="hl-d"><b>'+dt.toLocaleDateString('en-GB',Object.assign({day:'numeric'},tz))+'</b><span>'+dt.toLocaleDateString('en-GB',Object.assign({month:'short'},tz)).toUpperCase()+'</span></span>'; };
+    box.innerHTML='<div class="hl-k">Coming up</div>'+groups.map(function(g){ var d=g.items[0], i=up.indexOf(d), sk=isSk(d), one=g.items.length===1;
       /* places once a few are taken (8 Nov 2026): three booked, or five or fewer left */
-      var left=d.full?'Waiting list':(d.places>0&&(d.places-d.left>=3||d.left<=5))?(d.left<=5?d.left+' left':d.left+' places'):'';
-      return '<button type="button" class="hl-row'+(sk?' cali':'')+'" onclick="return bookWs('+i+',event)">'
-        +'<span class="hl-d"><b>'+dt.toLocaleDateString('en-GB',Object.assign({day:'numeric'},tz))+'</b><span>'+dt.toLocaleDateString('en-GB',Object.assign({month:'short'},tz)).toUpperCase()+'</span></span>'
+      var left=!one?'':d.full?'Waiting list':(d.places>0&&(d.places-d.left>=3||d.left<=5))?(d.left<=5?d.left+' left':d.left+' places'):'';
+      return '<button type="button" class="hl-row'+(sk?' cali':'')+'" onclick="return '+(one?'bookWs('+i+',event)':'pickDate(event)')+'">'
+        +(one?badge(d):'<span class="hl-ds">'+g.items.map(badge).join('')+'</span>')
         +'<span class="hl-m"><span class="hl-t">'+(d.topic?esc(d.topic):sk?'Calisthenics<span class="hl-new">NEW</span>':/handstand and calisthenics/i.test(d.title||'')?'Handstands and calisthenics':'All Levels Handstands')+'</span>'
         +'<span class="hl-s">'+(d.topic?'Handstands, then the topic · ':sk?'Beginner to intermediate<br>':'')+esc(span(d).replace(/:00/g,''))+'</span></span>'
         +'<span class="hl-p"><b>'+esc(d.priceLabel)+'</b><span>'+esc(left)+'</span></span></button>'; }).join('');
