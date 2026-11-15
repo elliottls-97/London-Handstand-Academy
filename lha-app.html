@@ -13802,6 +13802,49 @@ function paintMenu(){
   const now=m.querySelector('.panel'); if(now) now.scrollTop=keep;
   if(typeof lazyThumbs==='function') lazyThumbs();
 }
+/* ── every drill at the stage, by what it trains (Elliott, 15 Nov 2026:
+   "option to see all drills on that stage, grouped by category") ──────
+   The groupings are the pool's, the ones the session builder spends, so
+   the menu and the sessions name things the same way. A stage with no pool
+   rows takes its written sections instead. */
+function stageDrillGroups(si){
+  const out=[], seen=new Set(), at=new Map();
+  const add=(g, v)=>{ const it=drillById(v); if(!it || seen.has(it.v)) return; seen.add(it.v);
+    if(!at.has(g)){ at.set(g, out.length); out.push({g, items:[]}); } out[at.get(g)].items.push(it); };
+  let pool=[]; try{ pool=poolFor(si)||[]; }catch(e){}
+  if(pool.length) pool.forEach(x=>add(x.g||'Drills', x.v));
+  else ((typeof STAGE_SECTIONS!=='undefined' && STAGE_SECTIONS[si])||[]).forEach(sec=>(sec.items||[]).forEach(it=>add(sec.title||'Drills', it.v)));
+  return out;
+}
+function stageDrillsHTML(){
+  const si=curStage(), S=STAGES[si]; if(!S) return '';
+  const groups=stageDrillGroups(si), n=groups.reduce((t,g)=>t+g.items.length,0); if(!n) return '';
+  const open=!!st.stageDrillsOpen;
+  const row=it=>{ const u=it.url?uidOfUrl(it.url):'', lock=typeof drillLocked==='function' && drillLocked(it.v);
+    const pic=u ? streamThumb(u) : '';
+    /* the dose the stage writes for it, or the timing master's */
+    const dose=(()=>{ for(const sec of ((typeof STAGE_SECTIONS!=='undefined' && STAGE_SECTIONS[si])||[])) for(const x of (sec.items||[])) if(x.v===it.v && x.d) return x.d;
+      return (typeof FREE_DOSE!=='undefined' && FREE_DOSE[it.v]) || it.d || ''; })();
+    return `<button onclick="closeMenu();pgDrill(${jsq(it.v)})" style="width:100%;display:flex;align-items:center;gap:12px;border:0;background:none;
+      padding:8px 0;cursor:pointer;text-align:left;color:var(--ink)">
+      <span style="flex:none;width:56px;height:42px;border-radius:10px;overflow:hidden;background:var(--sand);position:relative">${pic?`<img src="${esc(pic)}" alt="" loading="lazy"
+        onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:''}</span>
+      <span style="flex:1;min-width:0"><b style="display:block;font:600 14px/1.25 var(--sans)">${esc(it.n)}</b>
+        <small style="display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px">${lock?'With the full Ladder':esc(dose)}</small></span>
+      ${LW_RIGHT}</button>`; };
+  return `<div class="card" style="padding:0;margin-bottom:16px;overflow:hidden">
+    <button onclick="st.stageDrillsOpen=!st.stageDrillsOpen;save();paintMenu()" aria-expanded="${open}"
+      style="width:100%;display:flex;align-items:center;gap:12px;border:0;background:none;cursor:pointer;padding:16px 18px;text-align:left;color:var(--ink)">
+      <span style="flex:1;min-width:0"><span class="kick2" style="display:block">EVERY DRILL AT ${esc(S.n.toUpperCase())}</span>
+        <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:6px">${n} drills in ${groups.length} groups. Tap one for its film and cues.</span></span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.2" stroke-linecap="round"
+        stroke-linejoin="round" aria-hidden="true" style="flex:none;transform:rotate(${open?180:0}deg)"><path d="M6 9l6 6 6-6"/></svg></button>
+    ${open ? `<div style="padding:0 18px 12px">${groups.map(g=>`<div style="padding-top:10px;border-top:1px solid rgba(0,64,61,.08)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:4px 0 2px">
+        <span style="font:400 18px/1.2 var(--serif)">${esc(g.g)}</span><span style="font:500 12px/1 var(--sans);color:var(--grey2)">${g.items.length}</span></div>
+      ${g.items.map(row).join('')}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
 function moreBody(all, cards){
   if(!all){ const m=moreLibrary(); all=m.all; cards=m.cards; }
   return `<div style="padding:16px 0 0">
@@ -13840,6 +13883,7 @@ function moreBody(all, cards){
             client, who has no Classes tab, keeps bookings here */''}
       ${coachedView()?bookingsHTML():''}
 
+      ${coachedView()?'':stageDrillsHTML()}
       ${coachedView()?'':`<!-- moved here from the foot of the Train screen, and the pencil
            from the top bar: neither is for somebody's first minute -->
       <div class="card" style="padding:16px 18px;margin-bottom:16px">
