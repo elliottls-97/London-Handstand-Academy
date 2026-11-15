@@ -136,7 +136,7 @@
   /* {lying, dog, R:{flex,abd,rot,bend}, L:{...}, hi:'R'|'both', hipFlex, knee} */
   function pose3(p){
     const {root,A,Lg,M}=init3();
-    if(p.dog){ root.rotation.set(134*D,0,0); } else root.rotation.set(p.lying ? -Math.PI/2 : 0, 0, 0);
+    if(p.dog){ root.rotation.set(134*D,0,0); } else if(p.hs){ root.rotation.set(Math.PI,0,0); } else root.rotation.set(p.lying ? -Math.PI/2 : 0, 0, 0);
     root.position.set(0, p.lying ? .13 : 0, p.lying ? 1.455 : 0);
     for(const k of ['R','L']){ const a=A[k], q=Object.assign({flex:0,abd:0,rot:0,bend:0}, p[k]||{});
       a.sh.rotation.set(0,0,0); a.sh.rotation.order='ZXY'; a.sh.rotation.x=-q.flex*D; a.sh.rotation.z=q.abd*D*a.side;
@@ -147,6 +147,8 @@
     if(p.dog){ // hands and feet on the floor: lift or drop the body so the lower of them touches it
       const y=o=>{ const v=new R.T.Vector3(); o.getWorldPosition(v); return v.y; };
       const lo=Math.min(y(A.R.tip), y(Lg.R.toe)); root.position.y-=lo-.02; root.position.z=-.25; root.updateMatrixWorld(true); }
+    if(p.hs){ // upside down: the hands on the floor
+      const v=new R.T.Vector3(); A.R.tip.getWorldPosition(v); root.position.y-=v.y-.02; root.updateMatrixWorld(true); }
   }
   const wp=o=>{ const v=new R.T.Vector3(); o.getWorldPosition(v); return v; };
   function band(c,u,v,r0,r1,a0,a1,color,op){
@@ -190,9 +192,55 @@
       look([1.25,2.45,2.25],[.12,.08,.0]); paint3(); }},
     /* the shoulder blades from behind: up, then slowly down; a blade that lifts off the ribs on the way down */
     blades:{draw(t,a){ const P=6.4, p=t%P, up=ease((p-.4)/1.8), dn=clamp((p-3)/2.8), u=up*(1-ease(dn));
-      const arm=lerp(8,170,u), bl=arm<=30?0:(arm-30)*60/150, wing=a===1 ? Math.sin(clamp(dn)*Math.PI)*1 : 0;
-      back(B.cx,B.cy,B.sc,pose2({arm, rot:bl, elev:bl*.25, tilt:wing, warn:wing}));
-      if(a===1 && wing>.2) for(const sd of [1,-1]){ const ia=atB(S([96,-12],pose2({arm,rot:bl,elev:bl*.25,tilt:wing})),sd); arrow(ia[0]+sd*10,ia[1]+50,ia[0]+sd*44,ia[1]+8,wing,C.red,7); } }},
+      // 14 Nov, the film's three ways the blades go wrong: shrugging to the ears (1), pressed down so they cannot turn
+      // up and the arms stop short (2), tipping forward on the way down (3)
+      const arm=lerp(8,a===2?140:170,u); let bl=arm<=30?0:(arm-30)*60/150, elev=bl*.25;
+      if(a===1) elev+=lerp(0,46,u);
+      if(a===2){ bl*=.45; elev=-lerp(0,14,u); }
+      const wing=a===3 ? Math.sin(clamp(dn)*Math.PI)*1 : 0, ps=pose2({arm, rot:bl, elev, tilt:wing, warn:wing});
+      back(B.cx,B.cy,B.sc,ps);
+      const k=clamp((u-.55)*2.4);
+      if(a===1) for(const sd of [1,-1]){ const tp=atB(S([170,-200],ps),sd); arrow(tp[0],tp[1]+34,tp[0]-sd*6,tp[1]-40,k,C.red,7); }
+      if(a===2) for(const sd of [1,-1]){ const tp=atB(S([120,-150],ps),sd); arrow(tp[0],tp[1]-30,tp[0],tp[1]+44,k,C.red,7); }
+      if(a===3 && wing>.2) for(const sd of [1,-1]){ const ia=atB(S([96,-12],ps),sd); arrow(ia[0]+sd*10,ia[1]+50,ia[0]+sd*44,ia[1]+8,wing,C.red,7); } }},
+    /* 14 Nov, the ranges as the film shows them, standing: out to the side and up (from behind), forward and up (side
+       on), and turning out with the arm at 90 (from the front). Short of normal in red, normal in teal, past it amber */
+    side:{d3:true, draw(t,a){
+      const tgt=a===0?150:a===2?194:176, u=cyc(t,6,2,1.8), ab=lerp(0,tgt,u);
+      pose3({R:{abd:ab}, L:{abd:ab}, hi:'both'});
+      clear3(); const sh=wp(R.A.R.sh), dn=V3(0,-1,0), ou=V3(1,0,0);
+      band(sh,dn,ou,.70,.74,0,ab,0x006663,.3);
+      band(sh,dn,ou,.62,.80,170,180,0x006663,.24*u);
+      if(a===0) band(sh,dn,ou,.62,.80,150,170,0xa4503c,.4*u);
+      if(a===2) band(sh,dn,ou,.62,.80,180,194,0xf3a949,.45*u);
+      look([-.35,1.55,-4.3],[0,1.22,0]); paint3(); }},
+    front:{d3:true, draw(t,a){
+      const tgt=a===0?140:a===2?194:174, u=cyc(t,6,2,1.8), fl=lerp(0,tgt,u);
+      pose3({R:{flex:fl}, L:{flex:fl}, hi:'both'});
+      clear3(); const sh=wp(R.A.R.sh), c=V3(sh.x+.06,sh.y,sh.z), dn=V3(0,-1,0), fw=V3(0,0,1);
+      band(c,dn,fw,.70,.74,0,fl,0x006663,.3);
+      band(c,dn,fw,.62,.80,160,180,0x006663,.24*u);
+      if(a===0) band(c,dn,fw,.62,.80,140,160,0xa4503c,.4*u);
+      if(a===2) band(c,dn,fw,.62,.80,180,194,0xf3a949,.45*u);
+      look([4.7,1.5,.6],[0,1.3,.08]); paint3(); }},
+    turnup:{d3:true, draw(t,a){
+      const tgt=a===0?45:a===2?112:88, u=cyc(t,5.6,1.8,1.6), r=lerp(0,tgt,u);
+      pose3({R:{abd:90, bend:90, rot:r}, L:{abd:8}, hi:'R'});
+      clear3(); const el=wp(R.A.R.el), fw=V3(0,0,1), up=V3(0,1,0);
+      band(el,fw,up,0,.42,-.5,.5,0x00403d,.45);
+      band(el,fw,up,0,.40,0,r,0x006663,.2);
+      band(el,fw,up,.40,.47,80,90,0x006663,.7);
+      if(a===0) band(el,fw,up,.40,.47,tgt,80,0xa4503c,.5*u);
+      if(a===2) band(el,fw,up,.40,.47,90,tgt,0xf3a949,.5*u);
+      look([2.0,1.75,3.3],[.3,1.38,0]); paint3(); }},
+    /* 14 Nov, the handstand side on, and the film's four faults: shoulders closed (1), sinking with the elbows bending
+       (2), turned in (3, seen from the front so the elbows show), the chest pushing through (4) */
+    hs:{d3:true, draw(t,a){
+      const u=cyc(t,5.2,1.4,2);
+      const fl=a===1?lerp(180,150,u):a===2?lerp(180,168,u):a===4?lerp(180,204,u):180;
+      const bend=a===2?lerp(0,28,u):a===3?lerp(0,16,u):0, rot=a===3?lerp(0,-60,u):0, hip=a===1?lerp(0,-22,u):a===4?lerp(0,14,u):0;
+      pose3({hs:true, hipFlex:hip, R:{flex:fl, bend, rot}, L:{flex:fl, bend, rot}, hi:'both'});
+      clear3(); look(a===3 ? [1.9,1.2,-4.7] : [5.4,1.15,.15], [0,1.12,0]); paint3(); }},
     /* under load, a downward dog side on: arms by the ears, shoulders sinking and elbows bending, or the chest
        sinking through */
     load:{d3:true, draw(t,a){
@@ -203,7 +251,9 @@
     /* the results */
     stiff:{draw(t){ const u=cyc(t,6,2,1.6), arm=lerp(8,138,u);
       back(B.cx,B.cy,B.sc,pose2({arm, rot:lerp(0,20,u), elev:lerp(0,-6,u), hi:{lats:1}})); }},
-    weak:{d3:true, draw(t){ return SC.load.draw(t,1); }},
+    weak:{d3:true, draw(t){ return SC.hs.draw(t,2); }},
+    shrug:{draw(t){ return SC.blades.draw(t,1); }},
+    cuff:{d3:true, draw(t){ return SC.turnup.draw(t,0); }},
     bendy:{draw(t){ const u=cyc(t,6,2,1.6), arm=lerp(8,186,u), ps=pose2({arm, rot:lerp(0,74,u), elev:lerp(0,52,u), prot:lerp(0,30,u)});
       back(B.cx,B.cy,B.sc,ps);
       for(const sd of [1,-1]){ const c0=atB(S([112,-110],ps),sd); arrow(c0[0]-sd*8,c0[1]+30,c0[0]+sd*46,c0[1]-56,clamp(u*1.4)); } }},
