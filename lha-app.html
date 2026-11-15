@@ -15861,17 +15861,19 @@ function drawOv(){
        This was a title, a sentence about accounts and a button. Nobody
        hands over an email for a title. It shows the still from the film,
        what is actually covered in it, and how many more come with it. */
-    const q=FAQS[st.exOpen]||FAQS[0];
-    const sum=q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
+    /* a Learn row that is not an explainer (a fix, a read): its own title and still */
+    const lr=(st.exOpen<0 && st.lockRow) ? st.lockRow : null;
+    const q=lr ? {q:lr.t, uid:'', sum:''} : (FAQS[st.exOpen]||FAQS[0]);
+    const sum=lr ? '' : q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
     const locked=FAQS.map((x,n)=>({x,n})).filter(o=>filmed(o.x) && !explainerOpen(o.n));
     const others=locked.filter(o=>o.n!==st.exOpen).slice(0,6);
     body=`<div style="padding:2px">
       <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
         color:var(--forest)">Needs an account</div>
       <div style="font:400 28px/1.06 var(--serif);margin-top:10px">${esc(q.q)}</div>
-      ${q.uid?`<div style="position:relative;margin-top:14px;border-radius:18px;overflow:hidden;
+      ${(lr?lr.img:q.uid)?`<div style="position:relative;margin-top:14px;border-radius:18px;overflow:hidden;
         aspect-ratio:16/10;background:#11150f">
-        <img src="${esc(streamThumb(q.uid))}" alt="" loading="lazy"
+        <img src="${esc(lr?lr.img:streamThumb(q.uid))}" alt="" loading="lazy"
           style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
         <span style="position:absolute;inset:0;background:linear-gradient(180deg,
           rgba(0,0,0,.04),rgba(0,0,0,.30))"></span>
@@ -15888,7 +15890,7 @@ function drawOv(){
       ${sum?`<div class="kick2" style="margin-top:16px">WHAT IS COVERED</div>
       <div style="font:400 14.5px/1.6 var(--sans);color:var(--ink);margin-top:8px">${esc(sum)}</div>`:''}
       ${others.length?`<div class="kick2" style="margin-top:18px">AND ${
-        locked.length-1} MORE WITH IT</div>
+        lr?locked.length:locked.length-1} MORE WITH IT</div>
       <div style="margin-top:9px;display:flex;flex-direction:column;gap:7px">
         ${others.map(o=>`<div style="display:flex;gap:9px;align-items:baseline">
           <span style="flex:none;color:var(--forest)">&bull;</span>
@@ -15896,8 +15898,7 @@ function drawOv(){
         </div>`).join('')}
       </div>`:''}
       <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:16px">
-        The first ${FREE_EXPLAINERS} are open to everybody. An account opens the rest,
-        keeps your stage and your finished sessions, and costs nothing.</div>
+        A free account opens ${lr?'this and every explainer':'every explainer'}, keeps your stage and your finished sessions, and costs nothing.</div>
       <button onclick="closeOv();goJoin()"
         style="width:100%;margin-top:20px;border:0;border-radius:16px;padding:17px;
         background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
@@ -16999,7 +17000,7 @@ function loadProgress(){
    under it, not a page that is only the ask (Elliott, 15 Nov 2026: it
    opened on "Needs an account." and said nothing about Progress) */
 function progSaveHTML(){
-  return `<div class="rise" style="padding:20px 20px 28px"><div style="border-radius:22px;padding:18px;background:rgba(0,102,99,.055);border:1px solid rgba(0,102,99,.09)">
+  return `<div class="rise" style="padding:14px 20px 6px"><div style="border-radius:22px;padding:18px;background:rgba(0,102,99,.055);border:1px solid rgba(0,102,99,.09)">
     <p style="margin:0;font:400 19px/1.3 var(--serif)">Kept on this ${IOS_APP?'phone':'browser'} <em style="color:var(--forest);font-style:normal">only.</em></p>
     <p style="margin:6px 0 0;font:400 14px/1.5 var(--sans);color:#444">A free account keeps every session, rep and check point, on any phone.</p>
     <button class="btn" style="width:100%;margin-top:14px" onclick="st.wantUpgrade=null;st.quizDone=true;goJoin()">Create a free account</button>
@@ -19768,6 +19769,9 @@ function learnHTML(inTab){
      and a laptop, closed on Train or not: first until watched, then at the
      end (Elliott, 14 Nov 2026: "the intro videos and how the app works have
      disappeared again") */
+  if(!st.token && !st.preview) rows.forEach(r=>{
+    r.sub += ' &middot; Free account';
+    r.go = r.ex!=null ? `lockedExplainer(${r.ex})` : `learnLocked(${jsq(String(r.t).replace(/&[a-z]+;/g,''))},${jsq(r.img||'')})`; });
   { const u=phaseFilmUid(), sm=(u && PHASE_SMILE[u])||{};
     const how=(!isMU() && !coachedView() && HOW_URL()) ? {t:'How the Handstand Ladder works', sub:'Film &middot; 3 min',
       img:streamThumb(HOW_URL()), go:'openHowFilm()'} : null;
@@ -21331,7 +21335,10 @@ rebuildFaqs();
 /* Elliott's rule: the first four play for anybody, Foundations included,
    and a free account opens the rest. The first four are Foundations'
    own, since the list runs stage by stage, filmed first. */
-const FREE_EXPLAINERS=4;
+/* none without an account: on Learn only the stage's film and How the
+   Handstand Ladder works are open to everybody (Elliott, 15 Nov 2026: "we
+   do really need to get them to make an account") */
+const FREE_EXPLAINERS=0;
 const explainerOpen = i => i < FREE_EXPLAINERS || !!st.token;
 /* v is a filename in the R2 bucket the explainers already live in */
 /* one a day, rotating, so there is a reason to come back rather than a
@@ -21629,7 +21636,8 @@ function exSpeed(r){ st.exSpeed=r; save(); applyExSpeed();
    did it, so the commonest thing you could press on the main screen replaced
    the whole screen without warning: "the panel refreshed when I pressed it".
    A sheet says the same thing and leaves you where you were. */
-function lockedExplainer(i){ st.exOpen=i; openOv('locked'); }
+function lockedExplainer(i){ st.exOpen=i; st.lockRow=null; openOv('locked'); }
+function learnLocked(t, img){ st.exOpen=-1; st.lockRow={t, img}; openOv('locked'); }
 
 /* ══ Fixes ════════════════════════════════════════════════════════════
    A fix is a four week programme for one problem, written from the coach
@@ -23759,6 +23767,7 @@ function screenLadder(){
       wide()?'top:0;padding-top:14px;padding-bottom:10px':'top:calc(env(safe-area-inset-top) + 71px);padding-top:12px;padding-bottom:10px'}">${sg}</div>`:''; })()}
     ${/* this week, said in words: it was two dots in the top bar */''}
     ${coachedView()?'':homeStreakHTML()}
+    ${(ltab!=='tests' && !st.token) ? progSaveHTML() : ''}
     ${ltab==='tests' ? assessHTML() : progFresh() ? `
     <!-- Nothing done yet: the week, a streak, three noughts, an empty month
          and a card about the work were five ways of saying so (Elliott,
@@ -23785,7 +23794,6 @@ function screenLadder(){
          How well I know you is still in the menu. -->
     ${duo ? `${progTilesHTML()}<div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div>${progressBody()}</div>
       <div class="pd-over"><div class="kick2 pd-k">OVER TIME</div><div class="pd-h">What has gone <em>up.</em></div>${overBodyHTML()}</div></div>` : progressBody()}` : overBodyHTML()}
-    ${(ltab!=='tests' && !st.token) ? progSaveHTML() : ''}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
