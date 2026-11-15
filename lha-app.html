@@ -10182,8 +10182,17 @@ function cpSparkle(k){
     setTimeout(()=>box.remove(), 1100);
   }, 80);
 }
+/* a reading that does not count: their latest one short of the target,
+   else none at all, else (fewer is better) one more than the target */
+function cpUntickValue(c){
+  const h=(cpLog()[c.k]||[]).slice().reverse().map(e=>e && Number(e.v)).filter(v=>v!=null && !isNaN(v));
+  const was=h.find(v=>!cpHit(c, v)); if(was!=null) return was;
+  if(!cpHit(c, 0)) return 0;
+  const t=Number(cpTarget(c)); if(!isNaN(t) && !cpHit(c, t+1)) return t+1;
+  return null;
+}
 function climbTickLabel(r){
-  return climbTicked(r) ? r.c.n+(r.done?', reached':', ticked')+(lcUndo[r.c.k]!==undefined?'. Press to undo':'. Open it')
+  return climbTicked(r) ? r.c.n+(r.done?', reached':', ticked')+((coachedView() && cpState(r.c)==='signed')?'. Open it':'. Press to untick')
                : 'Tick '+r.c.n+' as reached';
 }
 function climbTick(btn){
@@ -10192,9 +10201,17 @@ function climbTick(btn){
   if(!coachedView() && stageLocked(curStage())){ openStage(curStage()); return; }
   const row=climbState(lcSi(lc.dataset.si)).rows.find(x=>x.c.k===k); if(!row) return;
   const c=row.c;
+  /* a ticked ring unticks, whenever it was ticked (Elliott, 15 Nov 2026:
+     "clicking on a tick button that is ticked should untick it not open
+     it"). Straight after a tick it puts back what was there; otherwise it
+     logs today their last reading short of the target, or nothing reached,
+     and the history keeps the day it was first reached. A coach's sign off
+     is the coach's, so that one still opens. */
   if(climbTicked(row)){
-    if(lcUndo[k]===undefined) return open();
-    const back=lcUndo[k]; delete lcUndo[k];
+    if(coachedView() && cpState(c)==='signed') return open();
+    let back=lcUndo[k]; delete lcUndo[k];
+    if(back===undefined || cpHit(c, back)) back=cpUntickValue(c);
+    if(back===null) return open();
     saveCheckpoint(k, back);
     toast('Unticked.');
     return;
