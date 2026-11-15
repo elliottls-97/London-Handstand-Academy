@@ -1497,7 +1497,7 @@ function funnelHTML(){
    The dashboard showed coaching clients and enquiries, which is a handful
    of people. Everybody who did the quiz, used the free ladder and drifted
    off was invisible, and that is the whole top of the funnel. */
-let leads=null, leadQ='', leadSort='last', grantBusy='', leadErr='', leadsAsked=false, leadsOpen=false;
+let leads=null, leadQ='', leadSort='last', grantBusy='', leadErr='', leadsAsked=false, leadsOpen=false, leadIph=false;
 function loadLeads(force){
   if(leadsAsked && !force) return;
   leadsAsked=true;
@@ -1765,9 +1765,10 @@ function leadsHTML(){
       ${leads?'Nobody has signed up yet.':'Loading…'}</div></div>`;
 
   const coachedSet=new Set(clients.filter(c=>c.coached!==false).map(c=>c.email));
-  const paid=leads.filter(a=>a.plus), live=leads.filter(leadLive), fresh=leads.filter(leadNew);
+  const paid=leads.filter(a=>a.plus), live=leads.filter(leadLive), fresh=leads.filter(leadNew), iph=leads.filter(a=>a.iphone);
   const q=leadQ.trim().toLowerCase();
   const rows=leads
+    .filter(a=>!leadIph || a.iphone)
     .filter(a=>!q || (a.email||'').toLowerCase().indexOf(q)>-1
                   || (a.name||'').toLowerCase().indexOf(q)>-1)
     .slice()
@@ -1793,6 +1794,9 @@ function leadsHTML(){
       ${stat(live.length,'STILL TRAINING','opened it in the last fortnight')}
       ${stat(fresh.length,'NEW THIS WEEK','')}
       ${stat(paid.length,'ON THE LADDER','including anyone you have comped')}
+      <button onclick="leadIph=!leadIph;leadsOpen=true;draw()" title="Show only the accounts that use the iPhone app"
+        style="flex:1;min-width:118px;padding:0;border:0;background:none;text-align:left;cursor:pointer;border-radius:14px;${leadIph?'box-shadow:0 0 0 2px var(--forest);':''}">
+        ${stat(iph.length,'IPHONE APP',leadIph?'showing only these':'tap to list them')}</button>
     </div>
     <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:16px">
       <input value="${esc(leadQ)}" oninput="leadQ=this.value;draw()" placeholder="Find an address…"
@@ -1800,10 +1804,10 @@ function leadsHTML(){
         padding:9px 11px;font:400 13.5px/1 var(--sans);background:#fff">
       ${sortBtn('last','Last seen')}${sortBtn('first','Newest')}
     </div>
-    ${!q && !leadsOpen ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="leadsOpen=true;draw()">Show all ${leads.length} accounts</button>`
+    ${!q && !leadsOpen && !leadIph ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px" onclick="leadsOpen=true;draw()">Show all ${leads.length} accounts</button>`
     : `<div style="display:flex;justify-content:flex-end;margin-top:10px">${!q?`<button class="ghostlink" onclick="leadsOpen=false;draw()">Fold the list away</button>`:''}</div>`}
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"${!q && !leadsOpen?' hidden':''}>
-      ${(!q && !leadsOpen ? [] : rows).map(a=>{
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"${!q && !leadsOpen && !leadIph?' hidden':''}>
+      ${(!q && !leadsOpen && !leadIph ? [] : rows).map(a=>{
         const isC=coachedSet.has(a.email), busy=grantBusy===a.email;
         const tag=(t,c)=>`<span style="font:600 9px/1 var(--sans);letter-spacing:.1em;
           border-radius:999px;padding:4px 8px;background:${c}1a;color:${c}">${t}</span>`;
@@ -1816,6 +1820,7 @@ function leadsHTML(){
           </span>
           <span style="flex:none;display:flex;gap:6px;flex-wrap:wrap">
             ${isC?tag('COACHED','#006663'):''}
+            ${a.iphone?`<span style="display:inline-flex" title="${a.iphoneLast?'Last opened the iPhone app '+esc(ago(a.iphoneLast)):'Uses the iPhone app'}">${tag('IPHONE APP','#00403d')}</span>`:''}
             ${a.plus?tag(a.appleUntil?'LADDER · APPLE':a.stripeCustomer?'LADDER · STRIPE':(a.until?'CODE TO '+String(a.until).slice(5,10):'COMPED'),'#006663'):''}
             ${leadLive(a)?'':tag('QUIET','#5a5a5a')}
           </span>

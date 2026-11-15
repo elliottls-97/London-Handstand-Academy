@@ -6205,7 +6205,13 @@ const handle = async (request) => {
        were here — not whenever some row of theirs happened to be written */
     /* realMe, not me: a coach looking at somebody's app must not make
        that person look like they opened it. */
-    await (async () => { const w = await realMe(); if (w) await touchSeen(w); if (w && meDevice) await markTest(w); })();
+    await (async () => { const w = await realMe(); if (w) await touchSeen(w); if (w && meDevice) await markTest(w);
+      /* the iPhone app says so in its user agent: kept per account so the
+         dashboard can tell iPhone app users apart (15 Nov 2026). Written at
+         most every six hours, not on every open. */
+      if (w && /LHAiOS/.test(request.headers.get('user-agent') || ''))
+        await changeSetting(`iphone:${w}`, cur => (cur && Date.now() - Number(cur.last || 0) < 6 * 3600e3) ? undefined
+          : { first: Number(cur && cur.first) || Date.now(), last: Date.now() }).catch(() => {}); })();
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     /* App sign ins lasted ninety days and nothing renewed them, so from late
@@ -14878,6 +14884,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* who Apple bills: they were listed as on a free code */
       const iapRows = (await supa.rows('settings', `select=key,value&key=like.iap%3A*`)) || [];
       const apple = {}; for (const r of iapRows) { const v = r.value || {}; if (!v.revoked && Number(v.expiresAt) > Date.now()) apple[r.key.slice(4)] = Number(v.expiresAt); }
+      /* who uses the iPhone app: seen opening it (iphone:), a phone it
+         registered for notifications (apnsdev:), Sign in with Apple
+         (apple:, only offered there) or an Apple purchase at any time (iap:) */
+      const iphone = {};
+      const seenIn = (k, v) => { if (k) iphone[k] = Math.max(iphone[k] || 0, Number(v) || 1); };
+      for (const r of ((await supa.rows('settings', `select=key,value&key=like.iphone%3A*`).catch(() => [])) || [])) seenIn(r.key.slice(7), (r.value || {}).last);
+      for (const r of ((await supa.rows('settings', `select=key,value&key=like.apnsdev%3A*`).catch(() => [])) || [])) seenIn(norm(String(r.value || '')), 1);
+      for (const r of ((await supa.rows('settings', `select=key,value&key=like.apple%3A*`).catch(() => [])) || [])) seenIn(r.key.slice(6), (r.value || {}).at);
+      for (const r of iapRows) seenIn(r.key.slice(4), 1);
       return json({ leads: out.map(a => ({
         email: a.email, name: a.name || '',
         ref: refs[a.email] || '',
@@ -14887,7 +14902,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         until: untils[a.email] || '',
         last: ms(a.last_seen), first: ms(a.first_seen),
         stripeCustomer: a.stripe_customer || null,
-        apple: !!apple[a.email], appleUntil: apple[a.email] || 0 })) });
+        apple: !!apple[a.email], appleUntil: apple[a.email] || 0,
+        iphone: !!iphone[a.email], iphoneLast: iphone[a.email] > 1 ? iphone[a.email] : 0 })) });
     }
 
     /* everything waiting on a review, across everyone this coach has.
