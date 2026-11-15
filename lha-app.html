@@ -382,12 +382,10 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
 @media (max-width:359px){ .hcap-go{font-size:14px;padding-left:13px;gap:7px} .hcap-go>span{width:36px;height:36px}
   .hcap-cp{gap:8px;padding-left:10px} .hcap-cp b{font-size:15px} .hcap-cp small{font-size:13px} }
 .hcap-go:active,.hcap-cp:active{transform:scale(.985)}
-/* what each half is for, under it (Elliott, 15 Nov 2026): the check points
-   climb you, a session trains you for them */
-.hcap-why{display:flex;gap:6px;padding:8px 6px 0;font:500 12.5px/1.3 var(--sans);text-align:center}
-.hcap-why span{min-width:0;text-wrap:balance}
-.hcap-why .w-cp{flex:45 1 0;color:#8a5a12;font-weight:600}
-.hcap-why .w-go{flex:55 1 0;color:var(--grey)}
+/* what Start is for, under its name (Elliott, 15 Nov 2026) */
+.hcap-gl:has(.hcap-gsub){display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.hcap-gsub{font:500 12px/1 var(--sans);opacity:.82;white-space:nowrap}
+@media (max-width:359px){ .hcap-gsub{display:none} }
 
 /* coached: the check points are the bar and Start is a play button at its
    end; they train from Plan (Elliott, 30 Oct 2026) */
@@ -20900,7 +20898,10 @@ function capsuleRepaint(){
    free bar is half as wide, so it keeps the shorter words. */
 function cpCountWords(met, of){
   if(met>=of) return 'All '+of+' done';
-  return coachedView() ? met+' of '+of+' done · '+(of-met)+' to go' : met+' of '+of+' done';
+  /* free: what the count is for, in the pill (Elliott, 15 Nov 2026) */
+  if(coachedView()) return met+' of '+of+' done · '+(of-met)+' to go';
+  const i=clearShowing()!=null ? clearShowing() : curStage();
+  return met+' of '+of+(STAGES[i+1] ? ' to climb' : ' to finish');
 }
 function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
@@ -20918,9 +20919,7 @@ function capsuleHTML(go, label, pillOnly){
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${(!pillOnly && !coachedView() && P.of && P.met<P.of) ? `<div class="hcap-why" aria-hidden="true">
-      <span class="w-cp">${STAGES[cs+1] ? 'Reach all '+P.of+' to climb' : 'Reach all '+P.of+' to finish'}</span>
-      <span class="w-go">Sessions train you for them</span></div>` : ''}${(on && !pillOnly)?homeCpsHTML():''}`;
+    </div>${(on && !pillOnly)?homeCpsHTML():''}`;
 }
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
@@ -22480,7 +22479,8 @@ function screenHome(){
   /* on a laptop (13 Nov 2026, the canvas): Start names the session, and the
      check points open in their own card beside it rather than under the pill */
   const W=wide();
-  const startLabel = W ? `Start session<small class="hcap-sub">${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small>` : 'Start session';
+  const startLabel = W ? `Start session<small class="hcap-sub">${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small>`
+    : (cpFor(curStage())||[]).length ? 'Start session<small class="hcap-gsub">Trains you for them</small>' : 'Start session';
   /* on a laptop the check points pill goes: the list itself is on the page,
      so it moves up under the ladder and Start sits over Learn (Elliott, 13 Nov 2026) */
   const homeRow = trialPending() ? '' : W ? (cpDayCardHTML(true) || '<span hidden></span>')
