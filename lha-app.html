@@ -777,6 +777,12 @@ button.cd-row{cursor:pointer}
 .lc-cam{flex:none;width:36px;height:36px;margin:0 4px 0 6px;padding:0;border-radius:50%;border:1px solid rgba(0,64,61,.14);
  background:#fff;color:var(--deep);display:grid;place-items:center;cursor:pointer;-webkit-appearance:none;appearance:none}
 .lc-cam:active{transform:scale(.94)}
+/* the camera says what it is (Elliott, 15 Nov 2026: "its just not clear
+   what the camera does or where it goes") */
+.lc-camb{flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;margin:0 2px 0 4px;padding:0;border:0;background:none;cursor:pointer;-webkit-appearance:none;appearance:none}
+.lc-camb .lc-cam{margin:0;width:34px;height:34px}
+.lc-camb small{font:600 9.5px/1 var(--sans);color:var(--forest);white-space:nowrap;letter-spacing:.01em}
+.lc-camb:active .lc-cam{transform:scale(.94)}
 .lc-t small.lc-up{color:var(--forest);font-weight:600}
 .lc-t small.lc-up:empty{display:none}
 .lc-t small.lc-up:not(:empty) + small{display:none}
@@ -8983,13 +8989,44 @@ function cpAsk(){ closeOv(); go('coaching'); }
    send, asks for an account first, and once the free one is gone says what
    the next ones cost, over the check point rather than leaving it */
 function cpCam(k){
-  if(!st.token){ goJoin(); return; }
+  /* the first time, and always without an account: what happens and where
+     it goes, before the camera or the sign up (15 Nov 2026) */
+  if(!st.token || !st.cpCamSeen){ st.cpBuyK=k; st.cpHow=1; openOv('cpbuy'); return; }
+  st.cpHow=0;
   if(fcOpen()){ cpFilm(k); return; }
   if(st.freeCheckUsed || st.checkOpen || st.awaitingReview){ st.cpBuyK=k; openOv('cpbuy'); return; }
   /* not heard from the server yet: the Coaching tab knows what is open */
   cpAsk();
 }
+function cpHowGo(){
+  const k=st.cpBuyK; st.cpHow=0; st.cpCamSeen=1; save();
+  if(!st.token){ closeOv(); goJoin(); return; }
+  if(fcOpen()){ closeOv(); cpFilm(k); return; }
+  closeOv(); cpCam(k);
+}
+function cpHowBody(){
+  const row=[...document.querySelectorAll('[data-ck]')].find(x=>x.dataset.ck===st.cpBuyK);
+  const nm=((row&&row.querySelector('.lc-t b'))||{}).textContent||'';
+  const who=esc(coachLabel()), open=!!st.token && fcOpen();
+  const step=(n,t)=>`<div style="display:flex;gap:12px;align-items:flex-start;margin-top:14px">
+    <span style="flex:none;width:26px;height:26px;border-radius:50%;background:rgba(243,169,73,.22);color:#7a4a10;
+      display:grid;place-items:center;font:700 12.5px/1 var(--sans)">${n}</span>
+    <span style="font:400 15px/1.45 var(--sans);color:var(--ink);padding-top:3px">${t}</span></div>`;
+  const price = !st.token ? 'Your first one is free with an account.'
+    : open ? (st.coached||coachedView() ? '' : 'Your first one is free.')
+    : st.freeCheckUsed ? 'Your free one is used. After that they are '+(checksPrice()?esc(checksPrice())+' a month':'paid')+'.' : '';
+  const btn = !st.token ? 'Create a free account to send it' : open ? 'Film it' : 'See form checks';
+  return `<div class="kick2" style="display:flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}FORM CHECK${nm?' · '+esc(nm.toUpperCase()):''}</div>
+    <div style="font:400 32px/1.02 var(--serif);letter-spacing:-.015em;margin-top:8px">Does it <em style="color:var(--forest);font-style:normal">count?</em></div>
+    ${step(1,'Film yourself doing it, from your phone.')}
+    ${step(2,who+' watches it and sends you a video reply, usually within 48 hours. It arrives in '+esc(coWord())+'.')}
+    ${step(3,'If it counts, it ticks off here.')}
+    ${price?`<div style="font:500 14px/1.5 var(--sans);color:var(--grey);margin-top:16px">${price}</div>`:''}
+    <button class="btn" style="width:100%;margin-top:18px" onclick="cpHowGo()">${btn}</button>
+    <button onclick="st.cpHow=0;closeOv()" style="width:100%;background:none;border:0;cursor:pointer;margin-top:6px;padding:12px;font:500 14px/1 var(--sans);color:var(--grey2)">Not now</button>`;
+}
 function cpBuyBody(){
+  if(st.cpHow) return cpHowBody();
   /* the check point's name, off its row behind the sheet */
   const row=[...document.querySelectorAll('[data-ck]')].find(x=>x.dataset.ck===st.cpBuyK);
   const nm=((row&&row.querySelector('.lc-t b'))||{}).textContent||'';
@@ -9979,10 +10016,10 @@ function cpListHTML(si){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
         <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c)+cpFbWords(r.c):''}</span>
         </button>
-        ${film?`<button class="lc-cam" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Film ${esc(r.c.n)} for ${esc(coachLabel())}"
-          title="Film it for ${esc(coachLabel())}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        ${film?`<button class="lc-camb" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Form check: film ${esc(r.c.n)} for ${esc(coachLabel())}"
+          title="Film it for ${esc(coachLabel())}"><span class="lc-cam"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/>
-          <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></button>`:''}
+          <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></span><small>Form check</small></button>`:''}
         <button class="lc-ring" onclick="climbTick(this)" aria-pressed="${r.done}" aria-label="${esc(climbTickLabel(r))}">${cpListRing(r)}</button>
         </div>${open?`
         <div class="lc-x">${rungBody(r.c, r.j, S.n, use)}</div>`:''}
