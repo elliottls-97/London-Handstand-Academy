@@ -408,6 +408,29 @@ const wsMultiCost = (places, off, perDate = true) => {
   const who = new Set(places.map(p => p.who)).size, dates = new Set(places.map(p => p.slug)).size;
   return Math.max(0, sum - (who > 1 ? off : 0) - (dates > 1 ? off * (perDate ? dates - 1 : 1) : 0));
 };
+/* Three classes for £50 (Elliott, 15 Nov 2026): any three places one
+   person books together cost £50 at most, their dearest three first, and
+   nothing else comes off (the £5 for two people and for each extra class
+   is set to nothing in the dashboard). Never more than the places on their
+   own, so three £15 early birds stay £45. Rows carry bundle: 1, so a
+   cancel prices what is kept by the same rule. */
+const WS_BUNDLE = { n: 3, pence: 5000 };
+const wsBundleCost = places => {
+  const by = new Map();
+  places.forEach(p => { const k = String(p.who); if (!by.has(k)) by.set(k, []); by.get(k).push(Math.max(0, Number(p.unit) || 0)); });
+  let t = 0;
+  for (const u of by.values()) {
+    u.sort((a, b) => b - a);
+    for (let i = 0; i < u.length; i += WS_BUNDLE.n) {
+      const c = u.slice(i, i + WS_BUNDLE.n), sum = c.reduce((a, b) => a + b, 0);
+      t += c.length === WS_BUNDLE.n ? Math.min(sum, WS_BUNDLE.pence) : sum;
+    }
+  }
+  return t;
+};
+/* what a booking made now costs: the old saving (nothing unless set) or
+   the bundle, whichever is less */
+const wsNowCost = (places, off) => Math.min(wsMultiCost(places, off), wsBundleCost(places));
 /* bookings made before 19 Oct carry the old pair price (pairP) and are
    refunded by the rule they were sold under */
 const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * Math.min(pair, 2 * single) + (units % 2) * single : units * single;
@@ -419,7 +442,9 @@ const wsGroupCost = (units, single, pair) => pair > 0 ? Math.floor(units / 2) * 
 function wsKeptCost(b, rest, all, pair, total) {
   if (!rest.length) return 0;
   const unitOf = r => Math.max(0, Number(r.x.unit != null ? r.x.unit : (all[r.slug] || {}).price) || 0);
-  let cost = Math.min(total, b.multiOff != null
+  let cost = Math.min(total, b.bundle
+    ? wsNowCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0)
+    : b.multiOff != null
     ? wsMultiCost(rest.map(r => ({ slug: r.slug, who: r.x.email, unit: unitOf(r) })), Number(b.multiOff) || 0, !!b.multiPer)
     : rest.length === 1 ? unitOf(rest[0]) : wsGroupCost(rest.length, Math.max(...rest.map(unitOf)), pair));
   /* the booking's code still comes off what is kept: cancelling the
@@ -4545,7 +4570,7 @@ const handle = async (request) => {
             q: String((pp.e === e && about.q) || md.q || '').slice(0, 400), exp: String((pp.e === e && about.exp) || md.exp || '').slice(0, 400), code: String(md.code || '').slice(0, 24), ...(md.code ? { codePct: Number(md.codepct) || 0, codePence: Number(md.codepence) || 0 } : {}),
             ...wsConsentRow(pp.e === e ? wsConsentWith(wsConsentRead(md.consent), about) : wsConsentRead(md.consent), pp.e === e),
             ...(md.src ? { src: String(md.src).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) } : {}),
-            ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0, ...(md.multiper === '1' ? { multiPer: 1 } : {}) }
+            ...(md.multioff != null && md.multioff !== '' ? { unit: Number(String(md.units || '').split(',')[i]) || Number(md.unit) || 0, multiOff: Number(md.multioff) || 0, ...(md.multiper === '1' ? { multiPer: 1 } : {}), ...(md.bundle === '1' ? { bundle: 1 } : {}) }
               : md.unit != null && md.unit !== '' ? { unit: Number(md.unit) || 0, pairP: Number(md.pairp) || 0 } : {}),
             status: problem ? 'refunded' : 'booked', ...(problem ? { autoRefund: true, why: problem } : {}) });
           count = wsLive(l).length; return l;
@@ -4564,7 +4589,7 @@ const handle = async (request) => {
          on their own, and the rest of the money comes back */
       if (units > 1 && bad.length && good.length) {
         const keepCost = Math.min(paidNow, md.multioff != null && md.multioff !== ''
-          ? wsMultiCost(good.map(r => ({ slug: r.slug, who: r.who, unit: Number(String(md.units || '').split(',')[slugs.indexOf(r.slug)]) || Number(r.w.price) || 0 })), Number(md.multioff) || 0)
+          ? (md.bundle === '1' ? wsNowCost : wsMultiCost)(good.map(r => ({ slug: r.slug, who: r.who, unit: Number(String(md.units || '').split(',')[slugs.indexOf(r.slug)]) || Number(r.w.price) || 0 })), Number(md.multioff) || 0)
           : wsGroupCost(good.length, Math.max(0, Number(good[0].w.price) || 0), Number(((await getSetting('wspair')) || {}).pence) || 0));
         const backAll = paidNow - keepCost, bEach = Math.floor(backAll / bad.length), gEach = Math.floor(keepCost / good.length);
         bad.forEach((r, i) => { r.share = i === 0 ? backAll - bEach * (bad.length - 1) : bEach; });
@@ -7430,7 +7455,7 @@ const handle = async (request) => {
     const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
-    return new Response(JSON.stringify({ workshops: out, multi: multiOff }), { headers: {
+    return new Response(JSON.stringify({ workshops: out, multi: multiOff, bundle: WS_BUNDLE }), { headers: {
       'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
       'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600' } });
   }
@@ -7576,7 +7601,7 @@ const handle = async (request) => {
     const extras = [...new Set(String(body.also || '').split(',').map(wsSlug).filter(x => x && x !== slug))].slice(0, 6).map(sl => all[sl]).filter(Boolean);
     const people = Number(body.people) === 2 ? 2 : 1, targets = [w].concat(extras), units = targets.length * people;
     const multi = await wsMultiOff();
-    const base = wsMultiCost(targets.flatMap((x, i) => Array.from({ length: people }, (_, k) => ({ slug: i, who: k, unit: x.price }))), multi);
+    const base = wsNowCost(targets.flatMap((x, i) => Array.from({ length: people }, (_, k) => ({ slug: i, who: k, unit: x.price }))), multi);
     const r = await wsCodeCheck(slug, body.code, base, wsMailOk(norm(body.email)) ? norm(body.email) : '', { units, also: extras.length ? extras.map(x => x.slug).join(',') : '' });
     if (r.error) return json({ error: r.error }, 400);
     let price = Math.max(0, base - r.off); if (price > 0 && price < 30) price = 0;
@@ -8014,7 +8039,7 @@ const handle = async (request) => {
       if (fr && Number(tw.places) > 0 && held.length + 2 > Number(tw.places)) return json({ error: (tSlug === slug ? 'That date' : wsWhenTxt(tw)) + ' has only one place left.', full: held.length >= Number(tw.places) }, 409);
     }
     const units = targets.length * people.length;
-    const base = wsMultiCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
+    const base = wsNowCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
     /* Book pressed is the clearest sign of wanting a place */
     await wsIntentNote(slug, extras.map(t => t[0]), e, nm);
     const disc = await wsCodeCheck(slug, body.code, base, e, { units, also: extras.length ? extras.map(t => t[0]).join(',') : '' });
@@ -8035,7 +8060,7 @@ const handle = async (request) => {
           const lv = wsLive(l);
           if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
-          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, multiPer: 1, ...(src ? { src } : {}),
+          l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, multiPer: 1, bundle: 1, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
             ...(targets.length > 1 ? { pair: targets.map(t => t[0]).filter(x => x !== tSlug)[0] } : {}),
             ...(pe !== e ? { payer: e, with: nm } : fr ? { with: fr.nm } : {}) });
@@ -8138,7 +8163,7 @@ const handle = async (request) => {
         'metadata[name]': nm,
         'payment_method_types[0]': 'card',
         'metadata[q]': qn, 'metadata[exp]': exp, 'metadata[code]': disc.code || '', 'metadata[codepct]': String(disc.pct || 0), 'metadata[codepence]': String(disc.pence || 0), 'metadata[hold]': hold, 'metadata[consent]': wsConsentMeta(consent),
-        'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[multiper]': '1', 'metadata[src]': src,
+        'metadata[unit]': String(Number(w.price) || 0), 'metadata[units]': targets.map(t => Number(t[1].price) || 0).join(','), 'metadata[multioff]': String(multi), 'metadata[multiper]': '1', 'metadata[bundle]': '1', 'metadata[src]': src,
         expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
         customer_email: e,
         /* the class page and the app book here too, and come back to themselves */

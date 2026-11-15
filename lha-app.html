@@ -22950,7 +22950,7 @@ function loadWorkshops(){
   fetch('/api/app/workshops').then(r=>r.ok?r.json():null)
     .then(d=>{
       const list=(d&&d.workshops)||[];
-      WS_LIST=list; WS_MULTI=d&&d.multi!=null?Number(d.multi)||0:500;
+      WS_LIST=list; WS_MULTI=d&&d.multi!=null?Number(d.multi)||0:500; WS_BUNDLE=d&&d.bundle||null;
       /* back from paying: the sheet that says so, now the dates are known */
       if(st.wsBookedPending){ const got=st.wsBookedPending; delete st.wsBookedPending; save(); wsBookedShow(got); }
       /* a dated one: the list is sorted by date and no date sorts first, so a
@@ -23091,11 +23091,15 @@ function workshopPopHTML(){
    into the app booked. The iPhone app can only show our own domain, so
    there the payment opens in Safari and this sheet waits for the booking
    to appear on the account. */
-let WS_LIST=[], WS_MULTI=500;
+let WS_LIST=[], WS_MULTI=500, WS_BUNDLE=null;
+/* any three classes for one price, the dearest three first, never more
+   than they cost on their own (15 Nov 2026; the server's wsBundleCost) */
+const wsBundleOf=prices=>{ const u=prices.map(x=>Number(x)||0).sort((a,b)=>b-a); if(!WS_BUNDLE) return u.reduce((a,b)=>a+b,0);
+  let t=0; for(let i=0;i<u.length;i+=WS_BUNDLE.n){ const c=u.slice(i,i+WS_BUNDLE.n), sm=c.reduce((a,b)=>a+b,0); t+=c.length===WS_BUNDLE.n?Math.min(sm,WS_BUNDLE.pence):sm; } return t; };
 let wsb={slug:'', pair:false, fr:false, frName:'', frEmail:'', code:'', name:null, email:null, busy:false, msg:'', waiting:false, done:[], lvl:'', q:''};
 /* the server's sum (19 Oct 2026): each place at its date's price, less
    WS_MULTI for two people and WS_MULTI for each class after the first */
-const wsListCost=(prices,people)=>Math.max(0,people*prices.reduce((t,p)=>t+(Number(p)||0),0)-(people>1?WS_MULTI:0)-(prices.length>1?WS_MULTI*(prices.length-1):0));
+const wsListCost=(prices,people)=>Math.min(Math.max(0,people*prices.reduce((t,p)=>t+(Number(p)||0),0)-(people>1?WS_MULTI:0)-(prices.length>1?WS_MULTI*(prices.length-1):0)), people*wsBundleOf(prices));
 let wsWaitT=0;
 const wsPounds=p=>'£'+(p/100).toFixed(2).replace(/\.00$/,'');
 /* a code works for two people and both dates too, as on the class page:
@@ -23589,7 +23593,7 @@ function screenClasses(){
   return `<div class="scroll s">${ipHead('In person &middot; OverGravity, Shadwell','Come to a '+ipEm('class.'))}
     ${(()=>{ const q=pushQuizHTML(); return q?`<div class="pad">${q}</div>`:''; })()}
     <div class="pad" style="padding-top:18px">${card || ipEmpty('No dates on sale right now.','New ones show here first.')}</div>
-    ${card && !clsPick.size ? `<div class="pad" style="padding-top:8px;font:500 13px/1.4 var(--sans);color:var(--grey)">Tick more than one to book them together, ${esc(wsPounds(WS_MULTI))} off each extra class.</div>` : ''}
+    ${card && !clsPick.size ? `<div class="pad" style="padding-top:8px;font:500 13px/1.4 var(--sans);color:var(--grey)">${WS_BUNDLE ? `Tick ${WS_BUNDLE.n} to book them together: any ${WS_BUNDLE.n} for ${esc(wsPounds(WS_BUNDLE.pence))}.` : WS_MULTI>0 ? `Tick more than one to book them together, ${esc(wsPounds(WS_MULTI))} off each extra class.` : 'Tick more than one to book them together.'}</div>` : ''}
     ${clsPickBarHTML() ? `<div class="pad clsbarw">${clsPickBarHTML()}</div>` : ''}
     ${wide()?'':`<div class="pad" style="padding-top:14px">${ipSessionLine()}</div>`}
     ${inPersonView()?`<div class="pad" style="padding-top:10px">${ipLadderLine()}</div>`:''}

@@ -1812,6 +1812,13 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   var inPanel=false;   /* filling the panel quietly, not answering a Book button */
   var picked=null;     /* the one being booked */
   var MULTI=500;       /* off for two people, and off for each class after the first, in pence; the owner sets it */
+  var BUNDLE=null;     /* any three for one price, {n, pence}, from the server (15 Nov 2026) */
+  /* one person's classes with the bundle: the dearest three at the bundle
+     price, never more than they cost on their own */
+  var bundleOf=function(prices){ var u=prices.map(function(x){ return Number(x)||0; }).sort(function(a,b){ return b-a; }), t=0;
+    if(!BUNDLE) return u.reduce(function(a,b){ return a+b; },0);
+    for(var i=0;i<u.length;i+=BUNDLE.n){ var c=u.slice(i,i+BUNDLE.n), sm=c.reduce(function(a,b){ return a+b; },0);
+      t+=c.length===BUNDLE.n ? Math.min(sm,BUNDLE.pence) : sm; } return t; };
   var pounds=function(v){ return '\u00a3'+(v/100).toFixed(2).replace(/\.00$/,''); };
   /* back from paying: one slug, or two joined with a comma */
   var BS='';
@@ -1946,7 +1953,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   }
   function refreshWs(){
     fetch('/api/app/workshops',{cache:'no-store'}).then(function(r){ return r.json(); })
-      .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; keepFields(function(){ clsWorkshops((d&&d.workshops)||[]); }); }).catch(function(){});
+      .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; BUNDLE=d&&d.bundle||null; keepFields(function(){ clsWorkshops((d&&d.workshops)||[]); }); }).catch(function(){});
   }
   /* Back from Stripe by the back button, the page comes out of the
      browser's cache as it was left: Book still disabled and reading "One
@@ -2124,7 +2131,8 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
     else if(picked && up.length && !booked.length) priceNow();
     var fine=$('clsFine'); if(fine){ fine.style.display='none';
       var open=up.filter(function(d){ return !d.full; });
-      fine.textContent=(MULTI>0 ? (open.length>1 ? 'Save '+pounds(MULTI)+' on each extra class. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
+      fine.textContent=(BUNDLE && open.length>=BUNDLE.n ? 'Any '+BUNDLE.n+' classes for '+pounds(BUNDLE.pence)+'. ' : '')
+        +(MULTI>0 ? (open.length>1 ? 'Save '+pounds(MULTI)+' on each extra class. ' : '')+'Bring someone and save '+pounds(MULTI)+'. ' : '')
         +'Card or Apple Pay through Stripe. No account and no login. A confirmation and a reminder the day before, by email.'; }
     /* the old list of dates in the sheet has gone: the dates are the first
        of the booking's two screens (8 Nov 2026) */
@@ -2198,7 +2206,11 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         +'<span class="hl-s">'+(d.topic?'Handstands, then the topic · ':sk?'Beginner to intermediate<br>':'')+esc(span(d).replace(/:00/g,''))+'</span></span>'
         +'<span class="hl-p"><b>'+esc(d.priceLabel)+'</b><span>'+esc(left)+'</span></span></button>'; }).join('');
     var open=L.filter(function(d){ return d.price>0 && !d.full; });
-    if(MULTI>0 && open.length>1){
+    /* three for £50, said once the dates to make three are on sale (15 Nov 2026) */
+    var allOpen=all.filter(function(d){ return d.price>0 && !d.full; });
+    if(BUNDLE && allOpen.length>=BUNDLE.n)
+      box.innerHTML+='<div class="hl-save"><b>Any '+BUNDLE.n+' classes for '+pounds(BUNDLE.pence)+'.</b> Book them together.</div>';
+    else if(MULTI>0 && open.length>1){
       var sum=open.reduce(function(t,d){ return t+d.price; },0)-MULTI*(open.length-1);
       box.innerHTML+='<div class="hl-save"><b>'+(open.length===2?'Both':open.length===3?'All three':'All '+open.length)+' for '+pounds(sum)+'.</b> '+pounds(MULTI)+' off each extra class.</div>';
     }
@@ -2365,7 +2377,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
      less MULTI for two people and MULTI for each class after the first. A code comes off on top, priced by the server
      for what is picked. */
   var listCost=function(prices,people){ var sum=0; for(var k=0;k<prices.length;k++) sum+=people*(Number(prices[k])||0);
-    return Math.max(0, sum-(people>1?MULTI:0)-(prices.length>1?MULTI*(prices.length-1):0)); };
+    return Math.min(Math.max(0, sum-(people>1?MULTI:0)-(prices.length>1?MULTI*(prices.length-1):0)), people*bundleOf(prices)); };
   /* what is charged: the server's own sum, and a checked code on a single place */
   /* a code works on both dates and with a friend too (Elliott, 18 Oct
      2026): the server prices the booking that is picked, and the answer
@@ -2574,7 +2586,7 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   /* the dates came with the page when the edge had them; otherwise asked for */
   (window.__LHA_WS && window.__LHA_WS.workshops ? Promise.resolve(window.__LHA_WS)
     : fetch('/api/app/workshops').then(function(r){ return r.json(); }))
-    .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; clsWorkshops((d&&d.workshops)||[]); })
+    .then(function(d){ MULTI=d&&d.multi!=null?Number(d.multi)||0:500; BUNDLE=d&&d.bundle||null; clsWorkshops((d&&d.workshops)||[]); })
     .catch(function(){ if(booked.length){ render(); return; } var c=$('clsCards'); if(c){ c.classList.add('solo'); c.innerHTML=fallbackHTML('error'); } });
   document.addEventListener('lha-site', function(){ if(up.length||booked.length) render(); });
   /* back from the card page without paying: what they typed is still there */
