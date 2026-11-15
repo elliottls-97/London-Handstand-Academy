@@ -378,6 +378,28 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
  border-radius:999px;min-height:56px;cursor:pointer;background:linear-gradient(180deg,#0a7a76,#006663);box-shadow:0 8px 20px rgba(0,102,99,.28);
  color:#fff;font:600 15px/1.1 var(--sans);text-align:left;white-space:nowrap}
 .hcap-go>span{flex:none;width:40px;height:40px;border-radius:50%;background:#fff;display:grid;place-items:center}
+/* every drill at the stage, as a page (15 Nov 2026) */
+.sdpg{padding:calc(env(safe-area-inset-top) + 84px) 20px 0;max-width:640px;margin:0 auto}
+.sdpg-back{background:none;border:0;padding:0;cursor:pointer;font:500 14px/1.4 var(--sans);color:var(--forest)}
+.sdpg-jump{display:flex;gap:7px;overflow-x:auto;margin:16px -20px 0;padding:0 20px 4px;scrollbar-width:none}
+.sdpg-jump::-webkit-scrollbar{display:none}
+.sdpg-jump button{flex:none;border:1px solid rgba(0,64,61,.14);background:#fff;border-radius:999px;padding:9px 14px;cursor:pointer;font:600 13px/1 var(--sans);color:var(--deep)}
+.sdg{scroll-margin-top:calc(env(safe-area-inset-top) + 84px)}
+.sdg h2{margin:26px 0 12px;font:400 26px/1.1 var(--serif)}
+.sdg h2 span{font:500 13px/1 var(--sans);color:var(--grey2)}
+.sdv{background:#fff;border-radius:22px;overflow:hidden;margin-bottom:14px;border:1px solid rgba(0,64,61,.10);
+ box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+.sdv-f{aspect-ratio:16/10;background:#11150f}
+.sdv-f video{width:100%;height:100%;object-fit:cover;display:block;background:#11150f}
+.sdv-lock,.sdv-soon{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:0;
+ background:var(--sand);color:var(--deep);font:600 13px/1 var(--sans);cursor:pointer}
+.sdv-t{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:14px 16px 0}
+.sdv-t b{font:600 16px/1.25 var(--sans)}
+.sdv-t span{flex:none;font:600 12.5px/1 var(--sans);color:var(--forest)}
+.sdv-d{margin:6px 16px 0;font:400 14px/1.5 var(--sans);color:var(--grey)}
+.sdv-c{margin:10px 16px 0;padding:0 0 16px 18px;font:400 14px/1.5 var(--sans);color:var(--ink)}
+.sdv-c li{margin-top:3px}
+.sdv>:last-child{padding-bottom:16px}
 /* Start and the ticks in the ladder's teal, the colour of the stages still
    to come (Elliott, 15 Nov 2026) */
 .hcap:not(.hcap-c) .hcap-go{background:linear-gradient(180deg,#3399af,#2b8ba2);box-shadow:0 8px 20px rgba(43,139,162,.32),inset 0 1px 0 rgba(255,255,255,.3)}
@@ -13816,6 +13838,40 @@ function stageDrillGroups(si){
   else ((typeof STAGE_SECTIONS!=='undefined' && STAGE_SECTIONS[si])||[]).forEach(sec=>(sec.items||[]).forEach(it=>add(sec.title||'Drills', it.v)));
   return out;
 }
+/* a page, not a sheet, that scrolls through every drill at the stage and
+   opens at the one pressed (Elliott, 15 Nov 2026) */
+function openStageDrills(v){
+  if(st.tab!=='drills') st.drillsBack=st.tab;
+  window._drillsAt=v||''; go('drills');
+}
+function drillsBack(){ const b=st.drillsBack; st.drillsBack=''; go(b && b!=='drills' ? b : 'home'); }
+function screenDrills(){
+  const si=curStage(), S=STAGES[si]||STAGES[0], groups=stageDrillGroups(si);
+  const doseOf=it=>{ for(const sec of ((typeof STAGE_SECTIONS!=='undefined' && STAGE_SECTIONS[si])||[])) for(const x of (sec.items||[])) if(x.v===it.v && x.d) return x.d;
+    return (typeof FREE_DOSE!=='undefined' && FREE_DOSE[it.v]) || it.d || ''; };
+  const card=it=>{ const u=it.url?uidOfUrl(it.url):'', lock=typeof drillLocked==='function' && drillLocked(it.v), dose=doseOf(it);
+    return `<article class="sdv" data-dv="${esc(it.v)}">
+      <div class="sdv-f">${lock ? `<button class="sdv-lock" onclick="openStage(${FREE_STAGES})">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span>With the full Ladder</span></button>`
+        : it.url ? `<video src="${esc(sig(it.url))}" poster="${esc(u?streamThumb(u):'')}" controls playsinline preload="none"
+          onplay="document.querySelectorAll('.sdv video').forEach(x=>{ if(x!==this) x.pause(); })"></video>`
+        : `<div class="sdv-soon">Film coming soon</div>`}</div>
+      <div class="sdv-t"><b>${esc(it.n)}</b>${dose?`<span>${esc(dose)}</span>`:''}</div>
+      ${it.desc?`<p class="sdv-d">${esc(it.desc)}</p>`:''}
+      ${(it.cues&&it.cues.length)?`<ul class="sdv-c">${it.cues.slice(0,6).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
+    </article>`; };
+  if(window._drillsAt){ const at=window._drillsAt; window._drillsAt='';
+    setTimeout(()=>{ const el=document.querySelector('.sdv[data-dv="'+CSS.escape(at)+'"]'), sc=el&&el.closest('.scroll');
+      if(el && sc) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - (wide()?20:130); }, 60); }
+  return `<div class="scroll s"><div class="sdpg">
+    <button class="sdpg-back" onclick="drillsBack()">&larr; Back</button>
+    <div class="kick2" style="color:var(--forest);margin-top:12px">EVERY DRILL AT STAGE ${si+1}</div>
+    <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:8px">${esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
+    <div class="sdpg-jump">${groups.map((g,gi)=>`<button onclick="document.getElementById('sdg-${gi}').scrollIntoView({behavior:'smooth',block:'start'})">${esc(g.g)}</button>`).join('')}</div>
+    ${groups.map((g,gi)=>`<section id="sdg-${gi}" class="sdg"><h2>${esc(g.g)} <span>${g.items.length}</span></h2>${g.items.map(card).join('')}</section>`).join('')}
+    <div style="height:120px"></div></div></div>`;
+}
 function stageDrillsHTML(){
   const si=curStage(), S=STAGES[si]; if(!S) return '';
   const groups=stageDrillGroups(si), n=groups.reduce((t,g)=>t+g.items.length,0); if(!n) return '';
@@ -13825,7 +13881,7 @@ function stageDrillsHTML(){
     /* the dose the stage writes for it, or the timing master's */
     const dose=(()=>{ for(const sec of ((typeof STAGE_SECTIONS!=='undefined' && STAGE_SECTIONS[si])||[])) for(const x of (sec.items||[])) if(x.v===it.v && x.d) return x.d;
       return (typeof FREE_DOSE!=='undefined' && FREE_DOSE[it.v]) || it.d || ''; })();
-    return `<button onclick="closeMenu();pgDrill(${jsq(it.v)})" style="width:100%;display:flex;align-items:center;gap:12px;border:0;background:none;
+    return `<button onclick="closeMenu();openStageDrills(${jsq(it.v)})" style="width:100%;display:flex;align-items:center;gap:12px;border:0;background:none;
       padding:8px 0;cursor:pointer;text-align:left;color:var(--ink)">
       <span style="flex:none;width:56px;height:42px;border-radius:10px;overflow:hidden;background:var(--sand);position:relative">${pic?`<img src="${esc(pic)}" alt="" loading="lazy"
         onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:''}</span>
@@ -20704,7 +20760,7 @@ function secFollowTab(){
   if(t==='ask'){ st.tab='coaching'; st.coTab='chat'; }
   const want = (st.tab==='coaching' || st.tab==='coplans' || (st.tab==='start' && awaitingBlock())) ? 'co'
     : CL.indexOf(st.tab)>-1 ? 'classes'
-    : ['home','ladder','learn','progress','press','strength','shoulder'].indexOf(st.tab)>-1 ? 'hs' : '';
+    : ['home','ladder','learn','progress','press','strength','shoulder','drills'].indexOf(st.tab)>-1 ? 'hs' : '';
   if(!want || want===section()) return;
   if(want==='classes'){ st.inPerson=true; st.ipPick=1; st.coView=false; st.viewChosen='inperson';
     st.quizDone=true; st.oriented=true; if(!st.mode) st.mode='free'; return; }
@@ -30133,7 +30189,7 @@ function render(){
   /* the form check as a Handstand tab on a laptop, as Progress is, with the
      chat as the box beside it (Elliott, 13 Nov 2026) */
   const hsCheck=()=>{ st.coTab='check'; return screenCoaching(); };
-  const hsScreens={home:screenHome,ladder:screenLadder,learn:screenLearn,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength,shoulder:screenShoulder,hscheck:hsCheck};
+  const hsScreens={home:screenHome,ladder:screenLadder,learn:screenLearn,more:screenMore,fix:screenFix,press:screenPress,strength:screenStrength,shoulder:screenShoulder,hscheck:hsCheck,drills:screenDrills};
   if(st.tab==='hscheck' && !wide()){ st.tab='coaching'; st.coTab='check'; }
   const screens=inPerson
     ? {classes:screenClasses,bookings:screenBookings,sessions:screenSessions,more:screenMore,fix:screenFix}
