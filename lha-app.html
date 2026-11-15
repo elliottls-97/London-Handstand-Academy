@@ -388,7 +388,7 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
 .hcap-why span{min-width:0;text-wrap:balance}
 .hcap-why .w-cp{flex:45 1 0;color:#8a5a12;font-weight:600}
 .hcap-why .w-go{flex:55 1 0;color:var(--grey)}
-.hcap:not(.hcap-c) .hcap-cp{box-shadow:inset 0 0 0 1.5px rgba(243,169,73,.55)}
+
 /* coached: the check points are the bar and Start is a play button at its
    end; they train from Plan (Elliott, 30 Oct 2026) */
 .hcap.hcap-c .hcap-cp{flex:1 1 auto}
@@ -20762,15 +20762,18 @@ function cpRingRun(el){
        yellow"), and more yellow the more of it is done, ending gold rather than
        turning green (13 Nov 2026: "as more complete it becomes more yellow instead
        of the green"): one done is a pale sand, nearly all a full amber */
-    const fill=0.3+0.7*Math.min(1,frac);
-    let deep=lerp([238,206,140],[226,152,34],fill), bright=lerp([250,228,176],[248,192,70],fill);
+    /* 15 Nov 2026 (Elliott: "not sure about the colour of the circle,
+       maybe it gets more yellow as it completes"): it started at a beige
+       sand, which read as brown. A clear pale yellow now, deepening to
+       gold, and no darker shade while the list is open (the track says it). */
+    const fill=0.12+0.88*Math.min(1,frac);
+    let deep=lerp([247,206,92],[224,148,18],fill), bright=lerp([252,226,128],[250,194,52],fill);
     deep=lerp(deep,[222,150,18],greenMix); bright=lerp(bright,[252,206,74],greenMix);
-    if(open && !done){ deep=lerp(deep,[170,98,18],.35); bright=lerp(bright,[214,128,32],.35); }
     const hot=[252,214,150];
     const NB=16, reached=frac*P;
     /* open: the ring says so, not the pill's whole inside (Elliott, 19 Oct
        2026: change the colour of the circle when check points is open) */
-    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="${open?'rgba(214,128,32,0.40)':'rgba(243,169,73,0.16)'}" stroke-width="5"/>`;
+    let out=`<rect x="${ox}" y="${oy}" width="${w}" height="${h}" rx="${r}" fill="none" stroke="${open?'rgba(243,169,73,0.30)':'rgba(0,64,61,0.07)'}" stroke-width="5"/>`;
     if(reached>0.5) for(let i=0;i<NB;i++){
       let col=lerp(deep,bright,Math.min(1,((i+0.5)/NB)*(reached/P)));
       const len=reached/NB, t0=Math.max(0,i*len-1.2), t1=Math.min(reached,(i+1)*len+1.2), n=Math.max(2,Math.ceil((t1-t0)/3));
@@ -20830,13 +20833,14 @@ function cpRingRun(el){
       if(e>720){ paint(Object.assign(S,{doneMix:1})); return null; } return S; });
     return; }
   if(!(to>from) || reduce){ rest(); return; }
-  const D=last?520:420;
+  /* slower, eased both ends, so it is seen filling (15 Nov 2026) */
+  const D=last?1100:900;
   paint({frac:from/of, count:from, tickT:-1});
   const bk=sk+':'+(svg.dataset.t0||'');
   let buzzed = !!svg.dataset.t0 && window._ringBuzz===bk;
   run(e=>{
     const S={};
-    if(e<D){ S.frac=(from+(to-from)*easeOut(e/D))/of; S.moving=true; S.count=from; }
+    if(e<D){ S.frac=(from+(to-from)*smooth(e/D))/of; S.moving=true; S.count=e<D*.6?from:to; }
     else { S.frac=to/of; S.count=to; S.moving=e<D+280;
       if(!buzzed){ buzzed=true; window._ringBuzz=bk; try{ navigator.vibrate && navigator.vibrate(last?[18,50,26]:8); }catch(_){} } }
     if(!last){ if(e>D+280){ paint(S); rest(); return null; } return S; }
