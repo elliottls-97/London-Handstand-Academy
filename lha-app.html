@@ -779,10 +779,17 @@ button.cd-row{cursor:pointer}
 .lc-cam:active{transform:scale(.94)}
 /* the camera says what it is (Elliott, 15 Nov 2026: "its just not clear
    what the camera does or where it goes") */
-.lc-camb{flex:none;display:flex;flex-direction:column;align-items:center;gap:3px;margin:0 2px 0 4px;padding:0;border:0;background:none;cursor:pointer;-webkit-appearance:none;appearance:none}
-.lc-camb .lc-cam{margin:0;width:34px;height:34px}
-.lc-camb small{font:600 9.5px/1 var(--sans);color:var(--forest);white-space:nowrap;letter-spacing:.01em}
-.lc-camb:active .lc-cam{transform:scale(.94)}
+/* a circle on every row, and on the top one, the next to do, a pill with
+   its name in it (Elliott, 15 Nov 2026) */
+.lc-camb{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:5px;width:34px;height:34px;margin:0 6px 0 4px;padding:0;
+ border-radius:999px;border:1px solid rgba(0,64,61,.14);background:#fff;color:var(--deep);cursor:pointer;
+ font:600 12px/1 var(--sans);white-space:nowrap;-webkit-appearance:none;appearance:none}
+.lc-camb span{display:none}
+.lc-camb.lab{width:auto;padding:0 10px 0 9px}
+.lc-camb.lab span{display:inline}
+.lc-camb svg{flex:none}
+.lc-camb:active{transform:scale(.96)}
+@media (max-width:359px){ .lc-camb.lab{width:34px;padding:0} .lc-camb.lab span{display:none} }
 .lc-t small.lc-up{color:var(--forest);font-weight:600}
 .lc-t small.lc-up:empty{display:none}
 .lc-t small.lc-up:not(:empty) + small{display:none}
@@ -824,6 +831,10 @@ button.lc-ring:active{transform:scale(.88)}
  background:rgba(255,255,255,.94);display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
 .lc-t{flex:1;min-width:0}
 .lc-t b{display:block;font:600 14.5px/1.2 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* beside the Form check pill the name wraps to two lines rather than
+   being cut short (15 Nov 2026) */
+.lc.cl .lc-t b{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;text-wrap:balance}
+.lc.cl .lc-t small.lc-s{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-t small{display:block;margin-top:3px;font:500 12px/1.2 var(--sans);color:var(--grey);
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lc-t small em{font-style:normal;font-weight:700;font-size:9.5px;letter-spacing:.14em;color:#8a5a12;margin-right:6px}
@@ -1080,6 +1091,15 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  .lglass.g3 button:not(.on),.lglass.g3 button.on{width:110px}
  .lglass.g3 button span{display:inline!important}
  .lglass.g3 .lglass-th{width:110px;transform:translateX(calc(var(--i,0) * 110px))}
+}
+/* the sections you are not in are named too, small under their icons
+   (Elliott, 15 Nov 2026: nobody knew the calendar was Classes) */
+@media (min-width:375px) and (max-width:699px){
+ .lglass.g3 button:not(.on){width:54px;flex-direction:column;gap:2px}
+ .lglass.g3 button.on{width:108px}
+ .lglass.g3 button:not(.on) svg{height:17px;width:auto}
+ .lglass.g3 button:not(.on) span{display:block;font:600 9.5px/1 var(--sans);letter-spacing:0}
+ .lglass.g3 .lglass-th{width:108px;transform:translateX(calc(var(--i,0) * 54px))}
 }
 /* the oldest small phones: the ladder pill keeps its room, the week gives way */
 @media (max-width:340px){ .wk-squeeze{display:none!important} }
@@ -9919,6 +9939,8 @@ function cpSettle(){
     if(want.length!==now.length || want.every((r,i)=>r===now[i])) return;
     const y0=new Map(now.map(r=>[r, r.getBoundingClientRect().top]));
     want.forEach(r=>body.appendChild(r));
+    want.forEach(r=>{ const b=r.querySelector('.lc-camb'); if(b) b.classList.remove('lab'); });
+    { const nx=want.find(r=>!r.classList.contains('on')), b=nx && nx.querySelector('.lc-camb'); if(b) b.classList.add('lab'); }
     if(still || typeof Element.prototype.animate!=='function'){ climbFit(el); return; }
     want.forEach(r=>{ const d=y0.get(r)-r.getBoundingClientRect().top; if(Math.abs(d)<1) return;
       const down=d<0;
@@ -9999,7 +10021,8 @@ function cpListHTML(si){
      the film option to get a form check, but it just asks people to pay if
      they have already had their free one"): cpCam sends it, or asks. */
   const film = true;
-  const rows=cpListOrder(S).map(r=>{
+  const ord=cpListOrder(S), first=ord.findIndex(r=>!r.done);
+  const rows=ord.map((r,ri)=>{
     const th=climbThumb(r.c, false);
     const kind=r.c.kind==='secs'?'secs':r.c.kind==='face'?'face':'count';
     const open=lcOpen[use]===r.c.k;
@@ -10016,10 +10039,10 @@ function cpListHTML(si){
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
         <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c)+cpFbWords(r.c):''}</span>
         </button>
-        ${film?`<button class="lc-camb" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Form check: film ${esc(r.c.n)} for ${esc(coachLabel())}"
-          title="Film it for ${esc(coachLabel())}"><span class="lc-cam"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        ${film?`<button class="lc-camb${ri===first?' lab':''}" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Form check: film ${esc(r.c.n)} for ${esc(coachLabel())}"
+          title="Film it for ${esc(coachLabel())}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5"/>
-          <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg></span><small>Form check</small></button>`:''}
+          <path d="M15.5 10.5l5.5-3v9l-5.5-3"/></svg><span>Form check</span></button>`:''}
         <button class="lc-ring" onclick="climbTick(this)" aria-pressed="${r.done}" aria-label="${esc(climbTickLabel(r))}">${cpListRing(r)}</button>
         </div>${open?`
         <div class="lc-x">${rungBody(r.c, r.j, S.n, use)}</div>`:''}
@@ -16972,6 +16995,16 @@ function loadProgress(){
 }
 /* nothing to show on Progress yet: no session finished or opened, no day
    logged and no check point logged */
+/* Progress without an account shows what is on this phone, with the ask
+   under it, not a page that is only the ask (Elliott, 15 Nov 2026: it
+   opened on "Needs an account." and said nothing about Progress) */
+function progSaveHTML(){
+  return `<div class="rise" style="padding:20px 20px 28px"><div style="border-radius:22px;padding:18px;background:rgba(0,102,99,.055);border:1px solid rgba(0,102,99,.09)">
+    <p style="margin:0;font:400 19px/1.3 var(--serif)">Kept on this ${IOS_APP?'phone':'browser'} <em style="color:var(--forest);font-style:normal">only.</em></p>
+    <p style="margin:6px 0 0;font:400 14px/1.5 var(--sans);color:#444">A free account keeps every session, rep and check point, on any phone.</p>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="st.wantUpgrade=null;st.quizDone=true;goJoin()">Create a free account</button>
+    <button class="btn2" style="width:100%;margin-top:9px" onclick="st.tab='signin';save();render()">I already have one</button></div></div>`;
+}
 function progFresh(){
   const p=st.prog||{};
   return !((p.sessions||[]).length) && !((p.days||[]).length) && !Object.keys(cpLog()).length;
@@ -22658,7 +22691,8 @@ function screenHome(){
          stage and the answers live in this browser only, and a new phone
          means the questions again (Elliott, 4 Nov 2026). It replaced the
          create-an-account button that used to sit in the explainer card. -->
-    ${st.token?'':`<section class="rise rise-3" style="padding:16px 20px 0">
+    ${/* not while the check points are open: the list asks the same at its foot (15 Nov 2026) */''}
+    ${(st.token || (st.homeCps && !W))?'':`<section class="rise rise-3" style="padding:16px 20px 0">
       <div style="border-radius:22px;padding:18px;background:rgba(0,102,99,.055);
         border:1px solid rgba(0,102,99,.09)">
         <p style="margin:0;font:400 19px/1.3 var(--serif)">Save your <em style="color:var(--forest);font-style:normal">progress.</em></p>
@@ -23725,43 +23759,7 @@ function screenLadder(){
       wide()?'top:0;padding-top:14px;padding-bottom:10px':'top:calc(env(safe-area-inset-top) + 71px);padding-top:12px;padding-bottom:10px'}">${sg}</div>`:''; })()}
     ${/* this week, said in words: it was two dots in the top bar */''}
     ${coachedView()?'':homeStreakHTML()}
-    ${ltab==='tests' ? assessHTML() : !st.token ? `
-    <!-- Everything on this tab is a record of what somebody has done, and
-         without an account it lives in one browser and goes when that
-         browser is cleared. Rather than build the record and lose it, ask
-         first. Nothing else in the free tier is behind this. -->
-    <div class="rise" style="padding:26px 20px 0">
-      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-        color:var(--forest)">Progress</div>
-      <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:9px">Needs an
-        <em style="color:var(--forest);font-style:normal">account.</em></div>
-      <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:13px">
-        Every session, every rep and every second you log is kept against your
-        account. Without one it lives ${IOS_APP?'on this phone':'in this browser'} only, and clearing it or
-        picking up your other phone loses the lot.</div>
-      <div class="card" style="margin-top:22px;padding:20px">
-        <div class="kick2">WHAT IT KEEPS</div>
-        <div style="display:flex;flex-direction:column;gap:9px;margin-top:14px">
-          ${['When you trained, and how much of each session you got through',
-             'Reps and seconds, drill by drill, week on week',
-             'Your check points and where they put you on the ladder',
-             'The same record on every device you sign in on']
-            .map(x=>`<div style="display:flex;gap:9px;font:400 14px/1.45 var(--sans)">
-              <span style="color:var(--forest)">&bull;</span><span>${x}</span></div>`).join('')}
-        </div>
-        <button onclick="st.wantUpgrade=null;st.quizDone=true;goJoin()"
-          style="width:100%;margin-top:18px;border:0;border-radius:16px;padding:17px;
-          background:linear-gradient(180deg,#0a7a76,#006663);color:var(--on-primary);
-          box-shadow:0 12px 30px rgba(0,102,99,.3),inset 0 1px 0 rgba(255,255,255,.35);
-          font:600 16px/1 var(--sans);cursor:pointer">Create a free account</button>
-        <button class="btn2" style="width:100%;margin-top:9px"
-          onclick="st.tab='signin';save();render()">I already have one</button>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:12px">
-          Free, and it opens every explainer as well.</div>
-      </div>
-    </div>
-    <div style="height:28px"></div>`
-    : progFresh() ? `
+    ${ltab==='tests' ? assessHTML() : progFresh() ? `
     <!-- Nothing done yet: the week, a streak, three noughts, an empty month
          and a card about the work were five ways of saying so (Elliott,
          10 Oct 2026: stuff "I don't need yet"). One line and the way in.
@@ -23787,6 +23785,7 @@ function screenLadder(){
          How well I know you is still in the menu. -->
     ${duo ? `${progTilesHTML()}<div class="progduo"><div class="pd-log"><div class="kick2 pd-k">LOG</div>${progressBody()}</div>
       <div class="pd-over"><div class="kick2 pd-k">OVER TIME</div><div class="pd-h">What has gone <em>up.</em></div>${overBodyHTML()}</div></div>` : progressBody()}` : overBodyHTML()}
+    ${(ltab!=='tests' && !st.token) ? progSaveHTML() : ''}
   </div>`;
 }
 /* ══ the whole ladder ══════════════════════════════════════════════════
@@ -28570,7 +28569,7 @@ function topBar(){
         background:var(--deep);
         color:var(--on-primary);
         display:grid;place-items:center;font:700 12px/1 var(--sans);letter-spacing:.02em">${esc(initials)}</span></button>`
-    :`<button onclick="st.tab='signin';save();render()" aria-label="Sign in" style="${chip};border-radius:22px;
+    :`<button class="tb-squeeze" onclick="st.tab='signin';save();render()" aria-label="Sign in" title="Sign in" style="${chip};border-radius:22px;
       height:44px;padding:0 16px;display:inline-flex;align-items:center;
       font:600 14px/1 var(--sans)"><span class="tb-word">Sign in</span><svg class="tb-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button>`}
