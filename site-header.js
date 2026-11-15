@@ -106,6 +106,14 @@
     + '<button type="button" class="lsh-mb" aria-label="Menu" aria-expanded="false">' + burger + '</button></div>'
     + '<nav class="lsh-menu" aria-label="Menu">' + menu + '</nav>';
   if (me && me.parentNode) me.parentNode.insertBefore(h, me); else D.body.insertBefore(h, D.body.firstChild);
+  /* the app is told which website page they came from, so signing out
+     there brings them back to it, signed out, instead of leaving them on
+     the app's sign in screen (Elliott, 15 Nov 2026) */
+  if (!/lha-app/.test(location.pathname)) {
+    var back = encodeURIComponent(location.pathname + location.search + location.hash);
+    [].forEach.call(h.querySelectorAll('a[data-nowin]'), function (a) {
+      var u = a.getAttribute('href') || ''; if (u.indexOf('/lha-app.html') === 0) a.setAttribute('href', u + (u.indexOf('?') > -1 ? '&' : '?') + 'back=' + back); });
+  }
   var mb = h.querySelector('.lsh-mb'), mn = h.querySelector('.lsh-menu');
   mb.addEventListener('click', function (e) { e.stopPropagation(); var o = mn.classList.toggle('open'); mb.setAttribute('aria-expanded', String(o)); });
   mn.addEventListener('click', function (e) { if (e.target.closest('a')) { mn.classList.remove('open'); mb.setAttribute('aria-expanded', 'false'); } });
