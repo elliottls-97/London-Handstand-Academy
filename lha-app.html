@@ -512,6 +512,7 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
 .tw-buy{display:block;width:100%;margin-top:10px;min-height:44px;border-radius:12px;border:1px solid rgba(0,64,61,.16);background:#fff;
  cursor:pointer;font:600 14px/1 var(--sans);color:var(--forest)}
 .tw-buy:active{transform:scale(.985)}
+.lrn[hidden]{display:none!important}
 .lrn{display:flex;align-items:center;gap:14px;width:100%;padding:14px 0;border:0;border-top:1px solid rgba(0,64,61,.10);
  background:none;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
 .lrn b{font:600 16px/1.25 var(--sans)}
@@ -19597,7 +19598,7 @@ function askBoxHTML(hint, flat){
             style="width:100%;border:0;border-radius:14px;padding:14px 14px 14px 42px;min-height:48px;
             background:#fff;font:400 14.5px/1.3 var(--sans)">
         </div>
-        <div id="askmatches">${askMatches(st.q||'')}</div>
+        <div id="askmatches">${(flat && st.tab==='learn') ? '' : askMatches(st.q||'')}</div>
       </div>`;
 }
 /* each filmed explainer with its place in FAQS, which is what the player opens */
@@ -19685,7 +19686,7 @@ function learnHTML(inTab){
       const n=(f.steps||f.drills||[]).length, lock=f.access==='plus' && !isPlus();
       return {t:fixSub(f)||f.name, sub:esc(f.name)+(n?' &middot; '+n+' steps':'')+(lock?' &middot; '+paid:''), img:fixCover(f), go:`openFix(${jsq(f.slug)})`}; }
     if(r.ex!=null){ const o=ex.find(o=>o.i===r.ex); if(!o) return null;
-      return {t:r.t, sub:r.sub, img:o.x.uid?streamThumb(o.x.uid):'', go:explainerOpen(o.i)?`openExplainer(${o.i})`:`lockedExplainer(${o.i})`}; }
+      return {t:r.t, sub:r.sub, ex:o.i, img:o.x.uid?streamThumb(o.x.uid):'', go:explainerOpen(o.i)?`openExplainer(${o.i})`:`lockedExplainer(${o.i})`}; }
     if(r.drill) return drillById(r.drill) ? {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`pgDrill(${jsq(r.drill)})`} : null;
     if(r.url) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`leaveTo(${jsq(r.url)})`};
     if(r.art) return {t:r.t, sub:r.sub, img:r.uid?streamThumb(r.uid):'', go:`fxReadOpen(${jsq(r.art)},${jsq(r.title||r.t)})`};
@@ -19713,12 +19714,33 @@ function learnHTML(inTab){
     ${/* the search, back (Elliott, 29 Oct 2026): the films and the Learn
           pages, and when nothing answers it, a question to Elliott */''}
     ${askBoxHTML('Search, or ask Elliott', true)}
-    <div class="lrn-list" style="margin-top:16px">${rows.map((r,j)=>`<button class="lrn"${j?'':' data-tour="explainers"'} onclick="${r.go}">
+    <div class="lrn-list" style="margin-top:16px">${rows.map((r,j)=>`<button class="lrn"${j?'':' data-tour="explainers"'}${r.ex!=null?` data-ex="${r.ex}"`:''}${lrnHit(r.t+' '+r.sub, r.ex, st.q)?'':' hidden'} onclick="${r.go}">
       <span class="lrn-i">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19"
         fill="#006663" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
       <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><b>${esc(r.t)}</b><small>${r.sub}</small></span>
     </button>`).join('')}</div>
+    <div id="lrnask">${lrnAskHTML(rows.filter(r=>lrnHit(r.t+' '+r.sub, r.ex, st.q)).length, st.q)}</div>
   </section>`;
+}
+/* ── the search on Learn narrows the list itself (Elliott, 15 Nov 2026:
+   "this filter on learn should filter the actual list not create a new
+   one"). A row stays if its words, or its explainer's, match. Only when
+   nothing on the stage does are the other stages searched, as before. */
+function lrnHit(text, ex, q){
+  q=String(q||'').trim().toLowerCase(); if(q.length<2) return true;
+  const hay=String(text||'').replace(/<[^>]+>|&[a-z]+;/g,' ').toLowerCase();
+  if(hay.indexOf(q)>-1) return true;
+  const words=q.split(/\s+/).filter(w=>w.length>2 && !ASK_COMMON.has(w));
+  if(words.length && words.every(w=>hay.indexOf(w)>-1)) return true;
+  const f=ex!=null ? FAQS[ex] : null;
+  return !!(f && exScore(f, q, words)>0);
+}
+/* under the narrowed list: nothing while the box is empty, Ask Elliott once
+   there is a question, and the search of every stage when none here fit */
+function lrnAskHTML(n, q){
+  q=String(q||'').trim(); if(q.length<2) return '';
+  if(!n) return askMatches(q) || `<div style="margin-top:10px"><p style="margin:0 0 8px;font:500 13.5px/1.45 var(--sans);color:var(--grey)">Nothing on that yet.</p>${askElliottRow()}</div>`;
+  return `<div style="margin-top:12px">${askElliottRow()}</div>`;
 }
 function stageFilmsHTML(){
   if(coachedView() || trialPending()) return '';
@@ -21418,7 +21440,16 @@ function askMatches(q){
 function askFilter(v){
   st.q=v; save();
   const box=document.getElementById('askmatches');
-  if(box) box.innerHTML=askMatches(v);
+  const list=document.querySelector('#app .lrn-list');
+  if(list){
+    let n=0;
+    list.querySelectorAll('.lrn').forEach(b=>{
+      const ex=b.dataset.ex!=null ? Number(b.dataset.ex) : null, on=lrnHit(b.textContent, ex, v);
+      b.hidden=!on; if(on) n++; });
+    if(box) box.innerHTML='';
+    const ask=document.getElementById('lrnask'); if(ask) ask.innerHTML=lrnAskHTML(n, v);
+    askHitN=n;
+  } else if(box) box.innerHTML=askMatches(v);
   askLog(v);
 }
 /* the words, counted on the server once typing stops, so the dashboard can
