@@ -22387,9 +22387,16 @@ const phaseFilmShown = () => !!phaseFilmUid() && !(st.phaseFilm||{})[curStage()]
    not the sheet that slides up (Elliott, 9 Nov 2026: "a proper player").
    The film is built in a holder off the page so the theatre has somewhere
    to hand it back to; closing stops it and empties the holder. */
-function openPhaseFilm(){ const u=phaseFilmUid(); if(u) openTheatreFilm(u); }
+function openPhaseFilm(){ const u=phaseFilmUid(); if(!u) return;
+  if(sideFilmOk()) return openSideVid({k:'film', u, t:(STAGES[curStage()]||STAGES[0]).n+', explained'});
+  openTheatreFilm(u); }
+/* on a laptop's Train the films play where the month was, as the Learn
+   card's other films do (Elliott, 16 Nov 2026) */
+function sideFilmOk(){ return wide() && st.tab==='home' && !coachedView() && !st.ov && !menuOpen; }
 /* the same for the how the app works film (Elliott, 9 Nov 2026: "do the same") */
-function openHowFilm(){ const u=HOW_URL(); if(u) openTheatreFilm(u); }
+function openHowFilm(){ const u=HOW_URL(); if(!u) return;
+  if(sideFilmOk()) return openSideVid({k:'film', u, t:'How the Handstand Ladder works'});
+  openTheatreFilm(u); }
 function openTheatreFilm(u){
   let host=document.getElementById('phaseFilmHost');
   if(!host){ host=document.createElement('div'); host.id='phaseFilmHost';
@@ -28153,6 +28160,10 @@ function sideSpeed(r){
   });
 }
 function openSideVid(v){ sideVid=v; render();
+  /* started here, inside the tap, so it plays with sound */
+  { const el=document.querySelector('#side .sidecard video');
+    if(el){ if(v.k==='film'){ el.ontimeupdate=()=>introTick(el); el.onended=()=>introTick(el,1); }
+      try{ const p=el.play(); if(p && p.catch) p.catch(()=>{}); }catch(e){} } }
   setTimeout(()=>{ const el=document.querySelector('#side video'); if(el){ el.playbackRate=st.exSpeed||1; }
     /* scrolled down the page, the film opens out of sight: bring it in */
     const c=document.querySelector('#side .sidecard'); if(c){ const r=c.getBoundingClientRect();
@@ -28172,6 +28183,10 @@ function sideVideoCard(){
         <div style="display:flex;flex-direction:column;gap:9px;margin-top:11px">
         ${it.cues.map(c=>`<div style="display:flex;gap:9px"><span style="color:var(--forest)">&bull;</span>
           <span style="font:400 14px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
+  } else if(sideVid.k==='film'){
+    kick='FILM'+(PHASE_FILM_LEN[sideVid.u]?' &middot; '+esc(PHASE_FILM_LEN[sideVid.u].toUpperCase()):sideVid.u===HOW_URL()?' &middot; 3 MIN':'');
+    title=sideVid.t||'';
+    body=qaVideo({uid:sideVid.u}, true);
   } else if(sideVid.k==='explainer'){
     const q=(typeof FAQS!=='undefined' && FAQS[sideVid.i]) || {};
     const sum=q.sumOwn || (typeof EXPLAIN_SUM!=='undefined' && q.uid && EXPLAIN_SUM[q.uid]) || q.sum || '';
