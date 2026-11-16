@@ -22908,13 +22908,25 @@ function deskPickHTML(){
 function learnListHTML(){
   if(typeof FAQS_READY!=='function') return '';
   const cur=curStage(), S=STAGES[cur]||STAGES[0], all=FAQS_READY();
-  const pick=all.filter(x=>x && x.stage===cur).concat(all.filter(x=>x && x.stage!==cur)).slice(0,6);
-  if(!pick.length) return '';
+  /* the stage's intro film and how the app works lead this card, watched
+     or not: on a laptop Train had no way to
+     either of them (Elliott, 16 Nov 2026: "intro film still not showing") */
+  const films=[];
+  { const u=phaseFilmUid(), sm=(u && PHASE_SMILE[u])||{};
+    if(u) films.push({t:S.n+', explained', sub:'Film'+(PHASE_FILM_LEN[u]?' &middot; '+esc(PHASE_FILM_LEN[u]):''),
+      img:STREAM_CDN+u+'/thumbnails/thumbnail.jpg?time='+(sm.t||'3s')+'&height=320', go:'openPhaseFilm()'});
+    if(!isMU() && !coachedView() && HOW_URL()) films.push({t:'How the Handstand Ladder works', sub:'Film &middot; 3 min',
+      img:streamThumb(HOW_URL()), go:'openHowFilm()'}); }
+  const pick=all.filter(x=>x && x.stage===cur).concat(all.filter(x=>x && x.stage!==cur)).slice(0,Math.max(0,6-films.length));
+  if(!pick.length && !films.length) return '';
+  const filmRows=films.map(f=>`<button class="hlist-r" onclick="${f.go}">
+        <span class="hlearn-i"><img src="${esc(f.img)}" alt="" loading="lazy" onerror="this.remove()"><i><svg width="9" height="10" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
+        <span class="hlearn-x"><b>${esc(f.t)}</b><small>${f.sub}</small></span></button>`).join('');
   return `<section class="card hlist"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
       <div class="kick2" style="color:var(--forest)">LEARN AT ${esc(String(S.n).toUpperCase())}</div>
       <button onclick="go('learn')" style="border:0;background:none;cursor:pointer;padding:0;font:600 13px/1 var(--sans);color:var(--forest)">Everything in Learn</button></div>
     <div class="hlist-t">Watch, then <em>train.</em></div>
-    <div class="hlist-l">${pick.map(x=>{ const i=FAQS.indexOf(x), open=explainerOpen(i);
+    <div class="hlist-l">${filmRows}${pick.map(x=>{ const i=FAQS.indexOf(x), open=explainerOpen(i);
       const art=x.uid && typeof EXPLAIN_ARTICLE!=='undefined' && EXPLAIN_ARTICLE[x.uid];
       return `<button class="hlist-r" onclick="${open?`openExplainer(${i})`:`lockedExplainer(${i})`}">
         <span class="hlearn-i">${x.uid?`<img src="${esc(streamThumb(x.uid))}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
