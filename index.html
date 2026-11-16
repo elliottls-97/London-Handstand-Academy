@@ -3348,6 +3348,15 @@ details.faq-item a { color: var(--green); font-weight: 600; text-decoration: und
 }
 </style>
 <script src="/account.js" defer></script>
+<!-- Apply only (16 Nov 2026): /?applyonly=1 is the Apply form and nothing else, see
+     through, for another page to open over itself in a frame (coaching.html). One
+     form, one copy of its code, so the two can never drift apart. -->
+<script>try{if(/[?&]applyonly=1/.test(location.search)&&window.parent!==window)document.documentElement.classList.add('apply-only')}catch(x){}</script>
+<style>
+html.apply-only,html.apply-only body{background:transparent!important}
+html.apply-only body>*:not(#quiz-overlay){display:none!important}
+html.apply-only #quiz-overlay{background:rgba(0,30,28,.55)}
+</style>
 </head>
 <body>
 <script src="/site-header.js" data-fixed data-hide="#nav, #mobMenu"></script>
@@ -7508,4 +7517,28 @@ body.aw-open { overflow: hidden; }
 })();
 </script>
 <script src="stats.js" defer></script>
+<script>
+/* Apply only: the parent page says open (with the plan its button was for) and hears
+   back when the form is closed. Links to another page open in the parent. */
+(function(){
+  if(!document.documentElement.classList.contains('apply-only')) return;
+  var P=window.parent, O=location.origin;
+  var tell=function(t){ try{ P.postMessage({type:t}, O); }catch(x){} };
+  var shut=window.closeQuiz;
+  window.closeQuiz=function(){ shut.apply(this, arguments); tell('lha-apply-close'); };
+  window.addEventListener('message', function(e){
+    if(e.origin!==O || !e.data || e.data.type!=='lha-apply-open') return;
+    try{ QUIZ_VARIANTS.apply.plan = e.data.plan || ''; }catch(x){}
+    openQuiz(null, 'apply');
+  });
+  window.addEventListener('click', function(e){
+    if(e.defaultPrevented) return;
+    var a=e.target && e.target.closest && e.target.closest('a[href]'); if(!a) return;
+    var h=a.getAttribute('href')||''; if(!h || h.charAt(0)==='#' || /^(mailto|tel):/.test(h) || a.target==='_blank') return;
+    e.preventDefault(); try{ P.location.href=a.href; }catch(x){ location.href=a.href; }
+  });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.closeQuiz(); });
+  tell('lha-apply-ready');
+})();
+</script>
 </body></html>
