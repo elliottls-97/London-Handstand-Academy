@@ -3038,6 +3038,69 @@ async function sessMoveByClient(db, id, who, { slot, prefs } = {}) {
   }
   return { ok: true, session: { when: row.when, status: row.status }, mailed };
 }
+/* ── new times offered by the coach (Elliott, 16 Nov 2026: "can i do a
+   proper proposal for a new time?") ──────────────────────────────────────
+   He picks up to five times he can do and they are sent to the client, one
+   tap each, from the link in the email. Their booking stands as it was until
+   they pick: picking one moves it there and confirms it; "none of these"
+   is an ask to move with the days that suit, and the old time still stands. */
+const SESS_OFFER_MAX = 5;
+const sessOfferLive = (row, now = Date.now()) => (row && row.offer && Array.isArray(row.offer.slots) ? row.offer.slots : []).filter(t => ms(t) > now);
+async function sessOfferSend(db, row, by) {
+  const first = String(row.name || '').split(' ')[0];
+  const link = await sessManageLink(row), whenTxt = row.when ? sessWhen(row) : '';
+  const slots = sessOfferLive(row), say = String((row.offer || {}).note || '').trim();
+  const lead = say || (whenTxt ? `Could we move your ${row.kind} minute session on ${whenTxt}? These are the times I can do.` : `These are the times I can do for your ${row.kind} minute session.`);
+  const owes = Number(row.ask) > 0;
+  const btn = t => `<a href="${link}&pick=${enc(new Date(ms(t)).toISOString())}" style="display:block;margin:8px 0;padding:13px 16px;border:1px solid rgba(0,64,61,.18);border-radius:12px;background:#fff;color:#006663;font-weight:600;text-decoration:none">${esc(slotTxt(ms(t)))}</a>`;
+  try { await threadAdd(db, row.email, { from: 'coach', by, text: `${lead} ${slots.map(t => slotTxt(ms(t))).join('; ')}. Pick the one that suits here: ${link}` }); } catch {}
+  const mailed = await email(row.email, 'Your session: a new time?', mail({ title: 'A new time for your session.', greeting: first,
+    paras: [esc(lead), slots.map(btn).join(''),
+            `Tap the one that suits and it moves straight over${owes ? '' : ', nothing else to pay'}.${whenTxt ? ' Until you pick, your booking for ' + esc(whenTxt) + ' stands.' : ''}`,
+            `None of these work? <a href="${link}" style="color:#006663">Say which days suit you</a> and I will come back with more.`],
+    signoff: { name: coachName(by) } }), undefined, { receipt: true });
+  await notify(row.email, { title: 'New times for your session', body: slots.slice(0, 3).map(t => slotTxt(ms(t))).join(', ').slice(0, 140), url: link.replace(SITE, ''), tag: 'sess:' + row.id }, 'replies').catch(() => {});
+  return mailed;
+}
+async function sessPickOffer(db, id, who, slot) {
+  const at = ms(slot);
+  let row = null, was = '', bad = '', by = '';
+  await changeSetting('sessions', cur => {
+    row = null; was = ''; bad = ''; by = '';
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const r = l.find(x => x.id === id && norm(x.email) === norm(who));
+    if (!r || !sessRules(r).live) { bad = 'This session has been cancelled or has already happened.'; return undefined; }
+    if (!at || !sessOfferLive(r).some(t => ms(t) === at)) { bad = 'That time is no longer on offer. Pick another, or say which days suit.'; return undefined; }
+    if (l.some(x => x.id !== r.id && x.when && !['cancelled', 'refunded'].includes(x.status) && ms(x.when) < at + sessLen(r) && ms(x.when) + sessLen(x) > at)) { bad = 'That time has just gone. Pick another.'; return undefined; }
+    was = r.when || ''; by = (r.offer && r.offer.by) || '';
+    r.moves = (Array.isArray(r.moves) ? r.moves : []).concat([{ from: was, to: new Date(at).toISOString(), at: Date.now(), by: 'client', offer: 1 }]).slice(-10);
+    r.when = new Date(at).toISOString(); r.status = 'arranged'; r.moveAsked = 0;
+    delete r.room; delete r.req; delete r.offer;
+    if (!r.place) r.place = 'OverGravity, Shadwell';
+    row = r; return l;
+  });
+  if (!row) return { error: bad || 'That could not be done just now.', status: 409, gone: true };
+  by = by || primaryCoach();
+  const first = String(row.name || '').split(' ')[0], whenTxt = sessWhen(row), wasTxt = was ? sessWhen({ when: was }) : '';
+  let mailed = false;
+  if (Number(row.ask) > 0) {
+    const payUrl = `${SITE}/api/app/session/pay?id=${enc(row.id)}`;
+    try { await threadAdd(db, row.email, { from: 'coach', by, text: `Booked: ${whenTxt}${row.place ? ', at ' + row.place : ''}. To confirm it, pay ${sessAmt(row.ask)} here: ${payUrl}` }); } catch {}
+    mailed = await email(row.email, `Your session, ${whenTxt}: pay to confirm it`, mail({ title: 'Moved. Pay to confirm it.', greeting: first,
+      cta: { href: payUrl, label: `Pay ${sessAmt(row.ask)}` },
+      paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.`, 'It is confirmed once it is paid.', await sessChangeHTML(row)],
+      signoff: { name: coachName(by) } }), undefined, { receipt: true });
+  } else {
+    try { await threadAdd(db, row.email, { from: 'coach', by, text: `Moved: ${whenTxt}${row.place ? ', at ' + row.place : ''}.${wasTxt ? ' Instead of ' + wasTxt + '.' : ''} See you there.` }); } catch {}
+    mailed = await sessConfirmMail(db, row, by, { moved: was });
+  }
+  await coachAlert(row.email, 'business', { title: `${row.name || row.email} picked ${slotTxt(at)}`, body: `Their 1-2-1 has moved there${wasTxt ? ' from ' + wasTxt : ''}. Book Arch 2 if you have not.`, tag: 'sessmove:' + row.id });
+  await email(coachTo(row.email), `Picked: ${row.name || row.email}, ${slotTxt(at)}`, mail({ title: 'They picked one of your times.',
+    paras: [`<b>${esc(row.name || row.email)}</b> picked <b>${esc(whenTxt)}</b> for their ${esc(row.kind)} minute session${wasTxt ? ', instead of ' + esc(wasTxt) : ''}.`,
+            'It is moved and they have the confirmation with the calendar entry. Book Arch 2 for it if you have not already.', wasTxt ? 'If you hired the room for the old time, it is free again.' : ''].filter(Boolean),
+    cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
+  return { ok: true, picked: true, when: row.when, mailed };
+}
 /* ── calls: the free intro call and the coaching welcome call ─────────────
    Booked here rather than in Calendly, which kept failing to make the Teams
    meeting for each booking (11 Oct 2026). A call is a time from the hours
@@ -9052,7 +9115,16 @@ const handle = async (request) => {
     if (request.method === 'POST') {
       if ((await rateHit(`ssman:${t.e}`, 3600000)) > 30) return json({ error: 'Too many tries' }, 429);
       const R0 = sessRules(row), slot = body.slot ? String(body.slot) : '', prefs = String(body.prefs || '').trim(), note = String(body.note || '');
-      const r = body.action === 'cancel' ? await sessAskByClient(db, row.id, t.e, { kind: 'cancel', note })
+      /* none of the offered times: an ask to move with the days that suit, the old time standing */
+      if (body.action === 'decline') {
+        if (!prefs) return json({ error: 'Say which days and times suit you.' }, 400);
+        await changeSetting('sessions', cur => { const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : []; const r = l.find(x => x.id === row.id);
+          if (!r || !r.offer) return undefined; delete r.offer; return l; });
+        const r = await sessAskByClient(db, row.id, t.e, { kind: 'move', prefs, note });
+        return json(r, r.error ? r.status : 200);
+      }
+      const r = body.action === 'pick' ? await sessPickOffer(db, row.id, t.e, slot)
+              : body.action === 'cancel' ? await sessAskByClient(db, row.id, t.e, { kind: 'cancel', note })
               : body.action === 'keep' ? await sessAskBack(row.id, t.e)
               : body.action === 'move' ? (R0.selfMove ? await sessMoveByClient(db, row.id, t.e, { slot, prefs })
                                                       : await sessAskByClient(db, row.id, t.e, { kind: 'move', slot, prefs, note }))
@@ -9065,6 +9137,7 @@ const handle = async (request) => {
       fromPlan: !!row.fromPlan, owes: Number(row.ask) > 0 ? Number(row.ask) : 0, paid: Number(row.paid) || 0, refunded: Number(row.refunded) || 0,
       live: R.live, selfMove: R.selfMove, held: row.room === 'hire', canMove: R.canMove, canCancel: R.canCancel, late: R.late, cutoff: SESS_CUTOFF_H,
       req: R.req ? { kind: R.req.kind, at: R.req.at, slot: R.req.slot || '', prefs: R.req.prefs || '' } : null,
+      offer: R.live && sessOfferLive(row).length ? { slots: sessOfferLive(row).map(x => new Date(ms(x)).toISOString()), note: String(row.offer.note || ''), at: row.offer.at || 0 } : null,
       about: row.about ? Object.fromEntries(ABOUT_Q.map(([k]) => [k, row.about[k] || ''])) : null,
       slots: S.on ? S.slots.filter(x => !row.when || x.start !== ms(row.when)).map(x => new Date(x.start).toISOString()) : null });
   }
@@ -9165,6 +9238,28 @@ const handle = async (request) => {
       }
       return json({ ok: true, packs: await packsOf(list.filter(x => owns(x.email))) });
     }
+    /* new times offered to them, or the offer taken back */
+    if (request.method === 'POST' && body.offer !== undefined && body.id) {
+      const now = Date.now();
+      const times = body.offer === null ? [] : [...new Set((Array.isArray(body.offer) ? body.offer : []).map(ms).filter(t => t > now + 3600e3))].sort((a, b) => a - b);
+      if (body.offer !== null && !times.length) return json({ error: 'Add at least one time, later than an hour from now.' }, 400);
+      if (times.length > SESS_OFFER_MAX) return json({ error: `At most ${SESS_OFFER_MAX} times.` }, 400);
+      let row = null, why = '';
+      await changeSetting('sessions', cur => {
+        row = null; why = '';
+        const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+        const r = l.find(x => x.id === String(body.id));
+        if (!r || !owns(r.email)) { why = 'No such session'; return undefined; }
+        if (!sessRules(r).live) { why = 'This session is cancelled or has already happened.'; return undefined; }
+        if (body.offer === null) delete r.offer;
+        else r.offer = { slots: times.map(t => new Date(t).toISOString()), at: now, by: asking || primaryCoach(), note: String(body.msg || '').trim().slice(0, 600) };
+        row = r; return l;
+      });
+      if (!row) return json({ error: why || 'No such session' }, 404);
+      const told = body.offer === null ? { what: 'unoffered', mailed: true } : { what: 'offered', mailed: await sessOfferSend(db, row, asking || primaryCoach()) };
+      const after = (await getSetting('sessions')) || [];
+      return json({ ok: true, told, session: after.find(x => x.id === row.id) || row, sessions: after.filter(x => owns(x.email)) });
+    }
     if (request.method === 'POST') {
       /* A session paid for outside the booking page, a payment link or cash,
          never reached this list: the coach books it in by hand, and setting
@@ -9221,6 +9316,8 @@ const handle = async (request) => {
         else if (r.when && r.status === 'toArrange') r.status = 'arranged';
         /* the client's ask is answered by a cancel, a new time, or keeping it */
         if (r.req && (r.status === 'cancelled' || r.when !== before.when || body.keep)) delete r.req;
+        /* times on offer are answered the same way */
+        if (r.offer && (r.status === 'cancelled' || r.when !== before.when)) delete r.offer;
         row = r; return l;
       });
       if (missing) return json({ error: 'No such session' }, 404);

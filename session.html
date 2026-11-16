@@ -67,6 +67,8 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
 .times{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;margin-top:10px}
 .time{min-height:46px;border-radius:12px;border:1.5px solid var(--line);background:#fff;cursor:pointer;font:600 15px/1 var(--sans);color:var(--ink)}
 .time.on{border-color:var(--forest);background:var(--forest);color:#fff}
+.offl{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.offl .time{text-align:left;padding:0 16px;font-weight:600}
 .time:disabled{opacity:.5;cursor:default}
 .cd-row{display:flex;gap:8px}.cd-row input{flex:1;min-width:0;text-transform:uppercase;letter-spacing:.06em}
 .cd-go{flex:none;min-height:48px;padding:0 18px;border-radius:14px;border:1px solid rgba(35,127,149,.3);background:#fff;color:var(--forest);font:600 15px/1 var(--sans);cursor:pointer}
@@ -160,12 +162,12 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
      date. Until the room is hired they move it themselves. */
   if(mtok){
     beacon('sitesessionmanage');
-    let d=null, day='', sel='', busy=false;
+    let d=null, day='', sel='', busy=false, osel=q.get('pick')||'';
     const post=body=>{ body.t=mtok; return fetch('/api/app/session/manage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(r=>r.json().then(x=>r.ok?x:Promise.reject(x))); };
     const head=()=>'<div class="kick">Your session</div><h1>'+esc(d.kind)+' minutes with Elliott.</h1>'
       +'<div class="when">'+(d.when?esc(whenTxt(d.when)):'Time to be agreed')+'</div>'+(d.place?'<div class="meta">'+esc(d.place)+'</div>':'')
-      +(d.held&&d.live?'<p style="font:500 14px/1.5 var(--sans);color:var(--deep)">Held for you, not confirmed yet: Elliott is booking the room and confirms within 48 hours.</p>':'');
+      +(d.held&&d.live&&!(d.offer&&d.offer.slots&&d.offer.slots.length)?'<p style="font:500 14px/1.5 var(--sans);color:var(--deep)">Held for you, not confirmed yet: Elliott is booking the room and confirms within 48 hours.</p>':'');
     const lateTxt=()=>d.late?'<p style="font:500 14px/1.5 var(--sans);color:var(--terra)">It is less than '+d.cutoff+' hours away, so it may be charged in full.</p>':'';
     const asked=()=>'Elliott hires the room for each session, so he looks at it himself and comes back to you within 48 hours, with a refund or a new date. Until then your session stands.';
     const drawM=(note)=>{
@@ -182,6 +184,36 @@ input:focus,textarea:focus{outline:2px solid var(--forest);outline-offset:0;bord
         keep.onclick=()=>{ if(busy) return; busy=true; keep.disabled=true; document.getElementById('kmsg').textContent='One moment…';
           post({action:'keep'}).then(()=>done('Kept.',['Your session stands'+(d.when?': <b>'+esc(whenTxt(d.when))+'</b>':'')+'.','Elliott has been told.']))
             .catch(e=>{ busy=false; keep.disabled=false; document.getElementById('kmsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+        return;
+      }
+      /* times Elliott has offered: one tap each, and the booking stands until they pick (16 Nov 2026) */
+      if(d.offer && d.offer.slots && d.offer.slots.length && !d.req){
+        const os=d.offer.slots, pickOk=os.some(t=>new Date(t).getTime()===new Date(osel).getTime());
+        const cur=pickOk ? os.find(t=>new Date(t).getTime()===new Date(osel).getTime()) : '';
+        box.innerHTML=head()+'<div class="card"><div class="row"><b>Elliott can do these times</b></div>'
+          +(d.offer.note?'<p style="font-size:14.5px;margin:6px 0 0">'+esc(d.offer.note)+'</p>':'')
+          +'<div class="offl" aria-label="Times on offer">'+os.map(t=>'<button type="button" class="time'+(t===cur?' on':'')+'" data-o="'+esc(t)+'">'+esc(whenTxt(t))+'</button>').join('')+'</div>'
+          +(cur?'<button class="btn" id="opick">Move it to '+esc(dayShort(cur))+', '+esc(clock(cur))+'</button>':'')
+          +'<div class="msg" id="omsg">'+(note||'')+'</div>'
+          +'<p class="muted" style="font-size:14px;margin-top:12px">'+(d.when?'Until you pick, your booking for '+esc(whenTxt(d.when))+' stands.':'')+(d.owes>0?'':' Nothing else to pay.')+'</p>'
+          +'<button class="linkb" id="onone">None of these work? Say which days suit</button>'
+          +'<div id="odec" hidden><label for="opf">Days and times that suit you</label><textarea id="opf" placeholder="Weekday evenings after 6, or Sunday mornings."></textarea>'
+          +'<button class="btn" id="osend">Send to Elliott</button><div class="msg" id="odmsg"></div>'
+          +'<div class="fine">Your booking stands while Elliott looks for another time.</div></div></div>'
+          +'<div class="fine" style="margin-top:18px">Questions? '+MAIL+'</div>';
+        box.querySelectorAll('[data-o]').forEach(b=>{ b.onclick=()=>{ osel=b.getAttribute('data-o'); drawM(); }; });
+        const lock=on=>{ busy=on; box.querySelectorAll('button').forEach(b=>{ b.disabled=on; }); };
+        const op=document.getElementById('opick');
+        if(op) op.onclick=()=>{ if(busy) return; lock(true); document.getElementById('omsg').textContent='One moment…';
+          post({action:'pick',slot:cur}).then(()=>done('Moved.',['Your session is now on <b>'+esc(whenTxt(cur))+'</b>.','The confirmation with the calendar entry is on its way by email.'],['/lha-app.html','Open the app']))
+            .catch(e=>{ lock(false); if(e&&e.gone){ osel=''; return reload(String(e.error||'That time has just gone. Pick another.')); }
+              document.getElementById('omsg').textContent=String((e&&e.error)||e||'Something went wrong'); }); };
+        document.getElementById('onone').onclick=()=>{ document.getElementById('odec').hidden=false; document.getElementById('onone').hidden=true; document.getElementById('opf').focus(); };
+        document.getElementById('osend').onclick=()=>{ const prefs=(document.getElementById('opf').value||'').trim(), m=document.getElementById('odmsg');
+          if(!prefs){ m.textContent='Say which days and times suit you.'; return; }
+          if(busy) return; lock(true); m.textContent='Sending…';
+          post({action:'decline',prefs}).then(()=>done('Sent.',['Elliott has your days and comes back with another time within 48 hours.',d.when?'Until then your booking for <b>'+esc(whenTxt(d.when))+'</b> stands.':''].filter(Boolean)))
+            .catch(e=>{ lock(false); m.textContent=String((e&&e.error)||e||'Something went wrong'); }); };
         return;
       }
       /* picking a day redraws the page: what they were typing about themselves stays */

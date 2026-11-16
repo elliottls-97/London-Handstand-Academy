@@ -9174,7 +9174,8 @@ const gbp = p => '£'+(Number(p||0)/100).toFixed(Number(p||0)%100?2:0);
    whether or not the email went */
 function toldFlash(t, plain){
   if(!t){ if(plain) flash(plain); return; }
-  const head={confirmed:'Confirmed', moved:'Moved', kept:'Kept as it is', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
+  if(t.what==='unoffered'){ flash('Offer taken back. Nothing is sent to them.'); return; }
+  const head={offered:'Times sent', confirmed:'Confirmed', moved:'Moved', kept:'Kept as it is', asked:'Pay link sent', topay:'Moved, and they are asked to pay to confirm', cancelled:'Cancelled'}[t.what]||'Done';
   const money=t.what!=='cancelled'?'':t.refunded>0?' and '+gbp(t.refunded)+' refunded to their card':t.refundFailed?', but the refund did not go through: do it in Stripe ('+t.refundFailed+')':t.hand?': give back what they paid by hand':'';
   flash(head+money+'. '+(t.mailed?'They have been emailed.':'The email did not go, so they only have it in the app.'));
 }
@@ -9378,8 +9379,9 @@ function inboxBodyHTML(r){
     ${aboutBlock(x.about)}
     <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="sessSet(${jsq(x.id)},{room:'hired'})" ${busy?'disabled':''}>${busy?'Saving…':'Room booked, confirm it'}</button>
+      <button class="btn btn-secondary" onclick="oneOffer=${jsq(x.id)};openClient(${jsq(x.email)},'121')">Can't do it? Offer new times</button>
       <button class="btn btn-secondary" onclick="openClient(${jsq(x.email)},'121')">Their 1-2-1s</button>
-    </div>`;
+    </div>${offerShownHTML(x)}`;
   }
   if(r.type==='session'){ const x=r.sess; const busy=sessBusy===x.id;
     return `
@@ -10316,6 +10318,44 @@ function oneBook(){
     .then(x=>{ sessions=x.sessions||sessions; sessBusy=''; draw(); toldFlash(x.told, had?'Saved as done':'Booked'); })
     .catch(e=>{ sessBusy=''; draw(); alert(String(e)); });
 }
+/* ── new times offered to them (Elliott, 16 Nov 2026: "can i do a proper
+   proposal for a new time?"). Up to five; they pick one from the email and
+   it moves there, and their booking stands until they do. ── */
+let oneOffer='', offerN={};
+function offerFormHTML(x){
+  const id=esc(x.id), n=offerN[x.id]||3;
+  const inp='border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff';
+  const rows=Array.from({length:n},(_,i)=>`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <input id="oo-d-${id}-${i}" type="date" style="${inp};flex:1;min-width:130px;width:auto">
+      <input id="oo-t-${id}-${i}" type="time" value="10:00" style="${inp};flex:none;width:auto"></div>`).join('');
+  return `<div style="margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--mist)">
+    <div style="font:600 13.5px/1.5 var(--sans)">Offer them new times</div>
+    <div class="muted" style="font-size:12.5px;margin-top:3px">They get an email with a button for each, and it is in their chat. Picking one moves it there and confirms it. ${x.when?'Their '+esc(sessLondon(x.when))+' stands until they pick.':''} London time.</div>
+    ${rows}
+    ${n<5?`<button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="offerN[${jsq(x.id)}]=${n+1};draw()">Add another time</button>`:''}
+    <input id="oo-m-${id}" placeholder="A line for them, optional: I can't do 3pm after all, sorry. Would one of these work?" style="${inp};width:100%;margin-top:10px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-primary btn-sm" onclick="offerSend(${jsq(x.id)})" ${sessBusy===x.id?'disabled':''}>${sessBusy===x.id?'Sending…':'Send them these times'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="oneOffer='';draw()">Not now</button></div>
+  </div>`;
+}
+function offerSend(id){
+  const n=offerN[id]||3, times=[];
+  for(let i=0;i<n;i++){ const d=(document.getElementById('oo-d-'+id+'-'+i)||{}).value, t=(document.getElementById('oo-t-'+id+'-'+i)||{}).value||'10:00';
+    if(d) times.push(londonISO(d,t)); }
+  if(!times.length) return alert('Pick at least one date.');
+  if(times.some(t=>new Date(t).getTime()<Date.now()+3600e3)) return alert('One of those times has passed, or is less than an hour away.');
+  const msg=((document.getElementById('oo-m-'+id)||{}).value||'').trim();
+  if(!confirm('Send '+times.length+' time'+(times.length===1?'':'s')+' to them by email and in their chat?\n\n'+times.map(sessLondon).join('\n'))) return;
+  oneOffer=''; sessSet(id,{offer:times, msg});
+}
+function offerShownHTML(x){
+  const now=Date.now(), os=((x.offer||{}).slots||[]).filter(t=>new Date(t).getTime()>now);
+  if(!os.length) return '';
+  return `<div style="margin-top:10px;padding:11px 13px;border-radius:12px;background:rgba(35,127,149,.07);font:400 13px/1.55 var(--sans)">
+    <b>Times offered ${esc(ago(x.offer.at))}</b>, waiting for them to pick: ${os.map(t=>esc(sessLondon(t))).join(' &middot; ')}.
+    <div style="margin-top:6px"><button onclick="if(confirm('Take these times back? Nothing is sent to them.'))sessSet(${jsq(x.id)},{offer:null})" style="border:0;background:none;cursor:pointer;padding:0;font:600 12.5px/1 var(--sans);color:var(--deep);text-decoration:underline;text-underline-offset:3px">Take the offer back</button></div></div>`;
+}
 function oneMoveSave(id){
   const d=(document.getElementById('sd-'+id)||{}).value, t=(document.getElementById('st-'+id)||{}).value||'10:00';
   const place=(document.getElementById('sp-'+id)||{}).value||'';
@@ -10435,6 +10475,8 @@ function oneOnePaneHTML(){
         <span style="flex:1;min-width:0;font:600 15px/1.3 var(--sans)">${esc(f(x))}</span>${st}</div>
       <div class="muted" style="font-size:12.5px;margin-top:5px">${esc(x.kind||'60')} min${x.place?' · '+esc(x.place):''}${x.credit?' · from their pack':Number(x.pack)>1?' · first of a pack of '+x.pack+', '+gbp(x.paid)+' paid':x.paid?' · paid '+gbp(x.paid):''}${x.refunded?' · refunded '+gbp(x.refunded):''}${x.cancelledBy==='client'?' · cancelled by them':x.cancelledBy==='coach'?' · cancelled by you':''}${(x.moves||[]).some(m=>m.by==='client')&&x.status!=='cancelled'?' · moved by them':''}${x.room==='hired'?' · Arch 2 hired':''}${x.note?' · '+esc(x.note):''}</div>
       ${x.status!=='cancelled'?aboutBlock(x.about,true):''}
+      ${soon.indexOf(x)>-1?offerShownHTML(x):''}
+      ${oneOffer===x.id&&soon.indexOf(x)>-1?offerFormHTML(x):''}
       ${oneDone===x.id?timeForm(Object.assign({},x,{when:x.when||new Date().toISOString()}),'Mark done','oneDoneSave')
           +`<div class="muted" style="font-size:12.5px;margin-top:8px">Nothing is sent to them. ${link('Back','oneDone=\'\';draw()')}</div>`
         : x.status==='toArrange'?timeForm(x,'Confirm and tell them','sessConfirm')
@@ -10442,6 +10484,7 @@ function oneOnePaneHTML(){
         : (x.status==='arranged')?`<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
             ${upcoming&&x.room==='hire'?link('Room booked, confirm it','sessSet(\''+esc(x.id)+'\',{room:\'hired\'})'):''}
             ${upcoming?link('Move','oneMove=\''+esc(x.id)+'\';draw()'):''}
+            ${upcoming&&!x.req&&oneOffer!==x.id?link('Offer new times','oneOffer=\''+esc(x.id)+'\';draw()'):''}
             ${!upcoming?link('Mark done','sessSet(\''+esc(x.id)+'\',{status:\'done\'})'):link('Had it already','oneDone=\''+esc(x.id)+'\';draw()')}
             ${upcoming&&!x.req?link('Cancel','oneCancelOpen=\''+esc(x.id)+'\';draw()'):''}
             ${!x.paid && !x.credit && !owes && x.status!=='cancelled'?link('Ask them to pay','oneAsk(\''+esc(x.id)+'\',\''+esc(x.kind||'60')+'\')'):''}
