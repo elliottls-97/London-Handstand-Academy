@@ -345,7 +345,7 @@ const wsRoomOf = w => { const r = String((w && w.room) || '').trim(); if (r) ret
 const wsArch = w => { const r = wsRoomOf(w); return r === 'Arch 1' ? 'Arch 1 (the purple room)' : r; };
 function wsWhereHTML(w) {
   if (w && w.place && !/overgravity/i.test(w.place)) return `<b>Where:</b> ${esc(w.place)}.`;
-  return `<b>Where:</b> OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#006663">Directions</a>.`;
+  return `<b>Where:</b> OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1&nbsp;0DB. <a href="${WS_MAP}" style="color:#237f95">Directions</a>.`;
 }
 /* "Friday 1pm": the last moment it can be changed online */
 const wsCutoffTxt = w => w && w.when ? new Date(ms(w.when) - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1') : '';
@@ -550,7 +550,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
               : credit.code ? `${creditSpent ? `The credit this place was booked with is used, as a credit place cancelled inside ${WS_REFUND_BEFORE_H} hours of the class is. What was paid on top` : `It is less than ${WS_REFUND_BEFORE_H} hours to the class, so the place is not refunded; it`} becomes a credit: use code <b>${esc(credit.code)}</b> for one place at any ${esc(w.title)}, until ${esc(new Date(credit.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' }))}. Type it on the booking page.`
               : creditSpent ? `This place was booked on a credit, and a credit place cancelled inside ${WS_REFUND_BEFORE_H} hours of the class is used.`
               : paid > 0 && b.pi ? (coach ? 'This one is not refunded.' : refundable ? 'The places kept cost what was paid on their own, so there is nothing to refund.' : 'Inside 24 hours the place cannot be refilled, so it is not refunded.') : '',
-            `<a href="${SITE}/handstand-class#book" style="color:#006663">Book another date</a> whenever suits.`].filter(Boolean),
+            `<a href="${SITE}/handstand-class#book" style="color:#237f95">Book another date</a> whenever suits.`].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (b.payer && b.payer !== who && refunded) await email(b.payer, `${b.name || 'Your guest'} cancelled: ${w.title}`, mail({ title: 'A place you paid for is cancelled.',
     paras: [`${esc(b.name || who)} cancelled their place on <b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}. ${wsPounds(back)} is refunded to your card.`],
@@ -645,7 +645,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
       paras: [`<b>${esc(w2.title)}</b>, now on ${esc(wsWhenTxt(w2))}${w2.place ? ', at ' + esc(w2.place) : ''}, instead of ${esc(wsWhenTxt(w))}.`,
               wsWhereHTML(w2),
               'Nothing more to pay. A reminder comes the day before.',
-              `<a href="${SITE}/api/app/workshop/ics?slug=${to}" style="color:#006663">Add it to your calendar</a>. Need to change it again? <a href="${link}" style="color:#006663">Manage your booking</a>.`],
+              `<a href="${SITE}/api/app/workshop/ics?slug=${to}" style="color:#237f95">Add it to your calendar</a>. Need to change it again? <a href="${link}" style="color:#237f95">Manage your booking</a>.`],
       signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (!coach) await coachAlert(null, 'business', { title: 'Moved: ' + (b.name || who), body: `${w.title}: ${wsWhenTxt(w)} to ${wsWhenTxt(w2)}`, tag: 'wsmove:' + who });
   await wsOfferFreed(slug, w);
@@ -1122,7 +1122,7 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
     style="max-width:560px;background:#ffffff;border-radius:18px;
     border:1px solid #e3e0d6">
     <tr><td style="padding:30px 32px 0;text-align:center">
-      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#006663;
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#237f95;
         text-transform:uppercase">London Handstand Academy</div>
       <div style="height:1px;background:#e3e6e6;margin:24px 0 0"></div>
     </td></tr>
@@ -1138,10 +1138,10 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote }) {
             margin:0 0 12px">${esc(box.title)}</div>` : ''}
           ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
             color:#4c5654;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
-            ${box.numbered ? `<b style="color:#006663">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+            ${box.numbered ? `<b style="color:#237f95">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
         </td></tr></table>` : ''}
       ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
-        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#006663">
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#237f95">
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
@@ -1525,7 +1525,7 @@ const newsClassHref = (w, slug) => wsPageHref(Object.assign({ slug }, w || {}), 
    are Resend's to fill in, per person. */
 function newsParas(body) {
   return String(body || '').replace(/\r/g, '').split(/\n\s*\n/).map(t => t.trim()).filter(Boolean).slice(0, 40)
-    .map(t => esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" style="color:#006663;font-weight:600">$1</a>').replace(/\n/g, '<br>'));
+    .map(t => esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" style="color:#237f95;font-weight:600">$1</a>').replace(/\n/g, '<br>'));
 }
 /* ── a newsletter built from sections (14 Oct 2026) ──────────────────
    The dashboard's editor sends a list of sections; each is checked here
@@ -2674,13 +2674,13 @@ async function sessConfirmMail(db, row, by, opts = {}) {
       paras: [`<b>${esc(whenTxt)}</b>${row.place ? ', at ' + esc(row.place) : ''}. ${row.kind} minutes.${was ? ' Instead of ' + esc(was) + '.' : ''}`,
               opts.say ? esc(opts.say) : '',
               row.note ? esc(row.note) : 'Wear something you can move in and arrive a few minutes early.',
-              `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#006663;font-weight:600">Google Calendar</a>`,
+              `<a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#237f95;font-weight:600">Add it to your calendar</a> &middot; <a href="${sessGcal(row)}" style="color:#237f95;font-weight:600">Google Calendar</a>`,
               soon ? '' : 'A reminder comes the day before.',
               await sessChangeHTML(row),
               opts.fresh && cNoPw ? `It is in the Handstand Ladder app too, under this address. Your username is ${esc(row.email)}: choose a password with the button below and you are in.` : '',
               /* not to somebody whose coaching includes the session */
               (row.fromPlan || clients()[norm(row.email)]) ? '' :
-              `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#006663">app</a>.`].filter(Boolean),
+              `Want me with you between sessions? Online coaching adds a programme written for you in the app, and video replies on your own clips. It is under Coaching in the <a href="${SITE}/lha-app.html" style="color:#237f95">app</a>.`].filter(Boolean),
       /* noQueue: the webhook retries it itself, and a queued copy as well
          would have sent it twice */
       signoff: { name: coachName(by) } }), undefined, { receipt: true, ...(opts.noQueue ? { noQueue: true } : {}) });
@@ -2734,7 +2734,7 @@ const sessBackOf = row => sessPays(row).filter(p => p.pi && !p.autoRefund)
 const sessHandPaid = row => (Number(row.paid) || 0) > 0 && !sessPays(row).some(p => p.pi);
 /* what changing it means, said the same way in each email about it */
 async function sessChangeHTML(row) {
-  const link = await sessManageLink(row), a = t => `<a href="${link}" style="color:#006663">${t}</a>`;
+  const link = await sessManageLink(row), a = t => `<a href="${link}" style="color:#237f95">${t}</a>`;
   if (!row.when) return row.fromPlan ? '' : `<b>Changed your mind?</b> ${a('Ask to cancel it here')}, no account or password needed, and I will come back to you within 48 hours.`;
   if (row.fromPlan) return `<b>Need to change it?</b> ${a('Ask to move your session')} to another time, no account or password needed.`;
   if (row.credit) return `<b>Need to change it?</b> ${a('Move or cancel your session')}, no account or password needed. I hire the room for each session, so a cancellation or a late move comes to me, and I come back to you within 48 hours. A cancelled session goes back on your pack.`;
@@ -2944,7 +2944,7 @@ async function sessAskByClient(db, id, who, { kind, note = '', slot = '', prefs 
   const mailed = await email(row.email, req.kind === 'cancel' ? 'Your session: asked to cancel' : 'Your session: asked to move',
     mail({ title: 'Asked. I will come back to you.', greeting: first,
       paras: [esc(line), req.late ? `It is less than ${SESS_CUTOFF_H} hours away, so it may be charged in full.` : '',
-              `Changed your mind? <a href="${link}" style="color:#006663">Keep your session as it is</a>.`].filter(Boolean),
+              `Changed your mind? <a href="${link}" style="color:#237f95">Keep your session as it is</a>.`].filter(Boolean),
       signoff: { name: coachName(primaryCoach()) } }), undefined, { receipt: true });
   /* the coach decides, so the coach is told, whatever the email switches say */
   const paidTxt = sessHandPaid(row) ? `paid ${sessAmt(row.paid)} outside Stripe` : sessBackOf(row).length ? `paid ${sessAmt(sessBackOf(row).reduce((a, p) => a + p.left, 0))} by card` : row.fromPlan ? 'part of their coaching' : 'nothing paid';
@@ -3052,12 +3052,12 @@ async function sessOfferSend(db, row, by) {
   const slots = sessOfferLive(row), say = String((row.offer || {}).note || '').trim();
   const lead = say || (whenTxt ? `Could we move your ${row.kind} minute session on ${whenTxt}? These are the times I can do.` : `These are the times I can do for your ${row.kind} minute session.`);
   const owes = Number(row.ask) > 0;
-  const btn = t => `<a href="${link}&pick=${enc(new Date(ms(t)).toISOString())}" style="display:block;margin:8px 0;padding:13px 16px;border:1px solid rgba(0,64,61,.18);border-radius:12px;background:#fff;color:#006663;font-weight:600;text-decoration:none">${esc(slotTxt(ms(t)))}</a>`;
+  const btn = t => `<a href="${link}&pick=${enc(new Date(ms(t)).toISOString())}" style="display:block;margin:8px 0;padding:13px 16px;border:1px solid rgba(29,85,102,.18);border-radius:12px;background:#fff;color:#237f95;font-weight:600;text-decoration:none">${esc(slotTxt(ms(t)))}</a>`;
   try { await threadAdd(db, row.email, { from: 'coach', by, text: `${lead} ${slots.map(t => slotTxt(ms(t))).join('; ')}. Pick the one that suits here: ${link}` }); } catch {}
   const mailed = await email(row.email, 'Your session: a new time?', mail({ title: 'A new time for your session.', greeting: first,
     paras: [esc(lead), slots.map(btn).join(''),
             `Tap the one that suits and it moves straight over${owes ? '' : ', nothing else to pay'}.${whenTxt ? ' Until you pick, your booking for ' + esc(whenTxt) + ' stands.' : ''}`,
-            `None of these work? <a href="${link}" style="color:#006663">Say which days suit you</a> and I will come back with more.`],
+            `None of these work? <a href="${link}" style="color:#237f95">Say which days suit you</a> and I will come back with more.`],
     signoff: { name: coachName(by) } }), undefined, { receipt: true });
   await notify(row.email, { title: 'New times for your session', body: slots.slice(0, 3).map(t => slotTxt(ms(t))).join(', ').slice(0, 140), url: link.replace(SITE, ''), tag: 'sess:' + row.id }, 'replies').catch(() => {});
   return mailed;
@@ -3394,10 +3394,10 @@ async function callMail(row, c, movedFrom, say) {
     title: movedFrom ? 'Your call has moved.' : 'Your call is booked.', greeting: first,
     paras: [`<b>${esc(when)}</b>. ${pub.len} minutes${c.linkName ? ', on ' + esc(c.linkName) : ''}, with Elliott.${movedFrom ? ' Instead of ' + esc(callWhen(movedFrom, row.tz)) + '.' : ''}`,
             say ? esc(say) : '',
-            c.link ? `At that time, <a href="${esc(c.link)}" style="color:#006663;font-weight:600">join the call here</a>. The link is in the calendar entry too.` : '',
+            c.link ? `At that time, <a href="${esc(c.link)}" style="color:#237f95;font-weight:600">join the call here</a>. The link is in the calendar entry too.` : '',
             callAskTxt(row.kind) ? esc(callAskTxt(row.kind)) : '',
-            `<a href="${pub.ics}" style="color:#006663;font-weight:600">Add it to your calendar</a> &middot; <a href="${pub.gcal}" style="color:#006663;font-weight:600">Google Calendar</a>`,
-            `<b>Need to change it?</b> <a href="${pub.manage}" style="color:#006663">Move or cancel it here</a>, no account or password needed. A reminder comes the day before.`].filter(Boolean),
+            `<a href="${pub.ics}" style="color:#237f95;font-weight:600">Add it to your calendar</a> &middot; <a href="${pub.gcal}" style="color:#237f95;font-weight:600">Google Calendar</a>`,
+            `<b>Need to change it?</b> <a href="${pub.manage}" style="color:#237f95">Move or cancel it here</a>, no account or password needed. A reminder comes the day before.`].filter(Boolean),
     cta: c.link ? { href: c.link, label: 'The call link' } : undefined,
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
 }
@@ -3412,7 +3412,7 @@ async function callTell(row, what, extra) {
     mail({ title: `A ${CALL_NAME[row.kind]} ${what}.`,
       paras: [`<b>${esc(row.name || row.email)}</b> (${esc(row.email)}), <b>${esc(when)}</b> London time, ${Math.round(callLen(row) / 60e3)} minutes.`,
               row.note ? `They said: <i>${esc(row.note)}</i>` : '', aboutMailHTML(row.about), row.tz && row.tz !== CALL_TZ ? `They are on ${esc(row.tz)} time.` : '', extra ? esc(extra) : '',
-              row.meet ? `<a href="${esc(row.meet)}" style="color:#006663;font-weight:600">Join on Google Meet</a>. It is in your Google Calendar, and they have the invite.`
+              row.meet ? `<a href="${esc(row.meet)}" style="color:#237f95;font-weight:600">Join on Google Meet</a>. It is in your Google Calendar, and they have the invite.`
                 : row.meetErr ? `<b style="color:#a4503c">Google Meet could not be made</b> (${esc(row.meetErr)}).${(await callConf()).link ? ' They were sent the standing link instead.' : ' They have no link to join on: send them one.'}`
                 : 'It is in your calendar feed, if you have subscribed to it.'].filter(Boolean),
       cta: { href: `${SITE}/lha-coach.html`, label: 'Open the dashboard' } }));
@@ -3551,7 +3551,7 @@ async function callCancel(id, by, say) {
   const mailed = await email(row.email, `Cancelled: your ${CALL_NAME[row.kind]}, ${when}`, mail({
     title: 'Your call is cancelled.', greeting: first,
     paras: [`Your ${CALL_NAME[row.kind]} on <b>${esc(when)}</b> is cancelled${by === 'coach' ? ' by Elliott' : ''}.`, say ? esc(say) : '',
-            `<a href="${again}" style="color:#006663">Book another time</a> whenever suits.`].filter(Boolean),
+            `<a href="${again}" style="color:#237f95">Book another time</a> whenever suits.`].filter(Boolean),
     signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
   if (by !== 'coach') await callTell(row, 'cancelled');
   return { ok: true, status: 'cancelled', mailed };
@@ -4678,7 +4678,7 @@ const handle = async (request) => {
           greeting: nm.split(' ')[0] || '', paras: [`<b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}.`,
             `${why} ${amount} ${r.back ? 'has been refunded. It shows on your card in a few days.' : 'will be refunded.'}`.replace(/\s+/g, ' '),
             units > 1 && good.length ? 'The other places stand, and the confirmation is on its way.' : '',
-            problem === 'full' ? `<a href="${SITE}/workshop.html?slug=${r.slug}" style="color:#006663">Join the waiting list</a> and you hear first if a place comes free.` : ''].filter(Boolean),
+            problem === 'full' ? `<a href="${SITE}/workshop.html?slug=${r.slug}" style="color:#237f95">Join the waiting list</a> and you hear first if a place comes free.` : ''].filter(Boolean),
           signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
         await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, `Refunded a booking: ${nm || e} for ${w.title}`,
           mail({ title: 'A booking that could not stand.', paras: [`<b>${esc(nm || e)}</b> paid for <b>${esc(w.title)}</b>${whenTxt ? ', ' + esc(whenTxt) : ''}: ${problem === 'twice' ? 'a second payment from somebody already booked' : problem === 'full' ? 'the workshop was already full' : 'the date had passed'}.${n > 1 ? ' It was one of a pair; the other date stands.' : ''}`,
@@ -4715,11 +4715,11 @@ const handle = async (request) => {
       const titleTxt = gw.subject;
       const dateLine = gw.html + (good.length > 1 && !theirs.length ? ` ${gw.together}, ${pounds(kept)}.` : '');
       const guestLine = theirs.length ? `${esc(fr.nm)} has a place too, and gets their own confirmation and reminder. ${pounds(kept)} for ${allGood.length} places.` : '';
-      const icsLinks = good.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">${
+      const icsLinks = good.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#237f95">${
         good.length > 1 ? 'Add ' + esc(gw.day(r.w)) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
       /* cancel or move, without signing in, up to the cutoff */
       const manage = [];
-      for (const r of good) manage.push(`<a href="${await wsManageLink(r.slug, e, obj.id, r.w.when)}" style="color:#006663">${good.length > 1 ? 'Change ' + esc(gw.day(r.w)) : 'Move or cancel your booking'}</a>`);
+      for (const r of good) manage.push(`<a href="${await wsManageLink(r.slug, e, obj.id, r.w.when)}" style="color:#237f95">${good.length > 1 ? 'Change ' + esc(gw.day(r.w)) : 'Move or cancel your booking'}</a>`);
       const sentOk = await email(e, `You are booked: ${titleTxt}`,
         mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
           paras: [dateLine, wsWhereHTML(first), guestLine,
@@ -4737,13 +4737,13 @@ const handle = async (request) => {
       if (theirs.length) {
         try { await ensureAcct(fr.e, fr.nm); } catch {}
         const glinks = [], tw = wsGroupWords(theirs.map(r => r.w), theirs[0].w.place);
-        for (const r of theirs) glinks.push(`<a href="${await wsManageLink(r.slug, fr.e, obj.id, r.w.when)}" style="color:#006663">${theirs.length > 1 ? 'Change ' + esc(tw.day(r.w)) : 'Move or cancel your booking'}</a>`);
+        for (const r of theirs) glinks.push(`<a href="${await wsManageLink(r.slug, fr.e, obj.id, r.w.when)}" style="color:#237f95">${theirs.length > 1 ? 'Change ' + esc(tw.day(r.w)) : 'Move or cancel your booking'}</a>`);
         await email(fr.e, `You are booked: ${tw.subject}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm || 'A friend')} has booked you ${theirs.length > 1 ? 'places' : 'a place'} on ${tw.html}`,
                   wsWhereHTML(theirs[0].w),
-                  `${esc(nm || 'Your friend')} accepted the <a href="${SITE}/waiver" style="color:#006663">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
+                  `${esc(nm || 'Your friend')} accepted the <a href="${SITE}/waiver" style="color:#237f95">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
                   theirs[0].w.desc ? esc(theirs[0].w.desc) : '',
-                  `A reminder comes the day before. ${theirs.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#006663">Add ${theirs.length > 1 ? esc(tw.day(r.w)) : 'it'} to your calendar</a>`).join(' ')}`,
+                  `A reminder comes the day before. ${theirs.filter(r => r.w.when).map(r => `<a href="${SITE}/api/app/workshop/ics?slug=${r.slug}" style="color:#237f95">Add ${theirs.length > 1 ? esc(tw.day(r.w)) : 'it'} to your calendar</a>`).join(' ')}`,
                   wsChangeHTML(glinks.join(' &middot; '), theirs.map(r => r.w), { payer: nm || '' })].filter(Boolean),
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
@@ -5768,8 +5768,8 @@ const handle = async (request) => {
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cookie } });
     const btn = (href, label, primary) => `<a href="${href}" style="display:flex;align-items:center;justify-content:center;margin-top:22px;
       min-height:52px;border-radius:14px;text-decoration:none;font:600 16px system-ui;${primary
-        ? 'background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1'
-        : 'background:#fff;color:#00403d;border:1px solid rgba(0,64,61,.18)'}">${label}</a>`;
+        ? 'background:linear-gradient(180deg,#2f93a9,#237f95);color:#f7f4f1'
+        : 'background:#fff;color:#1d5566;border:1px solid rgba(29,85,102,.18)'}">${label}</a>`;
     const [h, msg, more] = counted
       ? ['This browser is counted.', 'Visits from here go into the numbers like anyone else\'s.',
          btn('/api/app/device?count=0', 'Leave my visits out', true)]
@@ -5780,9 +5780,9 @@ const handle = async (request) => {
 <title>Your visits · London Handstand Academy</title></head>
 <body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;
   background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
-<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;
-  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
-<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(29,85,102,.10);border-radius:24px;padding:28px 24px;
+  box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#237f95">London Handstand Academy</div>
 <h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1>
 <p style="margin:0;color:#5a5a5a">${msg}</p>${more}</main></body></html>`,
       { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', ...cookie } });
@@ -5814,16 +5814,16 @@ const handle = async (request) => {
     const t = enc(String(url.searchParams.get('t') || ''));
     const btn = (label, undo) => `<form method="post" action="/api/app/unsub?t=${t}${undo ? '&amp;undo=1' : ''}">
       <button style="margin-top:22px;width:100%;min-height:52px;border:0;border-radius:14px;cursor:pointer;font:600 16px system-ui;
-      background:${undo ? '#fff' : 'linear-gradient(180deg,#0a7a76,#006663)'};color:${undo ? '#00403d' : '#f7f4f1'};
-      ${undo ? 'border:1px solid rgba(0,64,61,.18)' : ''}">${label}</button></form>`;
+      background:${undo ? '#fff' : 'linear-gradient(180deg,#2f93a9,#237f95)'};color:${undo ? '#1d5566' : '#f7f4f1'};
+      ${undo ? 'border:1px solid rgba(29,85,102,.18)' : ''}">${label}</button></form>`;
     const page = (h, msg, more, st) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Email preferences · London Handstand Academy</title></head>
 <body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;
   background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
-<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;
-  box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
-<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(29,85,102,.10);border-radius:24px;padding:28px 24px;
+  box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#237f95">London Handstand Academy</div>
 <h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1>
 <p style="margin:0;color:#5a5a5a">${msg}</p>${more || ''}</main></body></html>`,
       { status: st || 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
@@ -7703,10 +7703,10 @@ const handle = async (request) => {
     }
     return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>London Handstand Academy</title>
 <body style="margin:0;background:#f4f4f5;font:16px/1.6 system-ui,sans-serif;color:#111;display:grid;place-items:center;min-height:100vh;padding:24px">
-<div style="max-width:420px;background:#fff;border-radius:20px;padding:28px 24px;border:1px solid rgba(0,64,61,.12)">
+<div style="max-width:420px;background:#fff;border-radius:20px;padding:28px 24px;border:1px solid rgba(29,85,102,.12)">
 <h1 style="font:400 28px/1.15 Georgia,serif;margin:0 0 10px">${done ? 'You are off the list.' : 'That link has not worked.'}</h1>
 <p style="margin:0;color:#5a5a5a">${done ? 'No more emails about new class dates. You can sign up again on the class page any time.' : 'Email info@londonhandstandacademy.com and I will take you off by hand.'}</p>
-<p style="margin:18px 0 0"><a href="${SITE}/handstand-class" style="color:#006663">The class page</a></p></div></body>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+<p style="margin:18px 0 0"><a href="${SITE}/handstand-class" style="color:#237f95">The class page</a></p></div></body>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
   /* for the dashboard: how many are waiting for each kind of class */
   if (path === '/coach/class-alerts') {
@@ -7771,17 +7771,17 @@ const handle = async (request) => {
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>The newsletter · London Handstand Academy</title></head>
 <body style="margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
-<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(0,64,61,.10);border-radius:24px;padding:28px 24px;box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
-<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#006663">London Handstand Academy</div>
+<main style="width:100%;max-width:440px;background:#fff;border:1px solid rgba(29,85,102,.10);border-radius:24px;padding:28px 24px;box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)">
+<div style="font:600 11px/1 system-ui;letter-spacing:.14em;text-transform:uppercase;color:#237f95">London Handstand Academy</div>
 <h1 style="font:400 32px/1.1 Georgia,serif;margin:12px 0 10px">${h}</h1><p style="margin:0;color:#5a5a5a">${msg}</p>${more || ''}</main></body></html>`,
       { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
-    if (!e) return page('That link has run out', 'Sign up again on <a href="https://londonhandstandacademy.com" style="color:#006663">the website</a> and a new one comes.');
+    if (!e) return page('That link has run out', 'Sign up again on <a href="https://londonhandstandacademy.com" style="color:#237f95">the website</a> and a new one comes.');
     if (request.method === 'POST') {
       await newsSet(e, true);
       return page('You are back on', `Class dates and the odd training note will come to ${esc(e)} again.`);
     }
     return page('Back on the list?', `Class dates and the odd training note, to <b>${esc(e)}</b>. No more than twice a month.`,
-      `<form method="post" action="/api/app/news/back?t=${enc(String(url.searchParams.get('t') || ''))}"><button style="margin-top:22px;width:100%;min-height:52px;border:0;border-radius:14px;cursor:pointer;font:600 16px system-ui;background:linear-gradient(180deg,#0a7a76,#006663);color:#f7f4f1">Yes, add me back</button></form>`);
+      `<form method="post" action="/api/app/news/back?t=${enc(String(url.searchParams.get('t') || ''))}"><button style="margin-top:22px;width:100%;min-height:52px;border:0;border-radius:14px;cursor:pointer;font:600 16px system-ui;background:linear-gradient(180deg,#2f93a9,#237f95);color:#f7f4f1">Yes, add me back</button></form>`);
   }
   /* ── the newsletter in the dashboard ───────────────────────────────
      Reading the list and removing somebody is any coach's. Importing,
@@ -7947,8 +7947,8 @@ const handle = async (request) => {
     for (const { slug, w, b } of found) {
       const early = !w.when || ms(w.when) - Date.now() > WS_CUTOFF_H * 3600e3;
       const link = early && b.session ? await wsManageLink(slug, e, b.session, w.when) : '';
-      paras.push(`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : ''}`);
-      paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel this booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b)
+      paras.push(`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#237f95">Add it to your calendar</a>.` : ''}`);
+      paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel this booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b)
                       : `The class has started, so it can no longer be changed online. Reply to this email.`);
     }
     paras.push(wsWhereHTML(found[0].w));
@@ -8139,10 +8139,10 @@ const handle = async (request) => {
         for (const [tSlug] of targets) await changeSetting(`wsmine:${fr.e}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(tSlug)) return undefined; l.push(tSlug); return l; }).catch(() => {});
         try { await ensureAcct(fr.e, fr.nm); } catch {}
         const links = [];
-        for (const [tSlug, tw] of targets) links.push(`<a href="${await wsManageLink(tSlug, fr.e, sid, tw.when)}" style="color:#006663">${targets.length > 1 ? 'Change ' + esc(gwF.day(tw)) : 'Move or cancel your booking'}</a>`);
+        for (const [tSlug, tw] of targets) links.push(`<a href="${await wsManageLink(tSlug, fr.e, sid, tw.when)}" style="color:#237f95">${targets.length > 1 ? 'Change ' + esc(gwF.day(tw)) : 'Move or cancel your booking'}</a>`);
         await email(fr.e, `You are booked: ${gwF.subject}`, mail({ title: 'You are booked.', greeting: fr.nm.split(' ')[0] || '',
           paras: [`${esc(nm)} has booked you ${targets.length > 1 ? 'places' : 'a place'} on ${gwF.html}`,
-                  wsWhereHTML(w), `${esc(nm)} accepted the <a href="${SITE}/waiver" style="color:#006663">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
+                  wsWhereHTML(w), `${esc(nm)} accepted the <a href="${SITE}/waiver" style="color:#237f95">participation waiver</a> for you when booking. Have a read before the day, and reply if anything in it applies to you.`,
                   'A reminder comes the day before.', wsChangeHTML(links.join(' &middot; '), targets.map(t => t[1]), false)],
           cta: { href: `${SITE}/handstand-class`, label: 'About the class' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       }
@@ -8160,14 +8160,14 @@ const handle = async (request) => {
       const noPw = !(await hashFor(db, e));
       const link = noPw ? await welcomeLink(e) : '';
       const soon = targets.some(t => t[1].when && ms(t[1].when) - Date.now() < 36 * 3600e3);
-      const icsF = targets.filter(t => t[1].when).map(t => `<a href="${SITE}/api/app/workshop/ics?slug=${t[0]}" style="color:#006663">${
+      const icsF = targets.filter(t => t[1].when).map(t => `<a href="${SITE}/api/app/workshop/ics?slug=${t[0]}" style="color:#237f95">${
         targets.length > 1 ? 'Add ' + esc(gwF.day(t[1])) + ' to your calendar' : 'Add it to your calendar'}</a>`).join(' ');
       await email(e, `You are booked: ${gwF.subject}`, mail({ title: 'You are booked.', greeting: nm.split(' ')[0] || '',
         paras: [gwF.html,
                 wsWhereHTML(w),
                 `${soon ? '' : 'A reminder comes the day before. '}${icsF ? icsF + '.' : ''}`,
                 fr ? `${esc(fr.nm)} has a place too, and gets their own confirmation and reminder.` : '',
-                wsChangeHTML((await Promise.all(targets.map(async ([tSlug, tw]) => `<a href="${await wsManageLink(tSlug, e, sid, tw.when)}" style="color:#006663">${targets.length > 1
+                wsChangeHTML((await Promise.all(targets.map(async ([tSlug, tw]) => `<a href="${await wsManageLink(tSlug, e, sid, tw.when)}" style="color:#237f95">${targets.length > 1
                   ? 'Change ' + esc(gwF.day(tw)) : 'Move or cancel your booking'}</a>`))).join(' &middot; '), targets.map(t => t[1]), false),
                 noPw ? `<b>Free with your booking:</b> an account in the Handstand Ladder app, with the first stage, your bookings in one place and a free form check. It is under ${esc(e)}: create your account with the button below.` : ''].filter(Boolean),
         cta: noPw ? { href: link, label: 'Create your account' } : { href: `${SITE}/lha-app.html`, label: 'Open the app' },
@@ -8313,8 +8313,8 @@ const handle = async (request) => {
       const went = await email(e, `Your place: ${w.title}`, mail({ title: 'Your place, again.', greeting: String(b.name || '').split(' ')[0],
         paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
           wsWhereHTML(w),
-          w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#006663">Add it to your calendar</a>.` : '',
-          early ? wsChangeHTML(`<a href="${link}" style="color:#006663">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
+          w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#237f95">Add it to your calendar</a>.` : '',
+          early ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
@@ -8377,7 +8377,7 @@ const handle = async (request) => {
     }
     const nextLine = nextW ? (() => { const np = Number(nextW.price) || 0, nb = wsPageHref(nextW, 'offer');
       const nh = nb.includes('?') ? nb.replace('?', `?date=${enc(nextW.slug)}&`) : nb.replace('#', `?date=${enc(nextW.slug)}#`);
-      return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#006663;font-weight:600">Book that date instead</a>.`; })() : '';
+      return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#237f95;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
         `${wsLeftShown(w.places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
@@ -9513,7 +9513,7 @@ ${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why
       return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Your session</title><body style="margin:0;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
 <div style="max-width:440px;margin:9vh auto 40px;padding:0 22px">
-<div style="font:700 11px/1 system-ui;letter-spacing:.16em;color:#006663">LONDON HANDSTAND ACADEMY</div>
+<div style="font:700 11px/1 system-ui;letter-spacing:.16em;color:#237f95">LONDON HANDSTAND ACADEMY</div>
 <h1 style="font:400 30px/1.15 Georgia,serif;margin:14px 0 14px">That session was cancelled.</h1>
 <p style="margin:0">It was cancelled before your payment went through, so the payment is being refunded in full. Reply to the email or message in the app and we will find another time.</p>
 </div></body>`, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
@@ -9526,17 +9526,17 @@ ${why ? `<p style="margin:0;color:#686868;font-size:13px">Stripe said: ${esc(why
        forwarded to could open it. A set-password link is only handed out
        on the return from paying; otherwise it is the app's own sign in. */
     const app = (!paid || (await hashFor(db, row.email))) ? `${SITE}/lha-app.html` : await welcomeLink(row.email);
-    const btn = (href, label, solid) => `<a href="${esc(href)}" style="display:block;text-align:center;margin-top:12px;padding:15px 18px;border-radius:14px;text-decoration:none;font:600 15px/1 system-ui,sans-serif;${solid ? 'background:#006663;color:#fff' : 'color:#006663;box-shadow:inset 0 0 0 1.5px rgba(0,102,99,.35)'}">${label}</a>`;
+    const btn = (href, label, solid) => `<a href="${esc(href)}" style="display:block;text-align:center;margin-top:12px;padding:15px 18px;border-radius:14px;text-decoration:none;font:600 15px/1 system-ui,sans-serif;${solid ? 'background:#237f95;color:#fff' : 'color:#237f95;box-shadow:inset 0 0 0 1.5px rgba(35,127,149,.35)'}">${label}</a>`;
     const head = paid ? 'Paid. Your session is confirmed.' : owed ? 'Your session is booked, not paid yet.' : 'Your session is confirmed.';
     const body0 = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Your session</title><body style="margin:0;background:#f4f4f5;font:16px/1.55 system-ui,sans-serif;color:#111">
 <div style="max-width:440px;margin:9vh auto 40px;padding:0 22px">
-<div style="font:700 11px/1 system-ui;letter-spacing:.16em;color:#006663">LONDON HANDSTAND ACADEMY</div>
+<div style="font:700 11px/1 system-ui;letter-spacing:.16em;color:#237f95">LONDON HANDSTAND ACADEMY</div>
 <h1 style="font:400 30px/1.15 Georgia,serif;margin:14px 0 14px">${head}</h1>
-<div style="background:#fff;border-radius:18px;padding:16px 18px;border:1px solid rgba(0,64,61,.12)">
+<div style="background:#fff;border-radius:18px;padding:16px 18px;border:1px solid rgba(29,85,102,.12)">
 <div style="font:600 16px/1.35 system-ui">${whenTxt ? esc(whenTxt) : 'Time to be agreed'}</div>
 <div style="color:#5a5a5a;font-size:14px;margin-top:3px">${esc(String(row.kind))} minutes${row.place ? ', ' + esc(row.place) : ''}</div>
-${!owed && row.when ? `<div style="margin-top:10px;font:600 14px/1.4 system-ui"><a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#006663">Add to calendar</a> &nbsp;&middot;&nbsp; <a href="${sessGcal(row)}" style="color:#006663">Google Calendar</a></div>` : ''}
+${!owed && row.when ? `<div style="margin-top:10px;font:600 14px/1.4 system-ui"><a href="${SITE}/api/app/session.ics?id=${enc(row.id)}" style="color:#237f95">Add to calendar</a> &nbsp;&middot;&nbsp; <a href="${sessGcal(row)}" style="color:#237f95">Google Calendar</a></div>` : ''}
 </div>
 ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`${SITE}/api/app/session/pay?id=${enc(row.id)}`, 'Pay ' + sessAmt(row.ask), true)}`
        : `<p style="margin:14px 0 0">${paid ? (mailed ? 'The confirmation is on its way by email. ' : 'The confirmation is in your messages in the app. ') : ''}It is in the app too, with the time and the calendar.</p>${btn(app, 'Open the app', true)}`}

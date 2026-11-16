@@ -632,12 +632,12 @@ export function blocksToParas(blocks) {
     if (!b) return '';
     if (b.t === 'h') return `<b style="font-size:19px;line-height:1.3">${escH(b.text)}</b>`;
     if (b.t === 'p') return escH(b.text).replace(/\n/g, '<br>');
-    if (b.t === 'quote') return `<span style="display:block;border-left:3px solid #006663;padding-left:14px;font-size:18px;line-height:1.4;color:#00403d">${escH(b.text)}</span>`;
+    if (b.t === 'quote') return `<span style="display:block;border-left:3px solid #237f95;padding-left:14px;font-size:18px;line-height:1.4;color:#1d5566">${escH(b.text)}</span>`;
     if (b.t === 'img' && b.id) return `<img src="${SITE}/api/app/image/${escH(b.id)}" alt="${escH(b.cap || '')}" style="width:100%;border-radius:14px;display:block">${b.cap ? `<span style="display:block;font-size:13px;color:#5c6660;margin-top:6px">${escH(b.cap)}</span>` : ''}`;
     if (b.t === 'vid' && (b.uid || b.url)) {
       const href = b.uid ? `${STREAM}${escH(b.uid)}/watch` : escH(b.url);
       const still = b.uid ? `${STREAM}${escH(b.uid)}/thumbnails/thumbnail.jpg?time=3s&height=480` : '';
-      return `<a href="${href}" style="display:block;text-decoration:none">${still ? `<img src="${still}" alt="" style="width:100%;border-radius:14px;display:block">` : ''}<span style="display:block;font-size:14px;color:#006663;margin-top:6px">&#9654; ${escH(b.cap || 'Watch the film')}</span></a>`;
+      return `<a href="${href}" style="display:block;text-decoration:none">${still ? `<img src="${still}" alt="" style="width:100%;border-radius:14px;display:block">` : ''}<span style="display:block;font-size:14px;color:#237f95;margin-top:6px">&#9654; ${escH(b.cap || 'Watch the film')}</span></a>`;
     }
     if (b.t === 'drill' && b.v) {
       const uid = /\/([a-f0-9]{32})\//.exec(String(b.url || '')); const still = uid ? `${STREAM}${uid[1]}/thumbnails/thumbnail.jpg?time=3s&height=480` : '';
@@ -681,7 +681,7 @@ export function renderEmail(key, vars, over) {
 const M_SERIF = "Newsreader,Georgia,'Times New Roman',serif";
 const M_SANS = "Figtree,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 /* the app's tokens; hairlines as solid colours, since Outlook has no rgba */
-const MC = { ink: '#111111', grey: '#5a5a5a', grey2: '#686868', teal: '#006663', deep: '#00403d',
+const MC = { ink: '#111111', grey: '#5a5a5a', grey2: '#686868', teal: '#237f95', deep: '#1d5566',
   line: '#e6ecec', ctl: '#cfdcdb', ground: '#f4f4f5', on: '#f7f4f1', amber: '#f3a949' };
 const mf = (fam, size, lh, w) => `font-family:${fam};font-size:${size}px;line-height:${lh}px;font-weight:${w}`;
 /* the headline pattern: the last word in teal */
@@ -714,7 +714,7 @@ ${d.photo ? `<tr><td style="padding:0;line-height:0;font-size:0"><img src="${esc
 ${d.kicker ? mKick(escH(d.kicker)) : ''}
 <h1 class="h1 s" style="margin:0;${mf(M_SERIF, 42, 44, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(escH(d.title || ''))}</h1>
 ${first ? mPara(`Hi ${first},`, 18) : ''}${paras.map((p, i) => mPara(p, i || first ? 12 : 18)).join('')}
-${d.heroInner || ''}${d.heroAfter ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 2px"><tr><td bgcolor="#e6f2f0" style="background:#e6f2f0;border:1px solid rgba(0,102,99,.25);border-radius:16px;padding:16px 18px;${mf(M_SANS, 16, 24, 400)};color:${MC.ink}">${d.heroAfter}</td></tr></table>` : ''}
+${d.heroInner || ''}${d.heroAfter ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 2px"><tr><td bgcolor="#e6f2f0" style="background:#e6f2f0;border:1px solid rgba(35,127,149,.25);border-radius:16px;padding:16px 18px;${mf(M_SANS, 16, 24, 400)};color:${MC.ink}">${d.heroAfter}</td></tr></table>` : ''}
 ${d.cta && d.cta.href ? mBtn(d.cta.href, escH(d.cta.label || 'Book'), true) : ''}
 </td></tr></table></td></tr>`;
 };
@@ -750,9 +750,9 @@ a{color:${MC.teal}}
 @media (max-width:520px){.wrap{padding:14px 10px 0!important}.px{padding-left:20px!important;padding-right:20px!important}.h1{font-size:36px!important;line-height:38px!important}}
 </style>
 <style>
-.ground{background-image:radial-gradient(circle at 15% 8%,rgba(0,102,99,.07),transparent 40%),radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%)}
-.btnp{background-image:linear-gradient(180deg,#0a7a76,#006663)}
-.card{box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)}
+.ground{background-image:radial-gradient(circle at 15% 8%,rgba(35,127,149,.07),transparent 40%),radial-gradient(circle at 90% 30%,rgba(143,190,202,.12),transparent 45%),radial-gradient(circle at 30% 80%,rgba(243,169,73,.05),transparent 40%)}
+.btnp{background-image:linear-gradient(180deg,#2f93a9,#237f95)}
+.card{box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
 </style></head>
 <body style="margin:0;padding:0;background:${MC.ground}">
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">${escH(d.preheader || d.title || '')}&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
@@ -912,13 +912,13 @@ export function twoTone(head, hi) {
 const kick = (t, c) => t ? `<div style="font:600 11px/1.3 ${FS};letter-spacing:.16em;text-transform:uppercase;color:${c}">${escH(t)}</div>` : '';
 function pill(b, dark, top = 24) {
   if (!b || !b.href) return '';
-  const bg = dark ? 'background:#ffffff' : 'background:linear-gradient(180deg,#0a7a76,#006663);background-color:#006663';
+  const bg = dark ? 'background:#ffffff' : 'background:linear-gradient(180deg,#2f93a9,#237f95);background-color:#237f95';
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:${top}px"><tr>
     <td style="${bg};border-radius:999px;padding:12px 12px 12px 26px"><a href="${escH(b.href)}" style="text-decoration:none;display:block">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td style="padding-right:18px"><div style="font:600 17px/1.2 ${FS};color:${dark ? '#00403d' : '#ffffff'}">${escH(b.label)}</div>
+        <td style="padding-right:18px"><div style="font:600 17px/1.2 ${FS};color:${dark ? '#1d5566' : '#ffffff'}">${escH(b.label)}</div>
           ${b.sub ? `<div style="font:600 10.5px/1.4 ${FS};letter-spacing:.12em;text-transform:uppercase;color:${dark ? '#5a5a5a' : '#cfe6ec'};margin-top:3px">${escH(b.sub)}</div>` : ''}</td>
-        <td><div style="width:40px;height:40px;border-radius:50%;background:${dark ? '#006663' : '#ffffff'};color:${dark ? '#ffffff' : '#006663'};font:600 18px/40px Helvetica,Arial,sans-serif;text-align:center">&rarr;</div></td>
+        <td><div style="width:40px;height:40px;border-radius:50%;background:${dark ? '#237f95' : '#ffffff'};color:${dark ? '#ffffff' : '#237f95'};font:600 18px/40px Helvetica,Arial,sans-serif;text-align:center">&rarr;</div></td>
       </tr></table></a></td></tr></table>`;
 }
 const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
@@ -928,16 +928,16 @@ const blockHTML = {
      photo, the headline in ink with its last word in teal, the teal button */
   hero: b => b.light ? `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#ffffff">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
     <tr><td class="pad" style="background:#ffffff;border:1px solid #e3e8e8;border-top:0;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:22px 30px 26px">
-      ${kick(b.kicker, '#006663')}
+      ${kick(b.kicker, '#237f95')}
       ${(() => { const hd = `<div class="h1" style="font:400 ${b.side ? 40 : 34}px/1.05 ${FD};letter-spacing:-.015em;color:#111111;margin-top:10px">${(() => {
           /* side (the newsletter): two sentences on two lines, the second in teal, as the site's headlines */
-          if (b.side) { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#006663">${escH(t.b)}</span>`; }
+          if (b.side) { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#237f95">${escH(t.b)}</span>`; }
           const h = String(b.head || ''), k = h.trim().lastIndexOf(' ');
-          return k > 0 ? escH(h.slice(0, k)) + ' <span style="color:#006663">' + escH(h.slice(k + 1)) + '</span>' : escH(h); })()}</div>`;
+          return k > 0 ? escH(h.slice(0, k)) + ' <span style="color:#237f95">' + escH(h.slice(k + 1)) + '</span>' : escH(h); })()}</div>`;
         return b.side && b.btn && b.btn.href ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td class="col" style="vertical-align:bottom">${hd}</td>
-          <td class="col sidebtn" align="right" style="vertical-align:bottom;padding-left:16px">${pill(b.btn, false, 0)}</td></tr></table>` : hd + pill(b.btn, false); })()}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#00403d">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
-    <tr><td class="pad" style="background:#00403d;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
+          <td class="col sidebtn" align="right" style="vertical-align:bottom;padding-left:16px">${pill(b.btn, false, 0)}</td></tr></table>` : hd + pill(b.btn, false); })()}</td></tr>` : `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#1d5566">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
+    <tr><td class="pad" style="background:#1d5566;border-radius:${b.img ? '0 0 24px 24px' : '24px'};padding:${b.compact ? '18px 30px 22px' : '28px 36px 34px'}">
       ${kick(b.kicker, '#8fbeca')}
       ${(() => { const h = `<div class="h1" style="font:400 ${b.compact ? 32 : 40}px/1.05 ${FD};letter-spacing:-.015em;color:#8fbeca;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>`;
         /* side: the button beside the headline, under it on a phone (Elliott, 2 Nov 2026) */
@@ -945,14 +945,14 @@ const blockHTML = {
           <td class="col" style="vertical-align:bottom">${h}</td>
           <td class="col sidebtn" align="right" style="vertical-align:bottom;padding-left:16px">${pill(b.btn, true, 0)}</td></tr></table>` : h + pill(b.btn, true); })()}</td></tr>`,
   card: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:34px 36px 20px">
-      ${kick(b.kicker, '#006663')}
+      ${kick(b.kicker, '#237f95')}
       ${b.head || b.hi ? `<div class="h2" style="font:400 32px/1.1 ${FD};letter-spacing:-.012em;color:${b.appTone ? '#111111' : '#8a8d8c'};margin:${b.kicker ? 10 : 0}px 0 0">${(() => { const t = twoTone(b.head, b.hi);
         /* appTone: the app's headline, ink with the last words in teal, on one line */
-        return b.appTone ? (t.a ? escH(t.a) + ' ' : '') + `<span style="color:#006663">${escH(t.b)}</span>` : (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#111111">${escH(t.b)}</span>`; })()}</div>` : ''}
+        return b.appTone ? (t.a ? escH(t.a) + ' ' : '') + `<span style="color:#237f95">${escH(t.b)}</span>` : (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#111111">${escH(t.b)}</span>`; })()}</div>` : ''}
       ${b.points && b.points.length ? `${b.head || b.hi || b.kicker ? '<div style="height:1px;background:#e3e8e8;margin:24px 0 20px"></div>' : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${
         b.points.reduce((rows, p, i) => { if (i % 2 === 0) rows.push([]); rows[rows.length - 1].push(p); return rows; }, []).map(row => `<tr>${row.map((p, j) =>
           `<td class="col" width="50%" style="padding:0 ${j ? 0 : 10}px 16px ${j ? 10 : 0}px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
-            <td style="width:44px;height:44px;border-radius:12px;background:${b.soft ? '#cfe6ec' : '#00403d'};color:${b.soft ? '#00403d' : '#ffffff'};font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
+            <td style="width:44px;height:44px;border-radius:12px;background:${b.soft ? '#cfe6ec' : '#1d5566'};color:${b.soft ? '#1d5566' : '#ffffff'};font:600 16px/44px Helvetica,Arial,sans-serif;text-align:center">${p[0]}</td>
             <td style="padding-left:14px;font:600 15px/1.35 ${FS};color:#111111">${p[1]}</td></tr></table></td>`).join('')}${row.length < 2 ? '<td class="col" width="50%"></td>' : ''}</tr>`).join('')
       }</table>${(b.greeting || (b.paras || []).length || (b.steps || []).length || b.closer || b.btn) ? '<div style="height:1px;background:#e3e8e8;margin:4px 0 22px"></div>' : ''}` : (b.head || b.hi ? '<div style="height:22px"></div>' : '')}
       ${b.greeting ? P(`Hi ${escH(b.greeting)},`) : ''}
@@ -968,12 +968,12 @@ const blockHTML = {
       ${pill(b.btn, false)}${b.btn ? '<div style="height:14px"></div>' : ''}</td></tr>`,
   /* light: the class card on white, as the site's class cards (Elliott, 3 Nov 2026) */
   dark: b => b.light ? `<tr><td class="pad" style="background:#ffffff;border:1px solid #e3e8e8;border-radius:24px;padding:30px 36px">
-      ${kick(b.kicker, '#006663')}
-      <div class="h2" style="font:400 32px/1.08 ${FD};letter-spacing:-.012em;color:#111111;margin-top:10px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#006663">${escH(t.b)}</span>`; })()}</div>
+      ${kick(b.kicker, '#237f95')}
+      <div class="h2" style="font:400 32px/1.08 ${FD};letter-spacing:-.012em;color:#111111;margin-top:10px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#237f95">${escH(t.b)}</span>`; })()}</div>
       ${b.card ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;background:#eef5f6;border-radius:16px"><tr><td style="padding:16px 20px">
         ${kick(b.card.kicker, '#9a5a0e')}<div style="font:400 22px/1.2 ${FD};color:#111111;margin-top:8px">${escH(b.card.title)}</div>
         ${b.card.line ? `<div style="font:400 14px/1.5 ${FS};color:#5a5a5a;margin-top:2px">${escH(b.card.line)}</div>` : ''}</td></tr></table>` : ''}
-      ${pill(b.btn, false)}</td></tr>` : `<tr><td class="pad" style="background:#0f1a19;border-radius:24px;padding:34px 36px">
+      ${pill(b.btn, false)}</td></tr>` : `<tr><td class="pad" style="background:#0f191d;border-radius:24px;padding:34px 36px">
       ${kick(b.kicker, '#8fbeca')}
       <div class="h2" style="font:400 34px/1.08 ${FD};letter-spacing:-.012em;color:#7f8c8a;margin-top:12px">${(() => { const t = twoTone(b.head, b.hi); return (t.a ? escH(t.a) + '<br>' : '') + `<span style="color:#ffffff">${escH(t.b)}</span>`; })()}</div>
       ${(b.paras || []).map(t => `<p style="margin:16px 0 0;font:400 17px/1.65 ${FS};color:#c9d2d1">${t}</p>`).join('')}
@@ -982,7 +982,7 @@ const blockHTML = {
         ${b.card.line ? `<div style="font:400 14px/1.5 ${FS};color:#c9d2d1;margin-top:2px">${escH(b.card.line)}</div>` : ''}</td></tr></table>` : ''}
       ${pill(b.btn, false)}</td></tr>`,
   quote: b => `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:30px 36px">
-      <div style="font:400 15px/1 Helvetica,Arial,sans-serif;letter-spacing:3px;color:#006663">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <div style="font:400 15px/1 Helvetica,Arial,sans-serif;letter-spacing:3px;color:#237f95">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
       <div style="font:400 24px/1.3 ${FD};color:#111111;margin-top:12px">&ldquo;${escH(b.text)}&rdquo;</div>
       <div style="font:400 14px/1.4 ${FS};color:#5a5a5a;margin-top:12px">${escH(b.by || '')}</div></td></tr>`,
 };
@@ -996,14 +996,14 @@ export function richEmail({ title, preheader, blocks = [], sign = 'See you soon,
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
 <title>${escH(title || '')}</title>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
-<style>body{margin:0;padding:0;background:#f4f4f5}a{color:#006663}
+<style>body{margin:0;padding:0;background:#f4f4f5}a{color:#237f95}
 @media (max-width:620px){.wrap{width:100%!important}.pad{padding-left:22px!important;padding-right:22px!important}.h1{font-size:34px!important}.h2{font-size:27px!important}
 .col{display:block!important;width:100%!important;padding:0 0 14px!important}.sidebtn{padding:20px 0 0!important;text-align:left!important}.stepph{width:100%!important}.steptxt{padding:12px 0 26px!important}}</style></head>
 <body style="margin:0;padding:0;background:#f4f4f5">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${escH(preheader || '')}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5"><tr><td align="center" style="padding:24px 12px 40px">
 <table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px">
-  <tr><td class="pad" style="padding:0 6px 16px;font:600 11px/1 ${FS};letter-spacing:.16em;text-transform:uppercase;color:#006663">London Handstand Academy</td></tr>
+  <tr><td class="pad" style="padding:0 6px 16px;font:600 11px/1 ${FS};letter-spacing:.16em;text-transform:uppercase;color:#237f95">London Handstand Academy</td></tr>
   ${body}
   <tr><td class="pad" style="padding:26px 10px 0;text-align:center;font:400 12.5px/1.7 ${FS};color:#8a8d80">
     ${sign ? escH(sign) + '<br>' : ''}${why ? escH(why) + '<br>' : ''}
@@ -1076,7 +1076,7 @@ export function interestEmail(T, x, site) {
   return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
     blocks: [
       { t: 'card', head: T.title, appTone: true, greeting: x.first, paras: T.paras, btn: call },
-      { t: 'card', kicker: 'Already know?', paras: [`<a href="${escH(x.start || `${S}/?src=interest#plans`)}" style="color:#006663;font-weight:600">Start now on the coaching plans</a>`] },
+      { t: 'card', kicker: 'Already know?', paras: [`<a href="${escH(x.start || `${S}/?src=interest#plans`)}" style="color:#237f95;font-weight:600">Start now on the coaching plans</a>`] },
     ], sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
 
@@ -1144,15 +1144,15 @@ export function classAlertEmail(x, site) {
         paras: [one ? `You asked to hear when new dates went up, so you are hearing first. ${escH(one.when)}${one.place ? ', at ' + escH(one.place) : ''}.${one.cap ? ' There are ' + one.cap + ' places, and they go to whoever books first.' : ''}`
           : `You asked to hear when new dates went up, so you are hearing first. They are marked new below, and places go to whoever books first.`] },
       ...(all.length > 1 || n > 1 ? [{ t: 'card', kicker: 'Every date on sale', paras: [all.map(c => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e3e8e8"><tr>
-          <td style="padding:12px 0;vertical-align:top"><div style="font:600 16px/1.3 ${FS};color:#111111">${escH(c.title)}${c.isNew ? ' <span style="font:600 10.5px/1 ' + FS + ';letter-spacing:.12em;color:#006663">NEW</span>' : ''}</div>
+          <td style="padding:12px 0;vertical-align:top"><div style="font:600 16px/1.3 ${FS};color:#111111">${escH(c.title)}${c.isNew ? ' <span style="font:600 10.5px/1 ' + FS + ';letter-spacing:.12em;color:#237f95">NEW</span>' : ''}</div>
             <div style="font:400 14.5px/1.45 ${FS};color:#5a5a5a;margin-top:2px">${escH(c.when)}${c.room ? ' · ' + escH(c.room) : ''}</div></td>
-          <td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right;white-space:nowrap"><div style="font:600 16px/1.3 ${FS};color:#00403d">${escH(c.price || '')}</div>
-            <a href="${escH(c.href)}" style="font:600 13.5px/1.6 ${FS};color:#006663">${c.full ? 'Waiting list' : 'Book'}</a>${c.left && !c.full ? `<div style="font:400 12px/1.3 ${FS};color:${c.left <= 3 ? '#a4503c' : '#686868'}">${c.left} left</div>` : ''}</td></tr></table>`).join('')] }] : []),
+          <td style="padding:12px 0 12px 12px;vertical-align:top;text-align:right;white-space:nowrap"><div style="font:600 16px/1.3 ${FS};color:#1d5566">${escH(c.price || '')}</div>
+            <a href="${escH(c.href)}" style="font:600 13.5px/1.6 ${FS};color:#237f95">${c.full ? 'Waiting list' : 'Book'}</a>${c.left && !c.full ? `<div style="font:400 12px/1.3 ${FS};color:${c.left <= 3 ? '#a4503c' : '#686868'}">${c.left} left</div>` : ''}</td></tr></table>`).join('')] }] : []),
       { t: 'card', kicker: 'Where', head: '', hi: 'OverGravity, Shadwell', appTone: true,
-        paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Open in Google Maps</a>.',
+        paras: ['Arches 160 to 163, Sutton Street, London E1 0DB. <a href="https://www.google.com/maps/search/?api=1&amp;query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#237f95">Open in Google Maps</a>.',
           'Calisthenics is in <b>Arch 2</b>, with the bars and rings. Handstands are in <b>Arch 1</b>, the purple room, unless the date says Arch 2. There are changing rooms, and a caf&eacute; to wait in.', 'Nearest stations: Shadwell (Overground and DLR) and Wapping.'] },
       ...(news.some(two) ? [{ t: 'quote', text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' }] : []),
-      { t: 'card', paras: [`Can't make ${one ? 'this one' : 'these'} either? Book a <a href="${S}/session?src=alert" style="color:#006663">1-2-1 on a day that suits you</a>, or start the <a href="${S}/lha-app.html?ref=alert" style="color:#006663">free app</a> between classes.`,
+      { t: 'card', paras: [`Can't make ${one ? 'this one' : 'these'} either? Book a <a href="${S}/session?src=alert" style="color:#237f95">1-2-1 on a day that suits you</a>, or start the <a href="${S}/lha-app.html?ref=alert" style="color:#237f95">free app</a> between classes.`,
           `<span style="font-size:13px;color:#8a8d80">No longer interested? <a href="${escH(x.off)}" style="color:#8a8d80">Stop these emails</a>.</span>`] },
     ], sign: 'Elliott, London Handstand Academy', why: 'You asked for new class dates on the class page.' });
 }

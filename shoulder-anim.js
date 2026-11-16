@@ -13,7 +13,7 @@
   const ease=k=>{ k=clamp(k); return k<.5 ? 4*k*k*k : 1-Math.pow(-2*k+2,3)/2; };
   /* one movement in a loop of P seconds: rest, go, hold, come back */
   const cyc=(t,P=5.6,go=1.6,hold=1.6)=>{ const p=t%P; return clamp(ease((p-.5)/go) - ease((p-.5-go-hold)/(go*.9))); };
-  const C={teal:'#006663', deep:'#00403d', amber:'#f3a949', red:'#a4503c', line:'rgba(0,64,61,.16)'};
+  const C={teal:'#237f95', deep:'#1d5566', amber:'#f3a949', red:'#a4503c', line:'rgba(29,85,102,.16)'};
 
   /* ── 2D: the back from behind (the film's rig) ───────────────── */
   const P0=[115,-140];
@@ -34,27 +34,27 @@
     else { X.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<n-1;i++){ const m=mid(pts[i],pts[i+1]); X.quadraticCurveTo(pts[i][0],pts[i][1],m[0],m[1]); }
       X.lineTo(pts[n-1][0],pts[n-1][1]); } }
   const LATS=ps=>[[10,-60],[10,250],[90,292],[200,240],[236,90],[236,-20],Hp([-6,78],ps),Hp([-18,58],ps),[200,-50],S([112,-26],ps),[60,-44]];
-  function ribs(){ X.save(); X.strokeStyle='rgba(0,64,61,.13)'; X.lineWidth=7; X.lineCap='round';
+  function ribs(){ X.save(); X.strokeStyle='rgba(29,85,102,.13)'; X.lineWidth=7; X.lineCap='round';
     for(let i=0;i<10;i++){ const y=-235+i*45, w=150+70*Math.sin(Math.min(1,(i+1)/7)*Math.PI/2)-(i>7?(i-7)*25:0);
       X.beginPath(); X.moveTo(14,y); X.quadraticCurveTo(w*.95,y-22,w,y+40); X.stroke(); } X.restore(); }
   function spine(){ for(let i=0;i<20;i++){ const y=-400+i*33;
-    X.fillStyle='rgba(0,64,61,.13)'; X.beginPath(); X.roundRect(-14,y,28,24,7); X.fill();
-    X.fillStyle='rgba(0,64,61,.07)'; X.beginPath(); X.roundRect(-34,y+6,68,10,5); X.fill(); } }
-  function body(ps){ X.save(); X.fillStyle='rgba(0,64,61,.045)'; X.strokeStyle='rgba(0,64,61,.16)'; X.lineWidth=2.5;
+    X.fillStyle='rgba(29,85,102,.13)'; X.beginPath(); X.roundRect(-14,y,28,24,7); X.fill();
+    X.fillStyle='rgba(29,85,102,.07)'; X.beginPath(); X.roundRect(-34,y+6,68,10,5); X.fill(); } }
+  function body(ps){ X.save(); X.fillStyle='rgba(29,85,102,.045)'; X.strokeStyle='rgba(29,85,102,.16)'; X.lineWidth=2.5;
     const h=S(HEAD,ps), sh=[h[0]+14,h[1]-34];
     X.beginPath(); X.moveTo(0,-330); X.lineTo(52,-330); X.quadraticCurveTo(70,-262,150,-250); X.quadraticCurveTo(sh[0],sh[1],h[0]+40,h[1]+6);
     X.lineTo(230,60); X.quadraticCurveTo(200,190,215,300); X.lineTo(0,300); X.closePath(); X.fill(); X.stroke();
     X.save(); X.translate(h[0],h[1]); X.rotate(-ps.arm*D); X.beginPath(); X.roundRect(-40,-30,80,560,40); X.fill(); X.stroke(); X.restore();
     X.restore(); }
-  function headShape(){ X.save(); X.fillStyle='rgba(0,64,61,.045)'; X.strokeStyle='rgba(0,64,61,.16)'; X.lineWidth=2.5;
+  function headShape(){ X.save(); X.fillStyle='rgba(29,85,102,.045)'; X.strokeStyle='rgba(29,85,102,.16)'; X.lineWidth=2.5;
     X.beginPath(); X.ellipse(0,-430,78,96,0,0,7); X.fill(); X.stroke(); X.restore(); }
   function clavicle(ps){ const ac=S([214,-218],ps); X.save(); X.strokeStyle='#e4d8c2'; X.lineWidth=17; X.lineCap='round';
     X.beginPath(); X.moveTo(26,-262); X.bezierCurveTo(90,-250,140,-262,ac[0],ac[1]); X.stroke(); X.restore(); }
   function scapula(ps){
     const pts=BLADE.map(p=>S(p,ps));
-    if(ps.tilt>0.01){ X.save(); X.globalAlpha=.4*ps.tilt; X.fillStyle='#00403d'; X.filter='blur(10px)';
+    if(ps.tilt>0.01){ X.save(); X.globalAlpha=.4*ps.tilt; X.fillStyle='#1d5566'; X.filter='blur(10px)';
       smooth(pts.map(p=>[p[0]+16*ps.tilt*(p[1]>-120?1:0), p[1]+20*ps.tilt*(p[1]>-120?1:0)])); X.fill(); X.restore(); }
-    X.save(); X.shadowColor='rgba(0,64,61,.18)'; X.shadowBlur=16; X.shadowOffsetY=5; smooth(pts); X.fillStyle='#efe6d6'; X.fill(); X.restore();
+    X.save(); X.shadowColor='rgba(29,85,102,.18)'; X.shadowBlur=16; X.shadowOffsetY=5; smooth(pts); X.fillStyle='#efe6d6'; X.fill(); X.restore();
     const g=X.createLinearGradient(pts[0][0],pts[0][1],pts[8][0],pts[8][1]); g.addColorStop(0,'#f6efe2'); g.addColorStop(1,'#d9ccb4');
     smooth(pts); X.fillStyle=g; X.fill(); X.strokeStyle='#9c8b6c'; X.lineWidth=2.5; X.stroke();
     X.strokeStyle='#cbbb9d'; X.lineWidth=9; X.lineCap='round'; smooth(SPINE_S.map(p=>S(p,ps)),false); X.stroke();
@@ -72,7 +72,7 @@
     ribs(); spine();
     for(const sg of [-1,1]){ X.save(); X.scale(sg,1);
       clavicle(ps); scapula(ps); humerus(ps);
-      if(ps.hi.lats){ X.save(); X.globalAlpha=.75*ps.hi.lats; smooth(LATS(ps)); X.fillStyle='#4f9f95'; X.fill(); X.restore(); }
+      if(ps.hi.lats){ X.save(); X.globalAlpha=.75*ps.hi.lats; smooth(LATS(ps)); X.fillStyle='#4f969f'; X.fill(); X.restore(); }
       X.restore(); }
     X.restore();
   }

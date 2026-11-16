@@ -77,7 +77,7 @@ function voiceBar(anchor){
     : 'left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 14px);width:min(520px,calc(100% - 24px));';
   el.style.cssText = 'position:fixed;' + where + 'box-sizing:border-box;height:64px;'
     + 'z-index:1200;display:flex;align-items:center;gap:12px;padding:10px 10px 10px 14px;'
-    + 'border-radius:999px;background:#fff;box-shadow:0 18px 40px -16px rgba(0,48,46,.45),0 0 0 1px rgba(0,64,61,.1);'
+    + 'border-radius:999px;background:#fff;box-shadow:0 18px 40px -16px rgba(23,74,89,.45),0 0 0 1px rgba(29,85,102,.1);'
     + 'font:600 14px/1 Figtree,system-ui,sans-serif;color:#111';
   el.innerHTML = `<button type="button" aria-label="Cancel the voice note" onclick="voiceFinish(false)"
       style="flex:none;width:40px;height:40px;border-radius:50%;border:0;cursor:pointer;background:rgba(17,17,17,.06);
@@ -87,7 +87,7 @@ function voiceBar(anchor){
     <span id="vrecT" style="font-variant-numeric:tabular-nums">0:00</span>
     <span style="flex:1;min-width:0;font-weight:500;color:#6b6b6b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Recording, up to ${VOICE_MAX_SECS / 60} min</span>
     <button type="button" aria-label="Send the voice note" onclick="voiceFinish(true)"
-      style="flex:none;width:44px;height:44px;border-radius:50%;border:0;cursor:pointer;background:#006663;color:#fff;
+      style="flex:none;width:44px;height:44px;border-radius:50%;border:0;cursor:pointer;background:#237f95;color:#fff;
       display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12 3 4l18 8-18 8 1.5-8Zm0 0H12"/></svg></button>
     <style>@keyframes vrecPulse{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){#vrec span{animation:none!important}}</style>`;

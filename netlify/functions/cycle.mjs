@@ -159,7 +159,7 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote, image,
     ${image ? `<tr><td style="padding:0;line-height:0"><img src="${esc(image.src)}" alt="${esc(image.alt || '')}" width="560"
       style="display:block;width:100%;height:auto;max-height:300px;object-fit:cover;border-radius:18px 18px 0 0"></td></tr>` : ''}
     <tr><td style="padding:30px 32px 0;text-align:center">
-      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#006663;
+      <div style="font:700 11px/1 ${F};letter-spacing:.19em;color:#237f95;
         text-transform:uppercase">London Handstand Academy</div>
       <div style="height:1px;background:#e3e6e6;margin:24px 0 0"></div>
     </td></tr>
@@ -176,10 +176,10 @@ function mail({ title, greeting, paras = [], box, cta, signoff, footnote, image,
             margin:0 0 12px">${esc(box.title)}</div>` : ''}
           ${box.items.map((it, i) => `<div style="font:400 15px/1.55 ${F};
             color:#4c5654;margin:0 0 ${i === box.items.length - 1 ? '0' : '11px'}">
-            ${box.numbered ? `<b style="color:#006663">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
+            ${box.numbered ? `<b style="color:#237f95">${i + 1}.</b> ` : ''}${esc(it)}</div>`).join('')}
         </td></tr></table>` : ''}
       ${cta ? `<table role="presentation" cellpadding="0" cellspacing="0"
-        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#006663">
+        style="margin:4px 0 22px"><tr><td style="border-radius:999px;background:#237f95">
         <a href="${esc(cta.href)}" style="display:inline-block;padding:14px 30px;
           font:600 15px/1 ${F};color:#ffffff;text-decoration:none">${esc(cta.label)}</a>
       </td></tr></table>` : ''}
@@ -885,7 +885,7 @@ async function workshopMail(done) {
         if (!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null))) {
           const T = await emailCopy('wsRemind', { name: esc(String(p.name || '').split(' ')[0]), title: esc(w.title), when: esc(whenTxt), place: w.place ? ', at ' + esc(w.place) : '',
             arch: (r => r === 'Arch 1' ? 'Arch 1 (the purple room)' : r)(String(w.room || '').trim() || (/calisthenic/i.test(w.title || '') ? 'Arch 2' : 'Arch 1')),
-            directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#006663">Directions</a>.' });
+            directions: '<a href="https://www.google.com/maps/search/?api=1&query=OverGravity+Gymnastics+Sutton+Street+London+E1+0DB" style="color:#237f95">Directions</a>.' });
           if (T.off) { done.held = (done.held || 0) + 1; continue; }
           /* a reminder the booking promised is theirs, like a receipt; and it
              is only marked as sent when it went, so a held one is not
@@ -898,10 +898,10 @@ async function workshopMail(done) {
              2026); anybody who skipped them is asked again here, on the page
              they would have seen. A guest is asked on the day. */
           const ask = !p.payer && p.session && (!p.health || !p.photo)
-            ? [`Two quick questions before the class, about your health and photos: <a href="${SITE}/handstand-class.html?booked=${encodeURIComponent(w.slug)}&bs=${encodeURIComponent(p.session)}#book" style="color:#006663">answer them here</a>.`] : [];
+            ? [`Two quick questions before the class, about your health and photos: <a href="${SITE}/handstand-class.html?booked=${encodeURIComponent(w.slug)}&bs=${encodeURIComponent(p.session)}#book" style="color:#237f95">answer them here</a>.`] : [];
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
-              paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#006663">Move to another date${Number(p.at) >= WS_POLICY_FROM ? ', or cancel for a credit towards another class' : ' or cancel'}</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
+              paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#237f95">Move to another date${Number(p.at) >= WS_POLICY_FROM ? ', or cancel for a credit towards another class' : ' or cancel'}</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
                 : [`Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
@@ -1450,7 +1450,7 @@ async function sessionMail(done) {
            refund, themselves. Inside that the email already says to reply. */
         /* a cancel or a move goes to Elliott, who has hired the room, so the
            link is there to the end; inside a day the terms may charge it */
-        const change = `<b>Can't make it?</b> <a href="${await sessManage(x)}" style="color:#006663">${x.fromPlan ? 'Ask to move it here' : 'Move or cancel it here'}</a>, no sign in needed.${
+        const change = `<b>Can't make it?</b> <a href="${await sessManage(x)}" style="color:#237f95">${x.fromPlan ? 'Ask to move it here' : 'Move or cancel it here'}</a>, no sign in needed.${
           hoursTo > WS_CUTOFF_H || x.fromPlan ? '' : ` With less than ${WS_CUTOFF_H} hours' notice it may be charged in full.`}`;
         let went = false;
         if (Number(x.ask) > 0) {
@@ -1532,8 +1532,8 @@ async function callRemind(done) {
     const went = await email(x.email, `${today ? 'Today' : 'Tomorrow'}: your ${kindTxt} at ${clock}`, mail({
       title: today ? 'Your call is today.' : 'Your call is tomorrow.', greeting: String(x.name || '').split(' ')[0],
       paras: [`<b>${esc(clock)}</b>${lon && lon !== clock ? ' your time (' + esc(lon) + ' in London)' : ''}, ${Math.round((Number(x.len) || 15))} minutes with Elliott.`,
-              link ? `When it is time, <a href="${esc(link)}" style="color:#006663;font-weight:600">join the call here</a>${x.meet ? ', on Google Meet' : ''}.` : '',
-              `<b>Can't make it?</b> <a href="${manage}" style="color:#006663">Move or cancel it here</a>, no sign in needed.`].filter(Boolean),
+              link ? `When it is time, <a href="${esc(link)}" style="color:#237f95;font-weight:600">join the call here</a>${x.meet ? ', on Google Meet' : ''}.` : '',
+              `<b>Can't make it?</b> <a href="${manage}" style="color:#237f95">Move or cancel it here</a>, no sign in needed.`].filter(Boolean),
       signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
     if (!went) { done.held = (done.held || 0) + 1; continue; }
     await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
