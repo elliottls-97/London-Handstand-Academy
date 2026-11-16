@@ -464,6 +464,13 @@ const PHASE_INTRO = {
   3: '853b9e439c88ad2375f3b5d038406a43',   /* Take-Off intro, the sofa talk with his films, 11 Nov 2026 (6:20), voice in sync; set live from the
                                               dashboard the same night (the shipped one was the placeholder 'tucktakeoffexplainer') */
 };
+/* A drill with a long explainer of its own offers it under the drill's
+   demo, which stays as it is ("want an explainer on how to do this?").
+   The film must also be an explainer in Learn (dashboard, Explainers) so
+   it opens in the explainer sheet. 16 Nov 2026: the crow pose breakdown. */
+const DRILL_EXPLAIN = {
+  'crow-pose': '0bbe74b2a840152e6929068db4eda30a',   /* Crow pose breakdown, 12 Nov 2026 (6:06), voice in sync */
+};
 /* Foundations' phase film is set from the dashboard (11 Nov 2026: 3933d7757f6a2ba0910ffb16b689ae7f, the Foundations intro, short
    version, 5:23); PHASE_INTRO[0] stays the ladder intro, which the app also plays as "how the handstand ladder works". */
 
