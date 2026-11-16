@@ -2760,7 +2760,7 @@ button.px-step{cursor:pointer}
   .hduo3{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)!important}
   .hcps-bar{display:flex;align-items:center;gap:10px;margin-top:6px}
   .hcps-bar-t{flex:1;height:6px;border-radius:3px;background:rgba(29,85,102,.10);overflow:hidden}
-  .hcps-bar-t i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#e8962f,var(--forest))}
+  .hcps-bar-t i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#e8962f,var(--forest));transition:width .6s cubic-bezier(.3,.7,.3,1)}
   .hcps-bar-n{flex:none;display:grid;place-items:center}
   .hcps-bar-n svg{width:30px;height:39px}
   .hcol{min-width:0;display:flex;flex-direction:column;gap:16px}
@@ -9531,6 +9531,13 @@ function cpRepaintCounts(){
   if(hm) hm.textContent=String(p.met);
   const hb=document.getElementById('heroBar');
   if(hb) hb.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%';
+  /* the laptop's heading over the list, its count and its bar: they waited
+     for the next full draw, seconds after the tick (16 Nov 2026) */
+  if(st.ov!=='stage'){
+    document.querySelectorAll('.hcps-met').forEach(e=>{ e.textContent=String(p.met); });
+    document.querySelectorAll('.hcps-fill').forEach(e=>{ e.style.width=(p.of?Math.round(p.met/p.of*100):0)+'%'; });
+    document.querySelectorAll('.hcps-bar').forEach(e=>e.setAttribute('aria-label', p.met+' of '+p.of+' check points reached'));
+  }
   /* and the climb above it, which moves in place */
   climbRepaint();
   if(window._clearShow!=null && st.ov!=='cleared' && !(cpProgress(window._clearShow)||{}).ready) clearedCancel();
@@ -21179,10 +21186,10 @@ function homeCpsHTML(){
   return `<div class="hcps${Date.now()-(window._hcpsAt||0)<600?' unfold':''}"><div class="hcps-p"${(co||wide())?'':' style="padding-top:6px"'}>
     ${hcpsOfferHTML()}
     ${wide() ? (()=>{ const P=co?cpProgress():cpProgress(cur), S=STAGES[cur]||STAGES[0];
-      return `<div class="hcps-h"><div class="kick2" style="color:${co?'var(--forest)':'#8a5a12'}">CHECK POINTS &middot; ${P.met} OF ${P.of}</div>
+      return `<div class="hcps-h"><div class="kick2" style="color:${co?'var(--forest)':'#8a5a12'}">CHECK POINTS &middot; <span class="hcps-met">${P.met}</span> OF ${P.of}</div>
         <div class="hcps-t">${co ? esc(coachLabel())+'&rsquo;s eyes on <em>each one.</em>'
           : STAGES[cur+1] ? 'Reach all '+P.of+' to climb to <em>'+esc(STAGES[cur+1].n)+'.</em>' : 'Reach all '+P.of+' to finish the <em>Ladder.</em>'}</div>
-        ${co ? '' : `<div class="hcps-bar" role="img" aria-label="${P.met} of ${P.of} check points reached"><span class="hcps-bar-t"><i style="width:${P.of?Math.round(P.met/P.of*100):0}%"></i></span>${
+        ${co ? '' : `<div class="hcps-bar" role="img" aria-label="${P.met} of ${P.of} check points reached"><span class="hcps-bar-t"><i class="hcps-fill" style="width:${P.of?Math.round(P.met/P.of*100):0}%"></i></span>${
           STAGES[cur+1] ? `<span class="hcps-bar-n" style="color:${LW_AHEAD}">${lwFigSVG(cur+1)}</span>` : ''}</div>`}
         <div class="hcps-s">${co ? 'Film one and '+esc(coachLabel())+' signs it off.' : 'Any order. Film one and Elliott checks it.'}</div></div>`; })() : ''}
     ${/* free: gone, "Reach all 7 to climb" under the pill says it (Elliott, 15 Nov 2026) */''}
@@ -28128,7 +28135,10 @@ function sideSpeed(r){
   });
 }
 function openSideVid(v){ sideVid=v; render();
-  setTimeout(()=>{ const el=document.querySelector('#side video'); if(el){ el.playbackRate=st.exSpeed||1; } },60); }
+  setTimeout(()=>{ const el=document.querySelector('#side video'); if(el){ el.playbackRate=st.exSpeed||1; }
+    /* scrolled down the page, the film opens out of sight: bring it in */
+    const c=document.querySelector('#side .sidecard'); if(c){ const r=c.getBoundingClientRect();
+      if(r.top<60 || r.top>innerHeight-120) c.scrollIntoView({behavior:'smooth', block:'start'}); } },60); }
 
 function sideVideoCard(){
   if(!sideVid) return '';
@@ -28492,7 +28502,9 @@ function sideHTML(){
     /* no This week card: the month says it (Elliott, 13 Nov 2026: "get rid of this move progress up") */
     /* the two films live in Learn on a laptop (Elliott, 14 Nov 2026: "these go to learn") */
     void films;
-    bits.length=0; bits.push(quiz, cal, cls, placeNoteHTML(true));
+    /* a film opened from the Learn card plays at the top of this column:
+       clearing bits threw it away, so the tap did nothing (16 Nov 2026) */
+    bits.length=0; bits.push(sideVideoCard(), quiz, cal, cls, placeNoteHTML(true));
     if(!st.in && !st.plus) bits.push(sideCheckCard());
   }
   /* on a laptop the bookings sit beside the classes (13 Nov 2026), so
