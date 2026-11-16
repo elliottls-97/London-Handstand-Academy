@@ -18284,6 +18284,7 @@ function qTickAll(keys,el){
   const nm=document.getElementById('name-'+list[0]);
   if(nm){ nm.style.color = on?'var(--grey2)':''; nm.style.textDecoration = on?'line-through':''; }
   qCount();
+  if(on) qMaybeFinish();
 }
 function qTick(k,el){
   st.qTick=st.qTick||{};
@@ -18297,6 +18298,7 @@ function qTick(k,el){
   const nm=document.getElementById('name-'+k);
   if(nm){ nm.style.color = on?'var(--grey2)':''; nm.style.textDecoration = on?'line-through':''; }
   qCount();
+  if(on) qMaybeFinish();
 }
 
 /* the header line and the Done button, kept in step without a redraw */
@@ -18321,6 +18323,18 @@ function qCount(){
     qMins()+' minutes including rest'+(n?' · '+n+' done':'');
   const fin=document.getElementById('qdone');
   if(fin) fin.hidden = !n;
+}
+/* every set ticked is the workout done: it finishes itself, as the follow
+   along does at its last set, rather than waiting on a Finish button
+   (Elliott, 16 Nov 2026: "when i complete every exercise as ticked off it
+   doesn't complete the workout"). A beat first, so the last tick is seen,
+   and only if it is all still ticked by then. */
+let qFinT=null;
+function qMaybeFinish(){
+  const all=()=>(Q||[]).length>0 && (Q||[]).every((_,i)=>(st.qTick||{})['q'+i]);
+  if(!all()) return;
+  clearTimeout(qFinT);
+  qFinT=setTimeout(()=>{ qFinT=null; if(all() && (st.ov==='list' || dkPageMode)) finishChecklist(); }, 900);
 }
 
 function toggleListDemo(k,btn){
@@ -18523,7 +18537,7 @@ function dkMark(i){
     st.tick[key(st.day,q.gi,q.ii)]=true; st.tickDay=dayKey(Date.now()); st.tickIdx=st.day; st.tickAt=Date.now();
     try{ sendPlanSoon(); }catch(e){}
   }
-  save(); listKeep(); dkRowPaint(i); qCount();
+  save(); listKeep(); dkRowPaint(i); qCount(); qMaybeFinish();
 }
 function dkRowPaint(i){
   const g=dkGroup(i), k=g.keys[0], on=g.keys.some(x=>(st.qTick||{})[x]);
@@ -26317,7 +26331,7 @@ function tickSets(k, by){
   save(); listKeep();
   if(box) box.innerHTML=doseAreaHTML(k, keys);
   rowTickLook(k, true);
-  qCount();
+  qCount(); qMaybeFinish();
 }
 const u_step = it => doseUnitOf(it)==='s' ? 5 : 1;
 /* more or fewer than asked; on a drill not ticked yet that is also the tick */
@@ -26341,7 +26355,7 @@ function tickAt(k, next){
   keys.forEach(x=>{ if(!st.qTick[x]) return; if(next===want) delete st.reps[x]; else st.reps[x]=next; });
   save(); listKeep();
   if(box) box.innerHTML=doseAreaHTML(k, keys);
-  if(!was){ rowTickLook(k, true); qCount(); }
+  if(!was){ rowTickLook(k, true); qCount(); qMaybeFinish(); }
 }
 /* Ticking a drill already counts what it asked for. This is only for
    doing more or less (Elliott, 13 Nov 2026), so it says that. */
