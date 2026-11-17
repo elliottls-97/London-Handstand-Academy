@@ -4973,6 +4973,29 @@ const QUIZ_VARIANTS = {
     applyCopy: "Now pick a time for your free 15 minute consultation. I read every application myself and watch your clips before we speak.",
     start: null
   },
+  /* the coaching page's door (17 Nov 2026): the free call first, four short
+     steps and a clip only if they have one, on the last screen. Same engine
+     and same booking as apply; the homepage keeps apply. Not 'call': that
+     is the homepage's own short call form. */
+  coachcall: {
+    label: 'Book a free call',
+    steps: [9, 1, 2, 5, 6],
+    names: { 9:'You', 1:'Goal', 2:'Where you are', 5:'Your week', 6:'Last bit' },
+    heads: { 9:'Book a free call.', 2:'Where are you now?', 5:'Your week.', 6:'Got a clip?' },
+    subs:  { 9:'Four quick questions so I come prepared. Then you pick a time for 15 minutes with me.', 2:'Today, not where you want to be.', 5:'Anything that hurts, or has, and the time you have.', 6:'Optional. One side on clip helps me most. Then you pick your time.' },
+    preset: {},
+    submitLabel: 'Pick a time \u2192',
+    subject: 'Coaching call (coaching page)',
+    plan: 'Coaching',
+    notesPh: 'Anything else? Optional.',
+    pay: false,
+    noCall: true,
+    clipsOnLast: true,
+    doneHead: 'Now pick your time',
+    doneLead: '',
+    applyCopy: "Pick a time for your free 15 minute call. I read your answers, and watch any clip, before we speak.",
+    start: null
+  },
   programme: {
     label: 'The Coaching Programme',
     steps: [1, 2, 3, 4, 5, 6],
@@ -5022,6 +5045,18 @@ document.querySelectorAll('.quiz-step').forEach(function (st) {
 
 function quizCfg() { return QUIZ_VARIANTS[quizVariant] || QUIZ_VARIANTS.programme; }
 function quizSeq() { return quizCfg().steps; }
+/* apply and call share the application flow; clips are a step of their own
+   on apply and sit on the last screen on call (17 Nov 2026) */
+function qIsApply() { return quizVariant === 'apply' || quizVariant === 'coachcall'; }
+function qHasClips(c) { c = c || quizCfg(); return c.steps.indexOf(8) > -1 || !!c.clipsOnLast; }
+var qClipsHome = null;
+function qClipsPlace(onLast) {
+  var box = document.getElementById('qClips'); if (!box) return;
+  var blk = box.parentNode, s6 = document.querySelector('#qStep6 > div:nth-child(2)');
+  if (!qClipsHome) qClipsHome = { parent: blk.parentNode, next: blk.nextSibling };
+  if (onLast && s6 && blk.parentNode !== s6) { s6.insertBefore(blk, s6.firstChild); blk.style.padding = '0 0 8px'; }
+  if (!onLast && blk.parentNode !== qClipsHome.parent) { qClipsHome.parent.insertBefore(blk, qClipsHome.next); blk.style.padding = '0 28px'; }
+}
 
 /* Repaint every step for the active variant: labels renumbered to the
    variant's own length, headings and subs restored then overridden. */
@@ -5069,12 +5104,13 @@ function applyQuizVariant() {
   ['q6nameBox'].forEach(function (id) { var b = document.getElementById(id); if (b) b.style.display = firstWho ? 'none' : ''; });
   var e6b = document.getElementById('q6email'); if (e6b && e6b.parentElement) e6b.parentElement.style.display = firstWho ? 'none' : '';
   const daysBox = document.getElementById('q5daysBox');
-  if (daysBox) daysBox.style.display = cfg.steps.indexOf(8) > -1 ? '' : 'none';
+  if (daysBox) daysBox.style.display = qHasClips(cfg) ? '' : 'none';
   const dc = document.getElementById('doneClips');
   if (dc) { dc.hidden = true; dc.innerHTML = ''; }
   const db = document.getElementById('doneBook');
   if (db) db.innerHTML = '';
-  if (cfg.steps.indexOf(8) > -1) qClipsPaint();
+  if (qHasClips(cfg)) qClipsPaint();
+  qClipsPlace(!!cfg.clipsOnLast);
   const startA = document.getElementById('doneStart');
   if (startA) {
     startA.style.display = cfg.start ? 'block' : 'none';
@@ -5086,7 +5122,7 @@ function openQuiz(e, variant) {
   if (e) e.preventDefault();
   if (window.LHA && window.LHA.count) window.LHA.count('sitequiz');
   quizVariant = QUIZ_VARIANTS[variant] ? variant : 'programme';
-  if (quizVariant === 'apply') { qClipFiles = [null, null, null]; try { if (window.LHA && window.LHA.count) window.LHA.count('siteapplyopen'); } catch (x) {} }
+  if (qIsApply()) { qClipFiles = [null, null, null]; try { if (window.LHA && window.LHA.count) window.LHA.count('siteapplyopen'); } catch (x) {} }
   if (quizVariant === 'interest') { try { if (window.LHA && window.LHA.count) window.LHA.count('siteinterest'); } catch (x) {} }
   document.querySelectorAll('.quiz-option.selected').forEach(function (o) { o.classList.remove('selected'); });
   const fork = document.getElementById('q4-fork');
@@ -5130,7 +5166,7 @@ function showStep(n) {
 function nextStep() {
   const seq = quizSeq(), i = seq.indexOf(currentStep);
   if (i > -1 && i < seq.length - 1) showStep(seq[i + 1]);
-  if (quizVariant === 'apply' && i > -1 && i < seq.length - 1) qStartSave(seq[i + 1]);
+  if (qIsApply() && i > -1 && i < seq.length - 1) qStartSave(seq[i + 1]);
 }
 function prevStep() {
   const seq = quizSeq(), i = seq.indexOf(currentStep);
@@ -5330,8 +5366,8 @@ function submitQuiz() {
 
   const injuries = document.getElementById('q5injuries').value.trim() || ' ';
   const daysEl = document.getElementById('q5days');
-  const days = (quizCfg().steps.indexOf(8) > -1 && daysEl && daysEl.value) || '';
-  const clipList = quizCfg().steps.indexOf(8) > -1 ? qClipFiles.filter(Boolean) : [];
+  const days = (qHasClips() && daysEl && daysEl.value) || '';
+  const clipList = qHasClips() ? qClipFiles.filter(Boolean) : [];
   const hours    = document.getElementById('q5hours').value || ' ';
   const notes    = document.getElementById('q6notes').value.trim() || ' ';
 
@@ -5378,7 +5414,7 @@ function submitQuiz() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: name, email: email,
-      startId: quizVariant === 'apply' ? (appStart.id || '') : '', startKey: quizVariant === 'apply' ? (appStart.key || '') : '',
+      startId: qIsApply() ? (appStart.id || '') : '', startKey: qIsApply() ? (appStart.key || '') : '',
       answers: {
         goal: goal, level: level, format: format, commitment: commit,
         hours: hours.trim ? hours.trim() : hours,
@@ -5407,7 +5443,7 @@ function submitQuiz() {
         location.href = window.LHA_CALL_HERE ? '/call.html?from=home' : 'https://calendly.com/londonhandstandacademy-info/intro-call'; return; }
       applyQuizFormatToDone(format);
       showStep('done');
-      if (quizVariant === 'apply') {
+      if (qIsApply()) {
         appStart = {}; try { localStorage.removeItem('lha-appstart'); } catch (x) {}
         /* kept on this device, so the consultation page knows who is booking */
         try { if (appSent.id && appSent.key) localStorage.setItem('lha-appk', JSON.stringify({ a: appSent.id, k: appSent.key })); } catch (x) {}
@@ -7528,8 +7564,9 @@ body.aw-open { overflow: hidden; }
   window.closeQuiz=function(){ shut.apply(this, arguments); tell('lha-apply-close'); };
   window.addEventListener('message', function(e){
     if(e.origin!==O || !e.data || e.data.type!=='lha-apply-open') return;
-    try{ QUIZ_VARIANTS.apply.plan = e.data.plan || ''; }catch(x){}
-    openQuiz(null, 'apply');
+    var v = e.data.variant === 'coachcall' ? 'coachcall' : 'apply';
+    try{ QUIZ_VARIANTS[v].plan = e.data.plan || (v === 'coachcall' ? 'Coaching' : ''); }catch(x){}
+    openQuiz(null, v);
   });
   window.addEventListener('click', function(e){
     if(e.defaultPrevented) return;
