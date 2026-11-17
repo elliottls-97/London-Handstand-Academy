@@ -282,6 +282,7 @@ h1,h2,h3{font-family:var(--disp);text-transform:uppercase;font-weight:900;line-h
   .hl-s{display:block;font:500 12.5px/1.3 var(--body);color:#5a5a5a;margin-top:2px}
   .hl-p{flex:none;text-align:right;display:block}.hl-p b{display:block;font:500 22px/1 'Newsreader',Georgia,serif;color:#237f95}
   .hl-p span{display:block;font:600 10.5px/1.2 var(--body);color:#8a6420;margin-top:3px}
+  .hl-p .hl-from{display:block;font:500 11px/1.2 var(--body);color:#5a5a5a;margin-bottom:2px}
   .hl-save{font:500 14px/1.35 var(--body);color:rgba(255,255,255,.92);margin-top:4px}.hl-save b{font-weight:700;color:#fff}
   .hl-row{transition:transform .2s,box-shadow .2s}
 }
@@ -2191,14 +2192,20 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
   function heroList(){
     var box=$('heroList'); if(!box) return;
     /* the next two only (Elliott, 15 Nov 2026: "we don't need every class at the top"); the rest are in Book your place */
-    var all=up.filter(function(d){ return !d.tbc; }), L=all.slice(0,2);
-    if(!L.length){ box.hidden=true; return; }
+    var all=up.filter(function(d){ return !d.tbc; });
+    if(!all.length){ box.hidden=true; return; }
     var tz={timeZone:'Europe/London'};
     /* the same class on more than one Saturday is one box with the dates
        side by side (Elliott, 15 Nov 2026: "one box now instead of 2, so the
        app button can be more clear") */
-    var kindKey=function(d){ return (isSk(d)?'s':'a')+'|'+span(d)+'|'+d.price+'|'+(d.topic||''); }, groups=[];
-    L.forEach(function(d){ var k=kindKey(d), g=groups.filter(function(x){ return x.k===k; })[0]; if(g) g.items.push(d); else groups.push({k:k,items:[d]}); });
+    /* 17 Nov 2026 (Elliott): handstands on one line, calisthenics on the
+       other, whatever each date costs: two lines, the next two dates of each
+       kind, and "from" when an early bird makes them differ */
+    var kindKey=function(d){ return (isSk(d)?'s':'a')+'|'+(d.topic||''); }, groups=[];
+    all.forEach(function(d){ var k=kindKey(d), g=groups.filter(function(x){ return x.k===k; })[0];
+      if(g){ if(g.items.length<2) g.items.push(d); } else groups.push({k:k,items:[d]}); });
+    groups=groups.slice(0,2);
+    var L=[].concat.apply([],groups.map(function(g){ return g.items; }));
     var badge=function(d){ var dt=new Date(d.start);
       return '<span class="hl-d"><b>'+dt.toLocaleDateString('en-GB',Object.assign({day:'numeric'},tz))+'</b><span>'+dt.toLocaleDateString('en-GB',Object.assign({month:'short'},tz)).toUpperCase()+'</span></span>'; };
     box.innerHTML='<div class="hl-k">Coming up</div>'+groups.map(function(g){ var d=g.items[0], i=up.indexOf(d), sk=isSk(d), one=g.items.length===1;
@@ -2208,7 +2215,9 @@ section.alt .fit-card,section.alt .rev-card,section.alt .faq-i{background:#f4f4f
         +(one?badge(d):'<span class="hl-ds">'+g.items.map(badge).join('')+'</span>')
         +'<span class="hl-m"><span class="hl-t">'+(d.topic?esc(d.topic):sk?'Calisthenics<span class="hl-new">NEW</span>':/handstand and calisthenics/i.test(d.title||'')?'Handstands and calisthenics':'All Levels Handstands')+'</span>'
         +'<span class="hl-s">'+(d.topic?'Handstands, then the topic · ':sk?'Beginner to intermediate<br>':'')+esc(span(d).replace(/:00/g,''))+'</span></span>'
-        +'<span class="hl-p"><b>'+esc(d.priceLabel)+'</b><span>'+esc(left)+'</span></span></button>'; }).join('');
+        +'<span class="hl-p">'+(function(){ var ps=g.items.map(function(x){ return x.price; }), lo=Math.min.apply(null,ps);
+          return lo<Math.max.apply(null,ps) ? '<small class="hl-from">from</small><b>'+esc(pounds(lo))+'</b>' : '<b>'+esc(d.priceLabel)+'</b>'; })()
+        +'<span>'+esc(left)+'</span></span></button>'; }).join('');
     var open=L.filter(function(d){ return d.price>0 && !d.full; });
     /* three for £50, said once the dates to make three are on sale (15 Nov 2026) */
     var allOpen=all.filter(function(d){ return d.price>0 && !d.full; });
