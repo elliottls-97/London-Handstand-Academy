@@ -128,11 +128,11 @@ const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.st
    to WS_CUTOFF_H hours before; cancelling earlier than that refunds what
    they paid (one date of a pair: the pair price less the kept date's own
    price). The coach can do either at any time, and choose the refund. */
-/* 15 Nov 2026 (Elliott): a move or a cancel online right up to the start.
-   Up to WS_REFUND_BEFORE_H before the class a cancel is refunded in full;
-   after that it becomes a credit. The pages lead with Move, which is what
+/* 17 Nov 2026 (Elliott): more than WS_REFUND_BEFORE_H before the class a
+   cancel is refunded in full; from then to WS_CUTOFF_H it becomes a credit;
+   inside WS_CUTOFF_H, no refund, no credit and no move online. The pages lead with Move, which is what
    we would rather people did. */
-const WS_CUTOFF_H = 0;
+const WS_CUTOFF_H = 24;
 const WS_REFUND_BEFORE_H = 48;
 /* bookings made before this were sold on "48 hours from booking, then a
    credit up to 24 hours before" and keep that refund too */
@@ -372,7 +372,7 @@ function wsChangeHTML(links, ws, money, group, b) {
     : money && group ? ', or cancel for a refund to the card you paid with. Cancel one place and the ones you keep go back to their own price; the cancel page shows the amount before you confirm'
     : money ? ', or cancel and get your money back in full, to the card you paid with' : ', or cancel';
   void until; void cancel;
-  return `<b>Can't make it?</b> ${links}. Move to another date for free, once, any time before the class. Or cancel: more than ${WS_REFUND_BEFORE_H} hours before, for a full refund; after that, your place becomes a credit for another class. No account or password needed.`;
+  return `<b>Can't make it?</b> ${links}. Move to another date for free, once, up to ${WS_CUTOFF_H} hours before. Or cancel: more than ${WS_REFUND_BEFORE_H} hours before, for a full refund; ${WS_CUTOFF_H} to ${WS_REFUND_BEFORE_H} hours before, your place becomes a credit for another class. Inside ${WS_CUTOFF_H} hours there is no refund or credit. No account or password needed.`;
 }
 async function wsManageRead(t) {
   const p = await verify(String(t || ''));
@@ -494,7 +494,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   const coach = opts.by === 'coach';
   if (!coach && w.when && ms(w.when) < Date.now()) return { error: 'That one has already happened', status: 400 };
   const hours = wsHoursTo(w), early = hours > WS_CUTOFF_H, refundable = wsRefundableAt(b, w);
-  if (!coach && !early) return { error: 'The class has started, so it can no longer be cancelled online. Reply to your confirmation email and Elliott will sort it.', status: 400, late: true };
+  if (!coach && !early) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be cancelled or refunded. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
   const want = coach ? (opts.refund || 'auto') : 'auto';
   const { back, keeps } = await wsRefundFor(b, slug);
   const doRefund = want === 'full' || (want === 'auto' && refundable);
@@ -613,7 +613,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && (Number(w2.price) || 0) > (Number(w.price) || 0))
     return { error: 'That date costs more now, so this place cannot move onto it. Cancel this one and book that date instead.', status: 400 };
   if (w2.when && ms(w2.when) < Date.now()) return { error: 'That date has already happened', status: 400 };
-  if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: 'The class has started, so it can no longer be moved online. Reply to your confirmation email and Elliott will sort it.', status: 400, late: true };
+  if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be moved. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to move', status: 404 };
   if (!coach && b.movedFrom && wsNewRule(b)) return { error: 'This place has moved once already. To change it again, cancel it and book the date you want.', status: 400 };
@@ -7949,7 +7949,7 @@ const handle = async (request) => {
       const link = early && b.session ? await wsManageLink(slug, e, b.session, w.when) : '';
       paras.push(`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}.${w.when ? ` <a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#237f95">Add it to your calendar</a>.` : ''}`);
       paras.push(link ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel this booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b)
-                      : `The class has started, so it can no longer be changed online. Reply to this email.`);
+                      : `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be moved or cancelled. Ill, or something serious has come up? Reply to this email.`);
     }
     paras.push(wsWhereHTML(found[0].w));
     await email(e, found.length > 1 ? 'Your bookings' : `Your booking: ${found[0].w.title}`,
@@ -8220,7 +8220,7 @@ const handle = async (request) => {
         'line_items[0][quantity]': '1',
         /* the button says Book, and under it what happens if plans change */
         submit_type: 'book',
-        'custom_text[submit][message]': `Can't make it? Move to another date for free, any time before the class. Cancel more than ${WS_REFUND_BEFORE_H} hours before for a full refund; after that your place becomes a credit for another class.`,
+        'custom_text[submit][message]': `Can't make it? Move to another date for free, up to ${WS_CUTOFF_H} hours before. Cancel more than ${WS_REFUND_BEFORE_H} hours before for a full refund; ${WS_CUTOFF_H} to ${WS_REFUND_BEFORE_H} hours before it becomes a credit for another class; inside ${WS_CUTOFF_H} hours, no refund or credit.`,
         'metadata[workshop]': targets.map(t => t[0]).join(','),
         ...(fr ? { 'metadata[friend]': (fr.e + '|' + fr.nm).slice(0, 400) } : {}),
         'metadata[name]': nm,
