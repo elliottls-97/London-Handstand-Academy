@@ -1176,15 +1176,18 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  color:var(--deep);white-space:nowrap;min-width:0}
 .ls-free>button{background:#e3eff2;border:0;cursor:pointer}
 @media (prefers-reduced-motion: reduce){.ls-run .ls-fig .lw-fig,.ls-next{animation:none}}
-/* each stage rises in as Elliott's photo, then turns into its figure, one
-   after another (18 Nov 2026). At rest, and on a redraw of the same screen,
-   only the figure shows. */
+/* each stage rises in as Elliott's photo, then the figure's colour climbs
+   up through it from the hands to the feet, one after another (18 Nov 2026:
+   "wants to be an animation into the silhouettes"). Two clip rects share one
+   moving edge: the figure's slides up into view as the photo's slides away.
+   At rest only the figure shows. */
 .lw-ph image{opacity:0}
-.ls-run .lw-ph image{animation:phOut .7s ease-in-out calc(var(--i)*150ms + 1300ms + var(--ls-off,0ms)) both}
-.ls-run .lw-ph .lw-sil{animation:phIn .7s ease-in-out calc(var(--i)*150ms + 1300ms + var(--ls-off,0ms)) both}
-@keyframes phOut{from{opacity:1}to{opacity:0}}
-@keyframes phIn{from{opacity:0}to{opacity:1}}
-@media (prefers-reduced-motion: reduce){.ls-run .lw-ph image,.ls-run .lw-ph .lw-sil{animation:none}}
+.ls-run .lw-ph image{opacity:1}
+.ls-run .lw-ph .ph-cs{animation:phWipeS .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
+.ls-run .lw-ph .ph-cp{animation:phWipeP .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
+@keyframes phWipeS{from{transform:translateY(150px)}to{transform:translateY(0)}}
+@keyframes phWipeP{from{transform:translateY(0)}to{transform:translateY(-150px)}}
+@media (prefers-reduced-motion: reduce){.ls-run .lw-ph image{opacity:0}.ls-run .lw-ph .ph-cs,.ls-run .lw-ph .ph-cp{animation:none}}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
@@ -24061,7 +24064,11 @@ try{ for(let i=0;i<6;i++){ const im=new Image(); im.src=FIG_PHOTO(i); } }catch(e
 function lwFigSVG(i, ph){
   const f=(isMU() ? MU_FIG : LW_FIG)[i]; if(!f) return '';
   const body = f.p.map(([d,o])=>`<path d="${d}" fill="currentColor" opacity="${o}"/>`).join('')+`<path d="${f.d}" fill="currentColor"/>`;
-  if(ph && !isMU() && i<6) return `<svg class="lw-fig lw-ph" viewBox="0 0 100 130" aria-hidden="true"><g class="lw-sil">${body}</g><image href="${FIG_PHOTO(i)}" x="0" y="0" width="100" height="130"/></svg>`;
+  if(ph && !isMU() && i<6) return `<svg class="lw-fig lw-ph" viewBox="0 0 100 130" aria-hidden="true"><defs>`
+    +`<clipPath id="lsS${i}"><rect class="ph-cs" x="-10" y="-10" width="120" height="150"/></clipPath>`
+    +`<clipPath id="lsP${i}"><rect class="ph-cp" x="-10" y="-10" width="120" height="150"/></clipPath></defs>`
+    +`<g class="lw-sil" clip-path="url(#lsS${i})">${body}</g>`
+    +`<image href="${FIG_PHOTO(i)}" x="0" y="0" width="100" height="130" clip-path="url(#lsP${i})"/></svg>`;
   return `<svg class="lw-fig" viewBox="0 0 100 130" aria-hidden="true">${body}</svg>`;
 }
 /* ── before the questions: what this is, in five seconds ───────────────
@@ -24528,7 +24535,7 @@ function ladderSeg(){
    strip, and an open redraws several times as things load, which used to
    stop it under data-still before the photos ever showed (18 Nov 2026).
    So the clock lives here: a rebuilt strip is started part way through by
-   a negative delay, and after three seconds it is drawn at rest. */
+   a negative delay, and after about three seconds it is drawn at rest. */
 let lsT0=0, lsSeen=false;
 function lsRunSync(arrived){
   const s=document.querySelector('#app .ls-in');
@@ -24536,7 +24543,7 @@ function lsRunSync(arrived){
   const now=performance.now();
   if(!lsSeen || arrived){ lsT0=now; lsSeen=true; }
   const el=now-lsT0;
-  if(el<3000){ s.classList.add('ls-run'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
+  if(el<3300){ s.classList.add('ls-run'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
 }
 function ladderStripHTML(o){
   o=o||{};
