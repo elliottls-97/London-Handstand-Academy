@@ -1166,24 +1166,25 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  hyphens:manual;-webkit-hyphens:manual}
 .ls-next{animation:lwGlowF 2.4s ease-in-out 1.4s infinite}
 .ls-step[aria-expanded="true"] .ls-n{color:var(--ink)!important;font-weight:700}
-.ls-in .ls-fig .lw-fig{animation:lwRise 500ms cubic-bezier(.2,.8,.2,1) calc(var(--i)*90ms + 250ms) both}
-#app[data-still="1"] .ls-in .ls-fig .lw-fig{animation:none}
+/* ls-run and its offset are set by lsRunSync() after each draw, so a
+   redraw in the first three seconds carries on where it was rather than
+   stopping the climb (an open redraws several times as things load) */
+.ls-run .ls-fig .lw-fig{animation:lwRise 500ms cubic-bezier(.2,.8,.2,1) calc(var(--i)*90ms + 250ms + var(--ls-off,0ms)) both}
 .ls-free{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-top:10px}
 .ls-free>*{height:26px;border-radius:13px;border:1px solid rgba(29,85,102,.16);background:transparent;padding:0;
  display:flex;align-items:center;justify-content:center;gap:6px;font:700 11px/1 var(--sans);letter-spacing:.04em;
  color:var(--deep);white-space:nowrap;min-width:0}
 .ls-free>button{background:#e3eff2;border:0;cursor:pointer}
-@media (prefers-reduced-motion: reduce){.ls-in .ls-fig .lw-fig,.ls-next{animation:none}}
+@media (prefers-reduced-motion: reduce){.ls-run .ls-fig .lw-fig,.ls-next{animation:none}}
 /* each stage rises in as Elliott's photo, then turns into its figure, one
    after another (18 Nov 2026). At rest, and on a redraw of the same screen,
    only the figure shows. */
 .lw-ph image{opacity:0}
-.ls-in .lw-ph image{animation:phOut .7s ease-in-out calc(var(--i)*150ms + 1300ms) both}
-.ls-in .lw-ph .lw-sil{animation:phIn .7s ease-in-out calc(var(--i)*150ms + 1300ms) both}
+.ls-run .lw-ph image{animation:phOut .7s ease-in-out calc(var(--i)*150ms + 1300ms + var(--ls-off,0ms)) both}
+.ls-run .lw-ph .lw-sil{animation:phIn .7s ease-in-out calc(var(--i)*150ms + 1300ms + var(--ls-off,0ms)) both}
 @keyframes phOut{from{opacity:1}to{opacity:0}}
 @keyframes phIn{from{opacity:0}to{opacity:1}}
-#app[data-still="1"] .ls-in .lw-ph image,#app[data-still="1"] .ls-in .lw-ph .lw-sil{animation:none}
-@media (prefers-reduced-motion: reduce){.ls-in .lw-ph image,.ls-in .lw-ph .lw-sil{animation:none}}
+@media (prefers-reduced-motion: reduce){.ls-run .lw-ph image,.ls-run .lw-ph .lw-sil{animation:none}}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
@@ -24522,6 +24523,21 @@ function ladderSeg(){
    17 Oct 2026: "can they be collapsed"): its picture and film, its line,
    its check points and the way on to its sheet. The same figure, or the
    cross, folds it away. */
+/* The six figures climb in, show as Elliott's photos, then turn into the
+   silhouettes, once each time the strip arrives. Every redraw rebuilds the
+   strip, and an open redraws several times as things load, which used to
+   stop it under data-still before the photos ever showed (18 Nov 2026).
+   So the clock lives here: a rebuilt strip is started part way through by
+   a negative delay, and after three seconds it is drawn at rest. */
+let lsT0=0, lsSeen=false;
+function lsRunSync(arrived){
+  const s=document.querySelector('#app .ls-in');
+  if(!s){ lsSeen=false; return; }
+  const now=performance.now();
+  if(!lsSeen || arrived){ lsT0=now; lsSeen=true; }
+  const el=now-lsT0;
+  if(el<3000){ s.classList.add('ls-run'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
+}
 function ladderStripHTML(o){
   o=o||{};
   /* while a stage is being cleared, the ladder still shows it as where you
@@ -30213,6 +30229,7 @@ function render(){
        feel choppy. */
     app.dataset.still = same ? '1' : '';
     swapKeepBar(app, html); app.dataset.screen=scrKey();
+    lsRunSync(!same);
     /* The page only gives up its right hand margin on the screens that
        have a column to put there. This was :has(#side) in the stylesheet,
        which is a quiet no-op on an older browser: the column then lands
