@@ -4001,7 +4001,9 @@ const handle = async (request) => {
     plus:     { label: '£10',  amount: 1000,  priceId: '', link: '', founding: false },
     /* the same ladder paid a quarter or a year at a time */
     plusq:    { label: '£39',  amount: 3900,  priceId: '', link: '' },
-    plusy:    { label: '£129', amount: 12900, priceId: '', link: '' },
+    /* yearly on sale from 18 Nov 2026 at £70 (Elliott: "yes add it", after
+       other apps' yearly plans came in at six to eight months of the monthly) */
+    plusy:    { label: '£70', amount: 7000, priceId: '', link: '' },
     /* one form check, bought one at a time. No longer sold (17 Oct 2026):
        kept so a credit bought before still files and spends. */
     check:    { label: '£20',  amount: 2000,  priceId: '', link: '' },
@@ -6389,9 +6391,9 @@ const handle = async (request) => {
      the only one; coaching was application-gated with no way to pay. A plan
      only appears here once its Stripe price exists, so switching one on is
      setting an environment variable rather than a deploy of new code. */
-  /* monthly only for now. The quarterly and yearly prices stay wired so
-     switching them back on is adding them here. */
-  const LADDER_PERIODS = ['month'];
+  /* monthly and yearly (18 Nov 2026). Quarterly stays wired so switching
+     it on is adding it here. */
+  const LADDER_PERIODS = ['month', 'year'];
   const PLANS = {
     plus:   { price: () => PRICES.plus.priceId   || process.env.STRIPE_PRICE_PLUS,   mode: 'subscription' },
     plusq:  { price: () => (PRICES.plusq||{}).priceId || process.env.STRIPE_PRICE_PLUS_Q, mode: 'subscription' },
@@ -6413,7 +6415,7 @@ const handle = async (request) => {
   const pricesPublic = () => ({
     plus: { label: PRICES.plus.label, amount: PRICES.plus.amount, founding: !!PRICES.plus.founding, note: PRICES.note },
     plusq: { label: (PRICES.plusq||{}).label || '£39', amount: (PRICES.plusq||{}).amount || 3900 },
-    plusy: { label: (PRICES.plusy||{}).label || '£129', amount: (PRICES.plusy||{}).amount || 12900 },
+    plusy: { label: (PRICES.plusy||{}).label || '£70', amount: (PRICES.plusy||{}).amount || 7000 },
     check: { label: PRICES.check.label }, checks: { label: (PRICES.checks||{}).label || '£35' },
     checksadd: { label: (PRICES.checksadd||{}).label || '£25' }, online: { label: PRICES.online.label },
     inperson: { label: PRICES.inperson.label }, inner: { label: PRICES.inner.label },
