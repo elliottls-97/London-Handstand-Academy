@@ -626,7 +626,7 @@ function load(){
 }
 function openThread(email){
   /* nothing from the last person survives the switch */
-  if(threadFor!==email){ thread=(threadCache[email]||[]).slice(); threadFor=email; threadLoaded=false; dReplyTo=''; dTypingAt=0;
+  if(threadFor!==email){ playingClips.clear(); thread=(threadCache[email]||[]).slice(); threadFor=email; threadLoaded=false; dReplyTo=''; dTypingAt=0;
     /* the reply box survives a redraw, so switching person has to change what is in it */
     const rb=document.getElementById('reply'); if(rb) rb.value=drafts[email]||''; }
   sel=email; draw();
@@ -772,7 +772,10 @@ function drawSoon(){ if(drawQueued) return; drawQueued=true;
    something changed */
 setInterval(()=>{
   if(document.hidden || view!=='client' || !sel || !TOKEN) return;
-  if(threadFor!==sel || !threadLoaded) return;
+  if(threadFor!==sel) return;
+  /* a first read that failed is asked again every eight seconds: it used to
+     leave "Loading messages" up until you went away and came back */
+  if(!threadLoaded){ if(Date.now()-threadPollAt>8000) loadCoachThread(sel, true); return; }
   /* ── what a check costs ─────────────────────────────────────────
      Each one is a request Netlify bills by the second. A thread asked
      every few seconds all day is about four credits an hour, most of a
@@ -1027,7 +1030,7 @@ function todayClear(items, say){
   if(ids.length) calls.push(fetch(API+'/todaydone',{method:'POST',headers:hdr(),body:JSON.stringify({ids})}).then(sendOK));
   Promise.all(calls).then(()=>flash(say||'Cleared')).catch(()=>{ flash('Some of that did not save. Try again.'); loadQueue(); loadTodayDone(); });
 }
-function todayClearPerson(key){ const p=todayPeople().find(x=>'p:'+(x.email||x.items[0].id)===key); if(p) todayClear(p.items, 'Cleared '+esc(firstName(p.email)||p.name)); }
+function todayClearPerson(key){ const p=todayPeople().find(x=>'p:'+(x.email||x.items[0].id)===key); if(p) todayClear(p.items, 'Cleared '+(firstName(p.email)||p.name)); }
 function todayClearOld(){ const old=inboxItems().filter(r=>Date.now()-(r.at||0)>14*864e5);
   if(!old.length) return; if(!confirm('Clear '+old.length+' item'+(old.length===1?'':'s')+' older than two weeks from Today? Anything new from those people comes back.')) return;
   todayClear(old, 'Cleared '+old.length+' old item'+(old.length===1?'':'s')); }
@@ -1042,7 +1045,9 @@ function loadQueue(){
          read from before that happened */
       /* filed under whoever was asked about: a switch of client while this
          was in flight stored one client's submissions as the other's */
-      const who=sel;
+      /* and only while a client is the screen: from Today this asked for the
+         first client on the list every minute, for nothing */
+      const who=view==='client' ? sel : '';
       if(who) fetch(API+'/submissions?email='+encodeURIComponent(who),{headers:hdr()})
         .then(r=>r.ok?r.json():null)
         .then(x=>{ if(x){ subs[who]=x.submissions||[]; } }).catch(()=>{})
@@ -9012,7 +9017,7 @@ function makeClient(){
    and a row of panels, the ladder and the explainers moved under Library
    and everything you touch twice a year is under Settings. */
 
-function go(v){ userMoved=true; if(v==='bookings' && view!=='bookings'){ wshops=null; wsErr=''; bkRow=''; } view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
+function go(v){ userMoved=true; playingClips.clear(); if(v==='bookings' && view!=='bookings'){ wshops=null; wsErr=''; bkRow=''; } view=v; moreOpen=false; attachOpen=false; draw(); window.scrollTo(0,0); }
 function openClient(email, tab){
   userMoved=true;
   if(view!=='client') cameFrom=(view==='today'?'today':view==='chats'?'chats':'clients');
@@ -9023,7 +9028,7 @@ function openClient(email, tab){
   window.scrollTo(0,0);
 }
 function goBack(){ go(cameFrom==='today'?'today':cameFrom==='chats'?'chats':'clients'); }
-function setCtab(t){ ctab=t; moreOpen=false; attachOpen=false; if(t==='thread') dHot(); draw();
+function setCtab(t){ if(t!==ctab) playingClips.clear(); ctab=t; moreOpen=false; attachOpen=false; if(t==='thread') dHot(); draw();
   if(t==='thread' && sel) loadCoachThread(sel, true); }
 function closeMenus(){ moreOpen=false; attachOpen=false; draw(); }
 function flash(t){ toastMsg=t; clearTimeout(toastT);
@@ -14442,15 +14447,20 @@ const dHot = () => { dHotUntil=Date.now()+60000; };
 const D_TICK='<svg width="16" height="11" viewBox="0 0 16 11" aria-hidden="true"><path d="M1.5 5.8 5 9.2 12 1.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const D_TICKS='<svg width="18" height="11" viewBox="0 0 18 11" aria-hidden="true"><path d="M1 5.8 4.4 9.2 11.4 1.8M7.6 8.6l.6.6 7.2-7.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const D_CLOCK='<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
-const dTime = t => t ? new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
+/* one formatter each, kept: toLocale...String built a new one per message */
+const D_FMT_TIME=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit'});
+const D_FMT_WDAY=new Intl.DateTimeFormat('en-GB',{weekday:'long'});
+const D_FMT_DAY =new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long'});
+const D_FMT_DAYY=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric'});
+const dTime = t => t ? D_FMT_TIME.format(new Date(t)) : '';
 function dDay(t){
   if(!t) return 'Earlier';
   const d=new Date(t), now=new Date(), day=x=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
   const diff=Math.round((day(now)-day(d))/864e5);
   if(diff<=0) return 'Today';
   if(diff===1) return 'Yesterday';
-  if(diff<7) return d.toLocaleDateString('en-GB',{weekday:'long'});
-  return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',...(d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{})});
+  if(diff<7) return D_FMT_WDAY.format(d);
+  return (d.getFullYear()!==now.getFullYear() ? D_FMT_DAYY : D_FMT_DAY).format(d);
 }
 const dSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':m.voice?'Voice note':'')) : '';
 const dLinks = s => s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -14623,7 +14633,10 @@ function chatsHTML(){
 }
 
 function drawNow(){
-  const msgs=dThreadHTML();
+  /* the open chat is only built when it is the screen being shown: it was
+     built on every draw of every screen, a date formatter per message
+     (19 Nov 2026 sweep: 22 ms a draw with 300 messages held) */
+  const msgs=(view==='client' && ctab==='thread') ? dThreadHTML() : '';
   /* ── the same screen is not drawn twice ────────────────────────
      Opening a client fires four requests and each one redraws the whole
      dashboard when it lands, whether or not it changed anything on it.
@@ -14646,8 +14659,10 @@ function drawNow(){
     : view==='mu'       ? muHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
-    + bulkHTML() + copyHTML() + newBlkHTML() + toastHTML()
-    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML();
+    /* the toast goes last: in front of the editors it shifted each one along
+       a place, so a toast rebuilt the open builder and lost its scroll */
+    + bulkHTML() + copyHTML() + newBlkHTML()
+    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML() + toastHTML();
   if(html!==lastHTML){ lastHTML=html; morphInto($('#v'), html); }
   syncReview(); syncSite();
 }
