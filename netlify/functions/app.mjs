@@ -2582,7 +2582,8 @@ const PLAN_GOALS = ['Getting used to being upside down, kicking up with confiden
   'Leaving the wall for your first real seconds of balance.',
   'Kicking up and balancing on your own, again and again rather than by luck.',
   'The compression and strength to press up into a handstand with control.'];
-async function planEmail(e, name, stage) {
+async function planEmail(e, name, stage, price) {
+  const trial = Number((price || {}).trial) || 0, label = String((price || {}).label || '£10');
   const i = Math.max(0, Math.min(5, Number.isInteger(Number(stage)) ? Number(stage) : 0));
   const first = String(name || '').trim().split(/\s+/)[0] || '';
   await email(e, `Your handstand plan: ${PLAN_STAGES[i]}`,
@@ -2590,7 +2591,10 @@ async function planEmail(e, name, stage) {
       title: `You start at ${PLAN_STAGES[i]}.`,
       greeting: first,
       paras: [`Your answers put you at stage ${i + 1} of the Handstand Ladder, <b>${PLAN_STAGES[i]}</b>. ${PLAN_GOALS[i]}`,
-        'Your first session is ready in the app, built around the days and time you picked. Press Start and it talks you through every drill and every rest.',
+        i === 0
+          ? 'Your first session is ready in the app, built around the days and time you picked. Press Start and it talks you through every drill and every rest.'
+          /* above Foundations it is the paid Ladder, with the free week on it */
+          : `${PLAN_STAGES[i]} is part of the full Ladder: ${trial > 0 ? `free for ${trial} days, then ` : ''}${esc(label)} a month. Start the free week from the app, or train Foundations first, which is always free.`,
         'Over the next ten days I will send you five short notes, one thing to try in each.',
         'To open it on another phone or laptop, press Sign in, then Forgotten it?, and a code comes to this address.'],
       cta: { href: `${SITE}/lha-app.html?ref=planmail`, label: 'Open my plan' },
@@ -6222,7 +6226,7 @@ const handle = async (request) => {
     const fresh = !acct.hash && !prev.email;
     if (fresh) {
       await setSetting(`uv:${e}`, { at: Date.now() }).catch(() => {});
-      await later(() => planEmail(e, acct.name, acct.stage));
+      await later(() => planEmail(e, acct.name, acct.stage, { trial: Number(PRICES.trialDays) || 0, label: (PRICES.plus || {}).label || '£10' }));
     }
     return json({
       ok: true,
