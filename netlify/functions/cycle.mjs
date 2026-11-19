@@ -391,6 +391,30 @@ async function pastClients() {
    person on their own: it was the one part of the run with no catch, so a
    single failed read cancelled every later email that day, the class,
    1-2-1 and call reminders included, and nothing recorded it (13 Oct 2026). */
+/* ── one read, not one per person ─────────────────────────────────────
+   The loops below asked the database about each person in turn: two reads
+   an account in the coaching loop, one or two a nudge after it. A read
+   costs about 175 ms from where this runs, so at eighty accounts the
+   coaching loop alone took most of the half minute a run is given, and
+   everything after it (the first ten days' notes, the training reminders,
+   the quiet nudges, the voice and clip sweeps) was named as not run in
+   the log on every day looked at, 13 to 19 Nov 2026. Each loop now reads
+   what it needs once and looks people up in memory. Any of these reads
+   failing falls back to asking one at a time, as before. */
+async function nudgeKeys(prefix) {
+  try {
+    const out = new Set();
+    for (let off = 0; off < 20000; off += 1000) {
+      const rws = (await supa.rows('nudges', `key=like.${enc(prefix)}*&select=key&order=key&limit=1000&offset=${off}`)) || [];
+      for (const x of rws) out.add(x.key);
+      if (rws.length < 1000) break;
+    }
+    return out;
+  } catch { return null; }
+}
+const nudgeSent = async (set, key) => set ? set.has(key)
+  : !!(await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null));
+
 async function coachingLoop(done, now) {
   /* Anyone who has sent something, not only the coaching roster. A one-off
      form check comes from someone who is not a client yet — which makes it
@@ -404,10 +428,25 @@ async function coachingLoop(done, now) {
     accounts.filter(a => !known.has(a.email))
       .map(a => ({ email: a.email, name: a.name || a.email, coach: '', lead: true })));
 
+  /* every block underway, and the clips that matter, read once: all of a
+     coaching client's (whether this block has any yet), and anybody's that
+     are still waiting to be looked at (which is all a lead is checked for) */
+  let cycBy = null, subsBy = null;
+  try { cycBy = {}; for (const x of ((await supa.rows('cycles', 'select=*')) || [])) cycBy[x.email] = x; } catch { cycBy = null; }
+  try {
+    const shape = x => ({ id: x.id, kind: x.kind, cycle: x.cycle, at: ms(x.created_at), status: x.status, clips: x.clips || [] });
+    const waiting = (await supa.rows('submissions', 'status=eq.submitted&select=*&order=created_at.desc')) || [];
+    const names = roster.map(c => '"' + String(c.email).replace(/"/g, '') + '"').join(',');
+    const theirs = names ? ((await supa.rows('submissions', `email=in.(${enc(names)})&select=*&order=created_at.desc`)) || []) : [];
+    const seen = new Set(); subsBy = {};
+    for (const x of theirs.concat(waiting)) { if (seen.has(x.id)) continue; seen.add(x.id); (subsBy[x.email] = subsBy[x.email] || []).push(shape(x)); }
+    for (const k of Object.keys(subsBy)) subsBy[k].sort((a, b) => b.at - a.at);
+  } catch { subsBy = null; }
+
   for (const c of everyone) {
     try {
       if (past[c.email]) { done.skipped++; continue; }
-      const cyc = await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
+      const cyc = cycBy ? (cycBy[c.email] || null) : await supa.row('cycles', `email=eq.${enc(c.email)}&select=*`)
         .catch(() => null);
       const cycle = cyc ? { n: cyc.n || 1, start: ms(cyc.started_at) } : null;
       /* no cycle means no block underway — nothing to remind them about.
@@ -417,7 +456,7 @@ async function coachingLoop(done, now) {
       const plan = planFile(c.email);
       const days = (plan && Number(plan.testDelayDays)) || 14;
       const dueAt = (cycle ? cycle.start : now) + days * DAY;
-      const subs = await subsFor(c.email);
+      const subs = subsBy ? (subsBy[c.email] || []) : await subsFor(c.email);
       const mine = c.lead ? subs : subs.filter(s => s.cycle === cycle.n);
       const coach = c.coach || primaryCoach();
 
@@ -582,6 +621,20 @@ export default async () => {
   GUARD = null;
   const now = Date.now();
   const done = { reminded: [], chased: [], skipped: 0 };
+  /* One run at a time. The scheduler stops waiting after fifteen seconds
+     and starts the run again, so a slow morning had three of these going
+     at once, a quarter of a minute apart, each working down the same list
+     (seen in the log, 13 to 19 Nov 2026). A run started in the last four
+     minutes is left to finish; everything it does is marked as it goes, so
+     tomorrow's run picks up whatever it did not reach. */
+  try {
+    const lock = await supa.row('nudges', `key=eq.${enc('cyclelock')}&select=sent_at`).catch(() => null);
+    if (lock && lock.sent_at && now - ms(lock.sent_at) < 4 * 60000) {
+      console.log('cycle', JSON.stringify({ skipped: 'another run started ' + Math.round((now - ms(lock.sent_at)) / 1000) + ' s ago' }));
+      return new Response(JSON.stringify({ skipped: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    await supa.upsert('nudges', { key: 'cyclelock', sent_at: new Date(now).toISOString() }, 'key');
+  } catch { /* no lock is a run as it always was */ }
 
   /* the reminders bookings promise go first: each has one 24 hour window,
      so anything that goes wrong further down must not cost them */
@@ -744,6 +797,14 @@ async function quietFreeAccounts(done) {
     'select=email,name,last_seen,first_seen&order=last_seen.desc&limit=1000')) || [];
   const roster = new Set((await rosterList()).map(c => c.email).concat(Object.keys(await pastClients())));
   const names = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
+  const sentQ = await nudgeKeys('quiet:');
+  /* No more than this many in one morning. This job did not run for some
+     days (see nudgeKeys above), so the first run that reaches it owes a
+     note to everybody who went quiet meanwhile: sent at once that is a
+     burst of fifty from an address that normally sends a handful, and it
+     would use up the day's hundred before the booking emails. The rest go
+     on the next mornings, the most recently seen first. */
+  const QUIET_MAX = 12; let sentNow = 0;
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
     const last = ms(a.last_seen), first = ms(a.first_seen);
@@ -757,13 +818,13 @@ async function quietFreeAccounts(done) {
     if (!due.length) continue;
     const step = due[due.length - 1];
     const key = `quiet:${step.key}:${a.email}`;
-    if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+    if (await nudgeSent(sentQ, key)) continue;
     /* a legacy weekly quiet note counts as the five day one */
-    if (step.key === '5d'
-        && await supa.row('nudges', `key=eq.${enc('quiet:' + a.email)}&select=key`).catch(() => null)) {
+    if (step.key === '5d' && await nudgeSent(sentQ, 'quiet:' + a.email)) {
       await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key');
       continue;
     }
+    if (sentNow >= QUIET_MAX) { done.quietHeld = (done.quietHeld || 0) + 1; continue; }
     const st = await supa.row('settings', `key=eq.${enc('state:' + a.email)}&select=value`).catch(() => null);
     const stage = st && st.value && Number.isInteger(st.value.stage) ? st.value.stage : 0;
     const first_ = (a.name || '').split(' ')[0];
@@ -783,7 +844,7 @@ async function quietFreeAccounts(done) {
       const k2 = `quiet:${q.key}:${a.email}`;
       await supa.upsert('nudges', { key: k2, sent_at: new Date().toISOString() }, 'key');
     }
-    if (ok) done.quiet = (done.quiet || 0) + 1;
+    if (ok) { done.quiet = (done.quiet || 0) + 1; sentNow++; }
   }
 }
 
@@ -800,6 +861,7 @@ async function firstTenDays(done) {
   const rows = (await supa.rows('accounts',
     'select=email,name,first_seen&order=first_seen.desc&limit=300')) || [];
   const roster = new Set((await rosterList()).map(c => c.email).concat(Object.keys(await pastClients())));
+  const sentT = await nudgeKeys('tip:');
   for (const a of rows) {
     if (!a.email || roster.has(a.email)) continue;
     const first = ms(a.first_seen); if (!first) continue;
@@ -809,7 +871,7 @@ async function firstTenDays(done) {
       const t = TIPS[i];
       if (ageDays < t.day) continue;
       const key = `tip:${a.email}:${i}`;
-      if (await supa.row('nudges', `key=eq.${enc(key)}&select=key`).catch(() => null)) continue;
+      if (await nudgeSent(sentT, key)) continue;
       const T = await emailCopy('tip' + t.day, { name: esc((a.name || '').split(' ')[0] || '') });
       if (T.off) { done.held = (done.held || 0) + 1; break; }
       const ok = await email(a.email, T.subject, tipEmail(t.day, T, (a.name || '').split(' ')[0] || '', SITE), 'reminders');
