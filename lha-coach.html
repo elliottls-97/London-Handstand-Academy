@@ -740,16 +740,21 @@ let queueAt=0, clientsAt=0, extrasAt=0;
 function freshen(force){
   if(!TOKEN || document.hidden) return;
   const now=Date.now(), here=coachHere();
-  /* a minute while you are here, five when you are not; a notification
-     about a client, or coming back to the window, fetches straight away */
-  if(force || now-queueAt>=(here?60000:300000)){ queueAt=now; loadQueue(); }
+  /* Coming back to the window, or a notification, asks at once, but not
+     again for what was asked moments ago: every return to the tab fired
+     all ten requests whatever had just been fetched, and an open tab was a
+     third of everything the server was asked in a week (19 Nov 2026). */
+  const due=(at, gap, floor)=> now-at >= (force ? floor : gap);
+  /* a minute while you are here, five when you are not */
+  if(due(queueAt, here?60000:300000, 5000)){ queueAt=now; loadQueue(); }
   /* applications and website questions too: they were read once at sign
      in, so a dashboard left open never showed a new one, push or no push,
-     until a reload (16 Oct 2026, review) */
-  if(force || now-extrasAt>=300000){ extrasAt=now; loadQuestions(); loadSessions(); loadStarting();
+     until a reload (16 Oct 2026, review). Every five minutes while you are
+     here, every half hour while the window is only open. */
+  if(due(extrasAt, here?300000:1800000, 120000)){ extrasAt=now; loadQuestions(); loadSessions(); loadStarting();
     fbAsked=false; loadFeedback(); loadApps(); }
   const cGap = view==='chats' ? (here?20000:120000) : (here?120000:600000);
-  if(force || now-clientsAt>=cGap){ clientsAt=now; refreshClients(); }
+  if(due(clientsAt, cGap, 30000)){ clientsAt=now; refreshClients(); }
 }
 function refreshClients(){
   fetch(API+'/clients',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{
