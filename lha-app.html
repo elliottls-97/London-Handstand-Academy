@@ -27849,6 +27849,14 @@ function screenJoin(){
   const clip = !want && !trial && !plan && !saving && st.joinFor==='clip';
   /* from Sign in or the header: one account for the app, classes and coaching */
   const acct = !want && !trial && !plan && !saving && st.joinFor==='acct';
+  /* Keeping their training, after the quiz, at the second session or from a
+     Track card: a first name and an email, no password (19 Nov 2026). The
+     address is the ask, as "where should I send your plan?", which is what
+     Coach Bachmann's quiz does; a password can come later, from Forgotten it?
+     on another phone. Buying, the form check and the account button still
+     ask for a password, as there is something to sign back in to at once. */
+  const light = !want && !trial && !plan && !saving && !clip && !acct;
+  const quizEnd = light && !second && !track;
   const trialDays = PRICE_TRIAL()===7 ? 'week' : PRICE_TRIAL()+' days';
   const s = want || PSJ || STAGES[curStage()] || {n:''};
   /* This and screenOriented sit between the quiz and Today, so they are the
@@ -27858,7 +27866,8 @@ function screenJoin(){
   return `<div class="scroll s" style="min-height:100dvh;background:transparent;color:var(--ink);
     padding:calc(env(safe-area-inset-top) + 40px) 24px 30px;display:flex;flex-direction:column">
     <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;
-      color:var(--forest)">${saving?'Saving for no signal'
+      color:var(--forest)">${quizEnd?'Your plan is ready'
+        :saving?'Saving for no signal'
         :second?'Session two'
         :clip?'Your free form check'
         :track?'Track your progress'
@@ -27868,7 +27877,8 @@ function screenJoin(){
         :want?'To open '+esc(want.n)
         :taste?'Your free session at '+esc(PSJ.n):'Your starting point'}</div>
     <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:10px">${
-      saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
+      quizEnd ? `Where should I send <em style="color:var(--forest);font-style:normal">it?</em>`
+      : saving ? `Your email <em style="color:var(--forest);font-style:normal">first.</em>`
       : second ? `Your first one is <em style="color:var(--forest);font-style:normal">done.</em>`
       : clip ? `Where should I send your <em style="color:var(--forest);font-style:normal">reply?</em>`
       : track ? `Keep your <em style="color:var(--forest);font-style:normal">progress.</em>`
@@ -27881,7 +27891,8 @@ function screenJoin(){
     <!-- the stage goal used to be glued onto the end of the sentence about
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
-      saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
+      quizEnd ? 'Your answers put you at stage '+(placedStage()+1)+', <b style="color:var(--ink)">'+esc((STAGES[placedStage()]||s).n)+'</b>. Your first session is ready now. Your plan comes by email, with five short tips over your first ten days.'
+      : saving ? 'Workouts you save stay on this phone for a gym with no signal. Add your email and it saves as soon as you are in; it is free.'
       : second ? ''
       : clip ? 'An email and a password, so my video reply has somewhere to land.'
       : track ? 'Every session and check point, kept on any phone you sign in on. Free, and no card.'
@@ -27923,12 +27934,26 @@ function screenJoin(){
           ? 'The account is what holds the free session, so it is still there on any phone you sign in on.'
           : saving
           ? 'It also keeps your progress, so it is there on any phone you sign in on.'
-          : (track || clip || plan || acct) ? ''
+          : (track || clip || plan || acct || light) ? ''
           : emailOptional()
           ? '<b style="display:block;font:400 22px/1.2 var(--serif);color:var(--ink);margin-bottom:6px">Save your progress? <span style="color:var(--grey)">Optional.</span></b>It keeps your training on any phone, opens the rest of the explainers, and I send tips and new videos as they land.'
           : 'From '+esc((STAGES[curStage()]||{}).n||'here')+' up I keep a record of what you have done, so this one needs an address.'}</div>
-      <form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
+      ${joinCodeFor?`<form onsubmit="joinVerify(event)" style="display:flex;flex-direction:column;gap:10px">
+        <div style="font:400 15px/1.55 var(--sans);color:var(--ink)">You already have an account on
+          <b>${esc(joinCodeFor)}</b>. I have sent a six digit code to it.</div>
+        <input id="joinCode" inputmode="numeric" autocomplete="one-time-code" required maxlength="6"
+          placeholder="Six digit code" aria-label="The six digit code from the email"
+          style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:600 20px/1 var(--sans);letter-spacing:.2em;color:var(--ink);outline:none;min-height:56px">
+        <div id="joinMsg" role="alert" style="font:500 12.5px/1.5 var(--sans);color:var(--red)">${esc(joinErr)}</div>
+        <button class="btn" type="submit" style="background:linear-gradient(180deg,#2f93a9,#237f95);color:var(--on-primary);
+          box-shadow:0 12px 30px rgba(35,127,149,.3),inset 0 1px 0 rgba(255,255,255,.35)">Continue</button>
+        <button type="button" onclick="joinCodeFor='';joinErr='';render()" style="background:none;border:none;cursor:pointer;
+          padding:12px;font:500 13.5px/1 var(--sans);color:var(--grey)">Use a different email</button>
+      </form>`:`<form onsubmit="doJoin(event)" style="display:flex;flex-direction:column;gap:10px">
         ${appleBtnHTML(false)}
+        ${light?`<input id="joinNm" type="text" autocomplete="given-name" autocapitalize="words" maxlength="40"
+          placeholder="First name" aria-label="Your first name" value="${esc(st.firstName||'')}"
+          style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px">`:''}
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required
           placeholder="you@example.com" aria-label="Your email address"
           style="background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px">
@@ -27936,7 +27961,7 @@ function screenJoin(){
              was printed at the foot of the form under the Terms line, about
              150px below the field it was about and off the bottom of a phone
              with the keyboard up. It sits under the password now. -->
-        <div style="position:relative;display:flex">
+        ${light?'':`<div style="position:relative;display:flex">
           <input id="joinPw" type="password" autocomplete="new-password" required minlength="8"
             placeholder="Pick a password (8+ characters)" aria-label="Choose a password"
             style="flex:1;background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:16px;padding:18px;font:400 15px/1 var(--sans);color:var(--ink);outline:none;min-height:56px;padding-right:54px">
@@ -27952,7 +27977,7 @@ function screenJoin(){
               <line id="joinEyeSlash" x1="4" y1="20" x2="20" y2="4" style="display:none"></line>
             </svg>
           </button>
-        </div>
+        </div>`}
         <div id="joinMsg" role="alert" style="font:500 12.5px/1.5 var(--sans);color:var(--red);
           min-height:0">${esc(joinErr)}</div>
         <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:2px 2px 0">
@@ -27968,17 +27993,23 @@ function screenJoin(){
             : track ? 'Save my progress'
             : clip ? 'Continue'
             : plan ? 'Continue to payment'
-            : acct ? 'Create account' : 'Save and start'}</button>
+            : acct ? 'Create account' : quizEnd ? 'Show me my plan' : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
           <a href="/terms" target="_blank" rel="noopener" style="color:var(--forest)">Terms</a> and
           <a href="/privacy" target="_blank" rel="noopener" style="color:var(--forest)">Privacy Policy</a>.</div>
-      </form>
+      </form>`}
       <!-- the way past it is a button, under the form: it was a grey line
            at the foot of the screen and the form read as required -->
-      ${emailOptional()&&!trial&&!want&&!saving&&!plan&&!acct?`<button onclick="skipJoin()" style="width:100%;height:52px;margin-top:12px;border-radius:14px;
+      ${clip?`<button onclick="skipJoin()" style="width:100%;height:52px;margin-top:12px;border-radius:14px;
         border:1.5px solid rgba(35,127,149,.35);background:#fff;color:var(--forest);cursor:pointer;
-        font:600 15px/1 var(--sans)">${(st.joinFor==='track'||st.joinFor==='clip')?'Not now':'Start training without an account'}</button>`:''}
+        font:600 15px/1 var(--sans)">Not now</button>`:''}
+      <!-- After the quiz the plan is what the address is for, so on the
+           website there is no way round it (19 Nov 2026). In the iPhone app
+           Apple asks that free content can be used without an account, so
+           a small Not now stays there; Sign in with Apple is one tap. -->
+      ${light && !joinCodeFor && (!quizEnd || IOS_APP)?`<button onclick="skipJoin()" style="width:100%;background:none;border:none;margin-top:6px;
+        font:500 13px/1 var(--sans);color:var(--grey);cursor:pointer;padding:12px">Not now</button>`:''}
       <!-- Somebody who already has an account had no way off this screen but
            to type it in and be told it exists. -->
       <button onclick="joinToSignIn()" style="width:100%;height:50px;margin-top:14px;border-radius:14px;
@@ -27992,21 +28023,45 @@ function screenJoin(){
 /* never re-render on a validation error — it rebuilds the form and throws
    away what they typed */
 function joinSay(msg){ joinErr=msg; const m=$('#joinMsg'); if(m) m.textContent=msg; }
+/* the address that already had an account, while its code is typed in */
+let joinCodeFor='';
+function joinVerify(ev){
+  if(ev) ev.preventDefault();
+  const c=(($('#joinCode')||{}).value||'').replace(/\D/g,'');
+  if(c.length!==6){ joinSay('Type the six digits from the email.'); return; }
+  joinSay('Checking…');
+  const em=joinCodeFor;
+  fetch(AUTH.verify,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,code:c})})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(d=>{ joinCodeFor=''; joinErr='';
+      /* where the quiz put them goes up to the account they already had */
+      st.placeSent=false; st.signinFrom='joinFree'; if(st.joinFor!=='next') st.tab='signin'; signedIn(d, em); })
+    .catch(code=>joinSay(code===429 ? 'Too many tries. Wait a few minutes, then ask for a new code.'
+      : (code===401||code===400) ? 'That code did not work. Check it, or press Use a different email and try again.'
+      : 'Could not reach the server. Check you are online, then try again.'));
+}
 function doJoin(ev){
   if(ev) ev.preventDefault();
   const em=(($('#joinEm')||{}).value||'').trim().toLowerCase();
-  const pw=($('#joinPw')||{}).value||'';
+  const light=!$('#joinPw');                 /* the name and email ask, no password */
+  const pw=light ? '' : (($('#joinPw')||{}).value||'');
+  const nm=(($('#joinNm')||{}).value||'').trim().slice(0,40);
   const mk=!!(($('#joinMk')||{}).checked);
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ joinSay('That does not look like an email address.'); return; }
-  if(pw.length<8){ joinSay('Password needs at least 8 characters.'); return; }
-  joinSay('Creating your account…');
+  if(!light && pw.length<8){ joinSay('Password needs at least 8 characters.'); return; }
+  if(nm) st.firstName=nm;
+  joinSay(light ? 'One moment…' : 'Creating your account…');
   fetch(AUTH.signup,{method:'POST',headers:{'Content-Type':'application/json'},
     /* curStage is capped by what they have paid for, and at this moment
        there is no token, so it is always 0 and every self-serve signup
        reached the dashboard with no stage at all. Where the quiz put them
        is placedStage. */
-    body:JSON.stringify({email:em,password:pw,marketing:mk,stage:placedStage(),ref:st.ref||''})})
+    body:JSON.stringify({email:em,password:pw,name:nm,marketing:mk,stage:placedStage(),ref:st.ref||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>{
+      /* an account already on the address, asked for without a password: a
+         code has gone to it, typed in on this same screen */
+      if(d && d.codeSent){ joinErr=''; joinCodeFor=em; st.marketing=mk; save(); render();
+        setTimeout(()=>{ const c=$('#joinCode'); if(c) c.focus(); },60); return Promise.reject(''); }
       /* An address that already has an account is never signed up over any
          more. With a password it is a sign in; without one, the server has
          sent the code that sets one, so the next screen is the code. */
@@ -28016,7 +28071,7 @@ function doJoin(ev){
         setTimeout(()=>{ const m=$('#authMsg'); if(m) m.textContent='You already have an account. Sign in with its password.'; },30);
         return Promise.reject(''); }
       return Promise.reject((d && d.error)||'Could not create that account'); }))
-    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; track('signup'); setTimeout(codeResume,0);
+    .then(d=>{ joinErr=''; st.email=em; st.marketing=mk; st.plus=!!d.plus; if(nm && !st.client) st.client=nm; track('signup'); setTimeout(codeResume,0);
       if(d.token){ st.token=d.token; }          /* signed in, but not a coached client */
       /* The quiz is answered before there is an account to send it to, so
          for everybody who took it first, which is everybody, the answers

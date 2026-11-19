@@ -2569,6 +2569,34 @@ function cleanMuAnswers(x) {
   if (x.banded === 0 || x.banded === 1) out.banded = x.banded;
   return Object.keys(out).length ? out : null;
 }
+/* ── their plan, by email, after the quiz (19 Nov 2026) ──────────────
+   The app asks for an address at the end of the quiz, as "where should I
+   send your plan?", so this is what arrives: where they start, the link
+   back into the app, and how to open it on another phone. The first ten
+   days' notes follow from the daily run. */
+const PLAN_STAGES = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
+/* the stage summaries in ladder-data.js, as the app shows them */
+const PLAN_GOALS = ['Getting used to being upside down, kicking up with confidence, and learning to fall safely.',
+  'Longer holds on the wall, stronger shoulders, and your first moves against it.',
+  'Taking your weight off the wall on purpose: slides, box work and cleaner entries.',
+  'Leaving the wall for your first real seconds of balance.',
+  'Kicking up and balancing on your own, again and again rather than by luck.',
+  'The compression and strength to press up into a handstand with control.'];
+async function planEmail(e, name, stage) {
+  const i = Math.max(0, Math.min(5, Number.isInteger(Number(stage)) ? Number(stage) : 0));
+  const first = String(name || '').trim().split(/\s+/)[0] || '';
+  await email(e, `Your handstand plan: ${PLAN_STAGES[i]}`,
+    mail({
+      title: `You start at ${PLAN_STAGES[i]}.`,
+      greeting: first,
+      paras: [`Your answers put you at stage ${i + 1} of the Handstand Ladder, <b>${PLAN_STAGES[i]}</b>. ${PLAN_GOALS[i]}`,
+        'Your first session is ready in the app, built around the days and time you picked. Press Start and it talks you through every drill and every rest.',
+        'Over the next ten days I will send you five short notes, one thing to try in each.',
+        'To open it on another phone or laptop, press Sign in, then Forgotten it?, and a code comes to this address.'],
+      cta: { href: `${SITE}/lha-app.html?ref=planmail`, label: 'Open my plan' },
+      signoff: { line: 'See you upside down,', name: 'Elliott' },
+    }), 'reminders');
+}
 async function sendSetCode(e) {
   const n = new Uint32Array(1); crypto.getRandomValues(n);
   const code = String(100000 + (n[0] % 900000));
@@ -6047,7 +6075,15 @@ const handle = async (request) => {
       return bad();
     }
     await clearCode(e, 'login'); await codeClear(e, 'login');
-    return json({ token: await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }),
+    /* the address proved for the first time: any session made before, by
+       whoever typed it, stops here (see /signup) */
+    let iat0 = Date.now();
+    if (await getSetting(`uv:${e}`).catch(() => null)) {
+      await setSetting(`gone:${e}`, { at: Date.now() }).catch(() => {});
+      await dropSetting(`uv:${e}`).catch(() => {});
+      iat0 = Date.now() + 1;
+    }
+    return json({ token: await sign({ scope: 'app', email: e, iat: iat0, exp: Date.now() + TOKEN_TTL }),
                   client: name || e.split('@')[0],
                   /* /login has always said this and /verify never did, so the
                      code door could not reach the dashboard however the
@@ -6135,6 +6171,23 @@ const handle = async (request) => {
         return json({ error: 'There is already an account on that address. Sign in, or press Forgotten it? if the password has gone.',
                       exists: true }, 409);
       }
+      /* asked for with no password (the app's email step after the quiz,
+         19 Nov 2026): a sign in code to the address, typed on the same
+         screen, with no password to pick */
+      if (!pw) {
+        if ((await rateHit(`code:${e}`, 3600000)) <= 5) {
+          const rnd = new Uint32Array(1); crypto.getRandomValues(rnd);
+          const code = String(100000 + (rnd[0] % 900000));
+          await setCode(e, 'login', { code, tries: 0, expires_at: iso(Date.now() + CODE_TTL) });
+          await email(e, `${code} is your London Handstand Academy code`,
+            `<p style="font:16px/1.5 system-ui">Hi ${esc(prev.name || '') || 'there'},</p>
+             <p style="font:16px/1.5 system-ui">You already have an account on this address. Your code is</p>
+             <p style="font:700 34px/1 system-ui;letter-spacing:6px">${code}</p>
+             <p style="font:14px/1.5 system-ui;color:#666">It expires in 15 minutes. If you didn't ask for it, ignore this.</p>`,
+            undefined, { essential: true });
+        }
+        return json({ error: 'You already have an account on that address. I have sent a code to it.', codeSent: true }, 409);
+      }
       if ((await rateHit(`reset:${e}`, 3600000)) <= 5) await sendSetCode(e);
       return json({ error: 'You already have an account on that address. A code is on its way to it: type it in with the password you want.',
                     setPassword: true }, 409);
@@ -6159,10 +6212,22 @@ const handle = async (request) => {
     if (ref && !prev.email) await setSetting(`ref:${e}`, ref);
 
     if (!prev.email) await greetNew(e, acct);
+    /* No password (the app's email step after the quiz, 19 Nov 2026): signed
+       in on this phone straight away, as somebody who books a class is, and
+       the address is marked as not yet proved. Whoever later proves it, by
+       a code to it or a password reset, signs every earlier session out, so
+       somebody who typed another person's address keeps nothing of theirs.
+       Their plan goes to the address, which is also how they find the app
+       again. */
+    const fresh = !acct.hash && !prev.email;
+    if (fresh) {
+      await setSetting(`uv:${e}`, { at: Date.now() }).catch(() => {});
+      await later(() => planEmail(e, acct.name, acct.stage));
+    }
     return json({
       ok: true,
       plus: acct.plus,
-      token: acct.hash ? await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) : null,
+      token: (acct.hash || fresh) ? await sign({ scope: 'app', email: e, iat: Date.now(), exp: Date.now() + TOKEN_TTL }) : null,
     });
   }
 
@@ -6280,6 +6345,7 @@ const handle = async (request) => {
     /* a reset is the moment somebody else may have had the account: every
        older sign in stops here, and the person resetting gets a new one */
     await setSetting(`gone:${e}`, { at: Date.now() }).catch(() => {});
+    await dropSetting(`uv:${e}`).catch(() => {});
 
     await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
       `${e} reset their password`,
