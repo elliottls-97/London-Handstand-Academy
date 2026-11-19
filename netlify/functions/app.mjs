@@ -3922,7 +3922,7 @@ const handle = async (request) => {
     /* held at the edge for fifteen seconds: the switch still takes effect almost at once */
     return new Response(JSON.stringify({ booking: v === 'setmore' ? 'setmore' : 'site' }),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
-        'Netlify-CDN-Cache-Control': 'public, s-maxage=15, stale-while-revalidate=600' } });
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=15, stale-while-revalidate=600, durable' } });
   }
   if (path === '/site' && request.method === 'GET') {
     const page = String(url.searchParams.get('page') || '').replace(/[^a-z0-9-]/g, '').slice(0, 40);
@@ -6430,9 +6430,16 @@ const handle = async (request) => {
     trialDays: Number(PRICES.trialDays) || 0,
   });
   if (path === '/plans') {
+    /* The three reads below ran one after another (1.5 seconds at the
+       median); they go together now. The reply is the same for everybody,
+       so the edge keeps it for thirty seconds. Checkout reads the price
+       again on the server, so a label half a minute old sells nothing at
+       the wrong price (19 Nov 2026). */
+    const [coplansNow, placesNow, callsNow] = await Promise.all([coplansPublic(), placesPublic(),
+      callConf().then(async c => ({ intro: !!c.introOn && await callJoinable(c) })).catch(() => ({ intro: false }))]);
     /* form checks are priced on the spot from the dashboard's amount, so
        they are on sale with no Stripe price or link at all */
-    return json({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k] || (['checks', 'inneronline'].includes(k) && Number((PRICES[k]||{}).amount) > 0)),
+    return new Response(JSON.stringify({ plans: Object.keys(PLANS).filter(k => !!PLANS[k].price() || !!LINKS[k] || (['checks', 'inneronline'].includes(k) && Number((PRICES[k]||{}).amount) > 0)),
                   /* the app's month goes through the payment link whenever
                      there is one: a price id left in the environment from
                      the £5 days was quietly winning over the £15 link */
@@ -6445,10 +6452,12 @@ const handle = async (request) => {
                   periods: LADDER_PERIODS,
                   /* what each coaching tier says it includes, where the
                      coach has changed it from what the app ships */
-                  coplans: await coplansPublic(),
-                  places: await placesPublic(),
+                  coplans: coplansNow,
+                  places: placesNow,
                   /* the free call booked here (call.html) rather than in Calendly */
-                  calls: await callConf().then(async c => ({ intro: !!c.introOn && await callJoinable(c) })).catch(() => ({ intro: false })) });
+                  calls: callsNow }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+        ...(request.method === 'GET' ? { 'Netlify-CDN-Cache-Control': 'public, s-maxage=30, durable' } : {}) } });
   }
   /* ── coaching places: how many the home page says are open ── */
   if (path === '/coach/places') {
@@ -7522,7 +7531,7 @@ const handle = async (request) => {
     /* two dates booked together cost this, when the owner has set it */
     return new Response(JSON.stringify({ workshops: out, multi: multiOff, bundle: WS_BUNDLE }), { headers: {
       'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
-      'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600' } });
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600, durable' } });
   }
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open
@@ -9843,55 +9852,79 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
 
   if (path === '/ladder' && request.method === 'GET') {
+    /* One read for all of it. It was nineteen reads one after another on
+       every app open, each a round trip to the database: 4.5 seconds at the
+       median, over 8 on a phone (measured 19 Nov 2026). The reply is the
+       same for everybody, so the edge keeps it for twenty seconds too,
+       which is short enough that a change in the dashboard is in the app
+       by the time anybody has opened it to look. */
+    const S = await settingsMany([ONBOARDING, 'stream:fcheck', 'ladder:extra', 'ladder:off', 'drills:off', 'drills:custom', 'home:order',
+      'explain:extra', 'timing:custom', 'ladder:bands', 'ladder:mix', 'ladder:bandtiming', 'ladder:checkpoints',
+      'ladder:story', 'explain:keys', 'explain:edit', 'explain:intro', 'ladder:short', 'ladder:media']);
+    /* every six hours: any Foundations film locked since is opened again.
+       The stamp goes down first, so two opens at once do not both run it,
+       and it runs after the reply rather than holding this one up. A run
+       that fails is tried again in half an hour, not on every open. */
     try {
-      const last = Number(await getSetting('stream:fcheck').catch(() => 0)) || 0;
-      if (Date.now() - last > 6 * 3600e3) { await openFoundations(); await setSetting('stream:fcheck', Date.now()); }
+      if (Date.now() - (Number(S['stream:fcheck']) || 0) > 6 * 3600e3) {
+        await setSetting('stream:fcheck', Date.now());
+        await later(async () => {
+          try { await openFoundations(); }
+          catch (err) {
+            console.error('foundations check', String(err && err.message || err));
+            await setSetting('stream:fcheck', Date.now() - 5.5 * 3600e3).catch(() => {});
+          }
+        });
+      }
     } catch (err) { console.error('foundations check', String(err && err.message || err)); }
-    return json({ ladderExtra: (await getSetting('ladder:extra')) || {},
+    return new Response(JSON.stringify({
+                  ladderExtra: S['ladder:extra'] || {},
                   /* the welcome film a new coaching client sees first */
-                  welcomeFilm: (((await getSetting(ONBOARDING)) || {}).film) || '',
+                  welcomeFilm: ((S[ONBOARDING] || {}).film) || '',
                   /* drills the coach has taken off a stage */
-                  ladderOff:   (await getSetting('ladder:off')) || {},
+                  ladderOff:   S['ladder:off'] || {},
                   /* drills the coach has deleted: off every stage at once */
-                  drillsOff:   (await getSetting('drills:off')) || [],
+                  drillsOff:   S['drills:off'] || [],
                   /* drills made or changed in the dashboard. Only a coached
                      client was sent these, so a drill made there and put on
                      a stage never reached a free or ladder session. */
-                  drills:      await customDrills(),
-                  homeOrder:   (await getSetting('home:order')) || 'explainersFirst',
+                  drills:      withPress(S['drills:custom']),
+                  homeOrder:   S['home:order'] || 'explainersFirst',
                   /* explainers the coach added from the dashboard, by phase */
-                  explainExtra: (await getSetting('explain:extra')) || [],
-                  timing:      (await getSetting('timing:custom')) || {},
+                  explainExtra: S['explain:extra'] || [],
+                  timing:      S['timing:custom'] || {},
                   /* the three workouts, written out drill by drill where the
                      coach has written them. Empty means the stage is still
                      built from the level shares. */
-                  ladderBands: (await getSetting('ladder:bands')) || {},
+                  ladderBands: S['ladder:bands'] || {},
                   /* the level shares per stage, so a stage can have its own
                      mix rather than every stage sharing the shipped one */
-                  ladderMix:   (await getSetting('ladder:mix')) || {},
+                  ladderMix:   S['ladder:mix'] || {},
                   /* sets and reps that apply only inside one band, so the
                      same drill can be lighter in Easier than in Harder */
-                  bandTiming:  (await getSetting('ladder:bandtiming')) || {},
+                  bandTiming:  S['ladder:bandtiming'] || {},
                   /* the ladder's own check points, where the coach has
                      changed a wording, a target or the drill demonstrating it */
-                  ladderCps:   (await getSetting('ladder:checkpoints')) || {},
+                  ladderCps:   S['ladder:checkpoints'] || {},
                   /* the story each stage is told as after the quiz, where the
                      coach has written it: headlines, films and previews */
-                  ladderStory: (await getSetting('ladder:story')) || {},
+                  ladderStory: S['ladder:story'] || {},
                   /* the words the coach has added for finding an explainer */
-                  explainKeys: (await getSetting('explain:keys')) || {},
+                  explainKeys: S['explain:keys'] || {},
                   /* the shipped explainers as the coach has changed them:
                      wording, film, phases, or hidden altogether */
-                  explainEdit: (await getSetting('explain:edit')) || {},
+                  explainEdit: S['explain:edit'] || {},
                   /* the film that introduces each phase, where the coach
                      has chosen one other than the shipped */
-                  stageIntro:  (await getSetting('explain:intro')) || {},
+                  stageIntro:  S['explain:intro'] || {},
                   /* how long a session may be, and what a short one does
                      about sets. Shipped defaults until the coach sets them. */
-                  shortRules:  (await getSetting('ladder:short')) || {},
+                  shortRules:  S['ladder:short'] || {},
                   /* a picture or a film per stage, from the dashboard. A
                      stage without one looks exactly as it always has. */
-                  ladderMedia: (await getSetting('ladder:media')) || {} });
+                  ladderMedia: S['ladder:media'] || {} }),
+      { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=20, durable' } });
   }
 
   /* ── the session lengths, and what a short one is ────────────────
@@ -15200,7 +15233,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
 
     if (path === '/coach/dbcheck') {
-      return json(await supa.ping());
+      /* where this function runs, and what one read of the database costs
+         from here: 140 to 190 ms a read (19 Nov 2026) says the two are an
+         ocean apart, and every route pays it once per read */
+      const t0 = Date.now(); await getSetting('prices').catch(() => null); const oneReadMs = Date.now() - t0;
+      return json(Object.assign(await supa.ping(), { fnRegion: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '', oneReadMs }));
     }
 
     /* the last sixty emails this site tried to send, and what happened */
@@ -15347,8 +15384,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
 
     /* ── warm leads: everybody who pressed I'm interested (31 Oct 2026) ──
        Which emails they have had, a call they booked here, a start link
-       sent and opened, and whether they have paid. */
-    if (path === '/coach/leads') {
+       sent and opened, and whether they have paid. It answered at
+       /coach/leads, which the accounts list further up already answers, so
+       this was never reached and the Warm leads panel was always empty
+       (found 19 Nov 2026). */
+    if (path === '/coach/warmleads') {
       const since = new Date(Date.now() - 45 * 864e5).toISOString();
       const rows = (await supa.rows('applications', `created_at=gte.${enc(since)}&select=id,email,name,answers,status,created_at&order=created_at.desc`)) || [];
       const leads = rows.filter(a => /^interested in /i.test(String((a.answers || {}).source || '')));
