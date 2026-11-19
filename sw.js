@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v384';
+const CACHE_VERSION = 'lha-v385';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -135,7 +135,11 @@ self.addEventListener('fetch', event => {
      /me was on the list, so offline the last account's /me (and its
      bookings, under /me/) was handed to whoever was signed in (13 Oct 2026);
      the app keeps its own copy of what /me says. */
-  if (url.pathname.startsWith('/api/app/') && !/^\/api\/app\/(ladder|plans|fixes|workshops|site|programme)(\/|$)/.test(url.pathname)) return;
+  /* /programme was on the list too, kept under one address whatever the
+     account: offline, the last person's plan was handed to whoever was
+     signed in on that phone. The app keeps its own copy of the plan, by
+     email, and falls back to that (19 Nov 2026). */
+  if (url.pathname.startsWith('/api/app/') && !/^\/api\/app\/(ladder|plans|fixes|workshops|site)(\/|$)/.test(url.pathname)) return;
   if (url.hostname.indexOf('formspree.io') > -1) return;
 
   if (url.searchParams.get('lha') === 'saved') {

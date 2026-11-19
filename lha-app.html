@@ -2248,7 +2248,7 @@ button.px-step{cursor:pointer}
 .p-uprow{display:flex;align-items:center;gap:12px;background:#fff;border-radius:16px;
  padding:12px 14px;margin-top:10px}
 .p-upthumb{width:64px;height:44px;border-radius:10px;overflow:hidden;background:#11150f;flex:none}
-.p-upthumb video{width:100%;height:100%;object-fit:cover;display:block}
+.p-upthumb video,.p-upthumb img{width:100%;height:100%;object-fit:cover;display:block}
 /* Two wrappers that do nothing at all on a phone: display:contents takes
    them out of the layout, so what was a single column stays a single
    column in the same order. A wide screen turns them into two. */
@@ -5936,6 +5936,15 @@ const streamHls   = uid => STREAM_CDN+sigUid(uid)+'/manifest/video.m3u8'+(filmQ(
 const HLS_PROBE='a7cd457020f580093be946524a84c3af';
 let _hlsOk=null;
 try{ const v=localStorage.getItem('lha_hls'); if(v==='1'||v==='0') _hlsOk=(v==='1'); }catch(e){}
+/* An iPhone or iPad always plays the ladder: every browser there is WebKit.
+   The probe could still answer no on one (a slow first open, or metadata
+   that arrived before the picture's size), and a no was kept for good, so
+   that phone was sent the full size file of every film from then on: 132 MB
+   for the Foundations intro, which then would not decode (three reports in
+   the iPhone app, 16 to 18 Nov 2026). Here the answer is known. */
+const HLS_SURE=(()=>{ try{ const u=navigator.userAgent||'';
+  return /iPhone|iPad|iPod|LHAiOS/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints>1); }catch(e){ return false; } })();
+if(HLS_SURE) _hlsOk=true;
 function hlsOk(){ return _hlsOk===true; }
 /* ── Film quality ──────────────────────────────────────────────────
    Data saver, Auto or Best, from the menu (Elliott, 28 Oct 2026). Kept on
@@ -5994,7 +6003,8 @@ function probeHls(){
     if(!slow){ try{ localStorage.setItem('lha_hls', ok?'1':'0'); }catch(e){} }
     try{ v.removeAttribute('src'); v.load(); }catch(e){}
   };
-  v.addEventListener('loadedmetadata',()=>end(v.videoWidth>0));
+  /* no size yet is not a no: it is not kept, and the next open asks again */
+  v.addEventListener('loadedmetadata',()=>{ if(v.videoWidth>0) end(true); else end(false, true); });
   v.addEventListener('error',()=>end(false));
   setTimeout(()=>end(false, true), 4000);
   try{ v.src=streamHls(HLS_PROBE); }catch(e){ end(false); }
@@ -6039,6 +6049,12 @@ function filmRecover(v){
   if(cur.indexOf('lha=saved')>-1 && t.saved!==cur){ mark('saved');
     go(hlsUse() ? streamHls(uid) : streamMp4(uid)); return; }
   if(cur.indexOf('/manifest/')>-1 && t.mp4!==cur){ mark('mp4'); go(streamMp4(uid)); return; }
+  /* and the other way: a file that will not play, on a browser that says it
+     can play the ladder, tries the ladder once. There was no way back from
+     the file, so one failure on a big file was the end of that film. */
+  if(cur.indexOf('/downloads/')>-1 && !t.mp4 && !t.hls){
+    let can=''; try{ can=v.canPlayType('application/vnd.apple.mpegurl'); }catch(e){}
+    if(can){ mark('hls'); go(streamHls(uid)); return; } }
   /* a locked film: the token in the address is the uid itself when there
      is none, so ask for a set and try the film once more when it lands */
   if(!t.sign){ mark('sign');
@@ -13125,15 +13141,21 @@ const CH_TICKS='<svg width="18" height="11" viewBox="0 0 18 11" aria-hidden="tru
 const CH_CLOCK='<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 const chHasMsg = m => !!(m && (m.video || m.image || m.voice || String(m.text||'').trim()));
 const chKey = m => m.id || m.pid || ('t'+(m.at||0));
-const chTime = t => t ? new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : '';
+/* one formatter each, kept: toLocale...String built a new one per message,
+   which was 97% of the time it took to draw a long chat (19 Nov 2026) */
+const CH_FMT_TIME=new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit'});
+const CH_FMT_WDAY=new Intl.DateTimeFormat('en-GB',{weekday:'long'});
+const CH_FMT_DAY =new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long'});
+const CH_FMT_DAYY=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric'});
+const chTime = t => t ? CH_FMT_TIME.format(new Date(t)) : '';
 function chDay(t){
   if(!t) return 'Earlier';
   const d=new Date(t), now=new Date(), day=x=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
   const diff=Math.round((day(now)-day(d))/864e5);
   if(diff<=0) return 'Today';
   if(diff===1) return 'Yesterday';
-  if(diff<7) return d.toLocaleDateString('en-GB',{weekday:'long'});
-  return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',...(d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{})});
+  if(diff<7) return CH_FMT_WDAY.format(d);
+  return (d.getFullYear()!==now.getFullYear() ? CH_FMT_DAYY : CH_FMT_DAY).format(d);
 }
 const chSnip = m => m ? (String(m.text||'').trim().slice(0,90) || (m.video?'Video':m.image?'Photo':m.voice?'Voice note':'')) : '';
 const chLinks = s => s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
@@ -13702,6 +13724,10 @@ function moreLibrary(){
       onclick="openLib(${x.i})">
     ${lock?`<div style="aspect-ratio:4/3;display:grid;place-items:center;background:var(--mist);color:var(--grey2)">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>`
+      /* a still: these were 44 video elements, each asked for nothing
+         (preload none), so the tiles were probably empty boxes (19 Nov 2026) */
+      : uidOfUrl(x.it.url)?`<img src="${streamThumb(uidOfUrl(x.it.url))}" alt="" loading="lazy" decoding="async"
+              style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)">`
       : x.it.url?`<video data-lazy="${sig(x.it.url)}#t=0.6" muted playsinline preload="none"
               style="aspect-ratio:4/3;object-fit:cover;display:block;width:100%;background:var(--mist)"></video>`
             :''}
@@ -14241,7 +14267,10 @@ function upNextHTML(){
       return `<div class="p-upblock" data-up="${i}">
         <button class="p-uprow p-upbtn" onclick="toggleUp(${i})">
           <span class="p-upnum">${qi+2+i}</span>
-          ${it.url?`<span class="p-upthumb"><video src="${sig(it.url)}#t=0.6" muted playsinline preload="metadata"></video></span>`
+          ${/* a still, not a film: each rest built eight video elements, the
+               full size file for a 64 px picture among them (19 Nov 2026) */
+            uidOfUrl(it.url)?`<span class="p-upthumb"><img src="${streamThumb(uidOfUrl(it.url))}" alt="" loading="lazy" decoding="async"></span>`
+            :it.url?`<span class="p-upthumb"><video src="${sig(it.url)}#t=0.6" muted playsinline preload="metadata"></video></span>`
                   :'<span class="p-upthumb"></span>'}
           <span style="flex:1;min-width:0;text-align:left">
             <span style="display:block;font:600 14.5px/1.2 var(--sans)">${esc(it.n)}</span>
@@ -14251,8 +14280,8 @@ function upNextHTML(){
           <span class="p-upchev">▾</span>
         </button>
         <div class="p-updetail">
-          ${it.url?`<div class="p-upvid">${itemFilm(it,'16/10',true)}</div>`
-                  :''}
+          ${/* the film is put in when the row is opened (toggleUp) */
+            it.url?`<div class="p-upvid" data-upfilm="${i}"></div>`:''}
           ${it.desc?`<p style="font:600 14px/1.5 var(--sans);margin:12px 0 0">${esc(it.desc)}</p>`:''}
           ${cues.length?`<ul style="margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px">
             ${cues.map(c=>`<li style="font:400 13.5px/1.45 var(--sans);color:var(--grey)">${esc(c)}</li>`).join('')}
@@ -14265,6 +14294,8 @@ function toggleUp(i){
   if(!b) return;
   const opening=!b.classList.contains('open');
   b.classList.toggle('open');
+  if(opening){ const h=b.querySelector('.p-upvid[data-upfilm]'), q=Q[qi+1+i];
+    if(h && !h.firstChild && q && q.it && q.it.url) h.innerHTML=itemFilm(q.it,'16/10',true); }
   /* one open at a time, and stop any clip the closing one was playing */
   document.querySelectorAll('.p-upblock').forEach(x=>{
     if(x!==b){ x.classList.remove('open');
@@ -14283,6 +14314,8 @@ function showStep(){
   $('#p-idx').textContent = resting ? 'REST' : 'SET '+(qi+1)+' OF '+Q.length;
 
   const vw=$('#p-vwrap'), body=$('#p-body');
+  /* a film opened in the up next list goes with the list */
+  filmsFree(body);
   if(resting){
     tTotal=left=rest(Q[qi], qi, Q);
     /* the film is kept, paused and hidden, not thrown away: see below.
@@ -14633,11 +14666,21 @@ function sessionFeel(f){
   else if(dir<0) toast('Already on the easiest workouts for this stage.');
 }
 
+/* A film leaving the page gives its player back. A video element that is
+   only removed keeps its decoder until the browser gets round to collecting
+   it, and an iPhone has few: the story after the quiz left twelve behind,
+   every rest in a session eight, and the next big film would not decode
+   (19 Nov 2026). One in picture in picture is left alone. */
+function filmsFree(node){
+  try{ (node||document).querySelectorAll('video').forEach(v=>{
+    try{ if(document.pictureInPictureElement===v || v.webkitPresentationMode==='picture-in-picture') return;
+      v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} }); }catch(e){}
+}
 function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(done);
   /* their push up's best counted set, onto their check point */
   try{ strFromSession(); }catch(e){}
   try{ if('mediaSession' in navigator) navigator.mediaSession.metadata=null; }catch(e){}
-  document.querySelectorAll('#player video').forEach(v=>{try{v.pause()}catch(e){}});
+  filmsFree($('#player'));
   $('#player').classList.remove('on'); $('#player').innerHTML='';
   filmSlowLater();
   setTimeout(()=>{ try{ widgetPush(); }catch(e){} }, 2000);
@@ -15350,20 +15393,20 @@ document.addEventListener('click',function(e){
 /* Ten times a second, not sixty: a scrub line does not need more, and this
    was a whole document query on every frame the page was open, whether or
    not a single clip was on it. */
-let vbLast=0;
-(function vbLoop(t){
-  if(t-vbLast>100){
-    vbLast=t;
-    document.querySelectorAll('[data-vb]').forEach(function(box){
-      const v=box.querySelector('video'); if(!v) return;
-      const f=box.querySelector('[data-vb-fill]');
-      if(f && v.duration) f.style.width=((v.currentTime/v.duration)*100).toFixed(1)+'%';
-      const pl=box.querySelector('[data-vb-play]');
-      if(pl) pl.style.opacity = v.paused ? '1' : '0';
-    });
-  }
-  requestAnimationFrame(vbLoop);
-})(0);
+/* and a timer, not an animation frame that asked for the next one for ever:
+   that woke the page sixty times a second for the whole of a session to
+   look for a kind of clip almost no screen has (19 Nov 2026). */
+setInterval(function(){
+  if(document.hidden) return;
+  const boxes=document.querySelectorAll('[data-vb]'); if(!boxes.length) return;
+  boxes.forEach(function(box){
+    const v=box.querySelector('video'); if(!v) return;
+    const f=box.querySelector('[data-vb-fill]');
+    if(f && v.duration) f.style.width=((v.currentTime/v.duration)*100).toFixed(1)+'%';
+    const pl=box.querySelector('[data-vb-play]');
+    if(pl) pl.style.opacity = v.paused ? '1' : '0';
+  });
+}, 120);
 
 function drawOv(){
   const S=(typeof STAGES!=='undefined')?STAGES[st.ovStage||0]:null;
@@ -17970,8 +18013,10 @@ function watchVisit(){
     if(!visitSent || !visitStart) return;
     const ms=Date.now()-visitStart; visitStart=0;
     try{
+      /* caught: a page on its way out often cannot finish this, and the
+         uncaught refusal was filling the error list with "Load failed" */
       fetch(AUTH.progress,{method:'POST',headers:authed(),keepalive:true,
-        body:JSON.stringify({visit:{ms}})});
+        body:JSON.stringify({visit:{ms}})}).catch(()=>{});
     }catch(e){}
   };
   document.addEventListener('visibilitychange',()=>{ if(document.hidden) close(); });
@@ -22507,11 +22552,15 @@ function phaseFilmPic(u){
   const seen={}, drills=(pick ? pick.map(x=>{ const v=Array.isArray(x)?x[0]:x, d=drillById(v); if(d && Array.isArray(x)) at[d.url]=x[1]; return d; })
       : (cpFor(i)||[]).slice().reverse().map(c=>c && c.demo && drillById(c.demo)))
     .filter(d=>{ const id=d && d.url && uidOfUrl(d.url); if(!id || seen[id] || portraitUid(id)) return false; seen[id]=1; return true; }).slice(0,5);
-  const img=(src, k, uid)=>`<img class="pf-s${k?'':' on'}" src="${esc(src)}" alt="" ${k?'loading="lazy"':(sm.z?`style="transform:scale(${sm.z});transform-origin:0 0"`:'')}
+  /* only the first still is asked for with the page. The rest sit on top
+     of each other in the same box, so loading="lazy" never held them back
+     and all six came down at once, 536 KB against 24 KB for everything
+     else on Train; each is fetched a turn before it is shown (19 Nov 2026) */
+  const img=(src, k, uid)=>`<img class="pf-s${k?'':' on'}" ${k?'data-src':'src'}="${esc(src)}" alt="" ${k?'':(sm.z?`style="transform:scale(${sm.z});transform-origin:0 0"`:'')}
       onerror="${uid?`if(!this.dataset.f){this.dataset.f=1;this.src='/api/app/story/still?uid=${uid}'}else `:''}this.remove()">`;
   const slides=[img(smile,0,'')].concat(drills.map((d,k)=>{ const id=uidOfUrl(d.url);
     return img(STREAM_CDN+sigUid(id)+'/thumbnails/thumbnail.jpg?time='+(at[d.url]||'3s')+'&height=540', k+1, id); })).join('');
-  setTimeout(pfRotate,0);
+  setTimeout(pfRotate,0); setTimeout(pfAhead,1500);
   return `<span class="pf-pic${sm.own?' pf-own':''}">${slides}<span class="pf-shade"></span>
     <span class="pf-ttl${S.n.length>9?' long':''}"><small>PHASE ${PHASE_WORDS[i]||''}</small><b>${esc(S.n)}</b><em>of the<br>handstand ladder</em></span>
     <span class="pf-figs">${STAGES.map((x,k)=>`<span class="${k===i?'on':''}"><i>${lwFigSVG(k)}</i><small>${esc(x.n)}</small></span>`).join('')}</span>
@@ -22521,11 +22570,18 @@ function phaseFilmPic(u){
 /* one timer for whichever card is on screen; a still that failed to load
    has gone from the card, so it is never waited on */
 let pfTimer=null;
+/* the next still that has not been asked for yet, asked for */
+function pfAhead(){
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(e){}
+  const w=document.querySelector('.pf-pic .pf-s[data-src]');
+  if(w){ w.src=w.getAttribute('data-src'); w.removeAttribute('data-src'); }
+}
 function pfRotate(){
   if(pfTimer) return;
   try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(e){}
   pfTimer=setInterval(()=>{
     const box=document.querySelector('.pf-pic'); if(!box){ clearInterval(pfTimer); pfTimer=null; return; }
+    pfAhead();
     const all=[...box.querySelectorAll('.pf-s')].filter(x=>x.complete && x.naturalWidth); if(all.length<2) return;
     const at=all.findIndex(x=>x.classList.contains('on')), nx=all[(at+1)%all.length];
     all.forEach(x=>x.classList.toggle('on', x===nx));
@@ -26166,17 +26222,29 @@ function minisHTML(){
 try{ ['online','offline'].forEach(ev=>window.addEventListener(ev, ()=>{ if(!st.ov && (st.tab==='home'||st.tab==='today')) render(); })); }catch(e){}
 function cacheSession(list){
   try{
-    const urls=[...new Set((list||[]).map(x=>x && x.it && x.it.url).filter(Boolean))].filter(u=>!dlHas(uidOfUrl(u))).slice(0,20);
+    /* 19 Nov 2026: this asked for every film in the session as its full
+       size file, twenty of them within a few seconds of Start (the wait
+       between them ended at each reply's first bytes, not its last): 129 MB
+       for a fifteen minute Foundations session, 200 MB for thirty. On an
+       iPhone the film that plays is the ladder, a different address, so
+       none of it was ever used, and it fought the first drill's film for
+       the signal, which is where most people stopped. So: nothing where
+       the ladder plays, nothing on Data saver (the menu promises "nothing
+       loaded ahead") or a slow or metered connection, and elsewhere only
+       the next few, one at a time. A film kept for no signal is the way to
+       train in a basement. */
+    if(hlsUse() || filmQ()==='saver') return;
+    const c=navigator.connection||{};
+    if(c.saveData || /(^|-)[23]g$/.test(String(c.effectiveType||''))) return;
+    const urls=[...new Set((list||[]).map(x=>x && x.it && x.it.url).filter(Boolean))].filter(u=>!dlHas(uidOfUrl(u))).slice(1,5);
     let i=0;
     const next=()=>{
       if(i>=urls.length) return;
       const u=urls[i++];
-      fetch(sig(u), {mode:'no-cors', credentials:'omit'})
-        .catch(()=>{}).then(()=>setTimeout(next, 150));
+      fetch(sig(u), {mode:'no-cors', credentials:'omit'}).catch(()=>{});
+      setTimeout(next, 12000);
     };
-    /* two at a time: enough to get ahead of the session, not enough to
-       fight the film that is playing right now for the connection */
-    next(); setTimeout(next, 80);
+    setTimeout(next, 4000);
   }catch(e){}
 }
 function startQueue(from){
@@ -30245,6 +30313,8 @@ function render(){
        arrival — entrance animations replaying on every tap is what made it
        feel choppy. */
     app.dataset.still = same ? '1' : '';
+    /* leaving a screen: its films are given back before they are dropped */
+    if(!same) filmsFree(app);
     swapKeepBar(app, html); app.dataset.screen=scrKey();
     lsRunSync(!same);
     /* The page only gives up its right hand margin on the screens that

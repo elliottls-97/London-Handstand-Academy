@@ -26,7 +26,9 @@
   /* the app asks one real film whether the ladder plays and keeps the
      answer here; until it has, every iPhone browser is WebKit and does */
   var ios=/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
-  var hls=function(){ var h=get('lha_hls'); return h==='1' || (h==null && ios); };
+  /* an iPhone always plays the ladder, whatever an old probe in the app
+     left behind (19 Nov 2026) */
+  var hls=function(){ var h=get('lha_hls'); return ios || h==='1'; };
   var uidOf=function(u){ var m=/cloudflarestream\.com\/([a-f0-9]{32})\//.exec(String(u||'')); return m?m[1]:''; };
 
   /* what this phone has saved, read once a page (and again after a save) */
