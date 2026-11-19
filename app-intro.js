@@ -33,7 +33,12 @@
      scene: built inside the scene it had to fetch 16 MB behind the seven check
      point films still downloading, and played black (Elliott, 5 Nov 2026) */
   var WAY = 'aa4d27ce00fb663bc340ccac433d2d43';
-  var pre = D.createElement('video'); pre.muted = true; pre.playsInline = true; pre.loop = true; pre.preload = 'auto'; pre.poster = still(WAY, 480); pre.src = film(WAY);
+  /* Asked for when the intro opens, not when the page does (19 Nov 2026): on
+     the home page and the class page this is mounted at the top of the page
+     for an advert half way down it, and a laptop browser took a third of the
+     16 MB film, about 5 MB, on every view whether or not anybody scrolled
+     that far. Opening still gives it its five seconds' start on the scene. */
+  var pre = D.createElement('video'); pre.muted = true; pre.playsInline = true; pre.loop = true; pre.preload = 'none'; pre.poster = still(WAY, 480);
   var TICK = '<svg class="tk" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" pathLength="1"/></svg>';
   /* the app's own Foundations check points */
   var CPS = [['Chair-assisted handstand', '20s', 'a3f7be549122a3e84dd46e1530724349'], ['Falling off the wall', 'until it feels easy', '045869a0384df496680feb0922bf0acb'],
@@ -199,6 +204,7 @@
     if(I.dataset.on) return; I.dataset.on = '1';
     I.hidden = false; I.classList.remove('two'); clearScene();
     bg.src = (opts.base || '') + '/assets/welcome/elliott-handstand.mp4'; var p = bg.play(); if(p && p.catch) p.catch(function(){});
+    if(!pre.getAttribute('src')){ pre.preload = 'auto'; pre.src = film(WAY); }
     try{ var pp = pre.play(); if(pp && pp.then) pp.then(function(){ pre.pause(); pre.currentTime = 0; }).catch(function(){}); }catch(x){}
     clearTimeout(twoT);
     twoT = setTimeout(function(){ if(I.hidden) return; I.classList.add('two'); feat(0); }, (opts && opts.twoAfter) || 5600);

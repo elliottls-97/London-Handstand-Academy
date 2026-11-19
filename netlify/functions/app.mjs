@@ -7529,9 +7529,19 @@ const handle = async (request) => {
     const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
+    /* Shared between every edge now (durable). And the copy the class page
+       is sent with (?edge=1, asked for by site-meta.js) is kept for a day
+       past its thirty seconds: one that old is still handed over at once
+       while a new one is fetched behind it, and the page asks the ordinary
+       address again three seconds after it opens. So a quiet night no
+       longer means the first visitor of the morning waits 1.5 seconds for
+       dates, and nothing else that reads this (the app, the home page) is
+       ever shown a copy more than ten minutes old (19 Nov 2026). Booking
+       checks the places and the price on the server. */
+    const edgeCopy = url.searchParams.get('edge') === '1';
     return new Response(JSON.stringify({ workshops: out, multi: multiOff, bundle: WS_BUNDLE }), { headers: {
       'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
-      'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=600, durable' } });
+      'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=' + (edgeCopy ? 86400 : 600) + ', durable' } });
   }
   /* a workshop discount code: pounds or percent off, for one workshop or all,
      with a use count and an expiry. Kept apart from the app codes, which open

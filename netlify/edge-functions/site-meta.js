@@ -60,6 +60,12 @@ function classEvents(list, origin) {
         description: 'A ' + (Number(w.mins) || 90) + ' minute all levels handstand class. Complete beginners through to press and one arm work. Every drill has a regression and a progression, so everyone works on the next thing for them.' }; });
 }
 
+/* Who reads a page as it arrives and never runs its scripts: search
+   engines, and the apps that draw a link's preview. Anybody else is a
+   person, whose page finishes itself. A person taken for one of these only
+   waits as long as everybody used to. */
+const READER = /bot\b|bot\/|crawl|spider|slurp|externalhit|facebot|whatsapp|telegram|discord|slack|linkedin|pinterest|embedly|preview|vkshare|redditbot|quora|skypeuri|bingpreview|google-|googlebot|applebot|chatgpt|gptbot|oai-search|claude|perplexity|duckduck|yandex|baidu/i;
+
 function setMeta(html, re, tag) {
   return re.test(html) ? html.replace(re, tag) : html.replace('</head>', tag + '\n</head>');
 }
@@ -68,7 +74,19 @@ export default async (request, context) => {
   const url = new URL(request.url);
   const page = PAGES[url.pathname];
   if (!page || request.method !== 'GET' || url.searchParams.has('siteedit')) return context.next();
-  let E = null, W = [], P = 0, got = false;
+  /* 19 Nov 2026: this held every page back for up to a second while it
+     asked the site's own API for the editor's settings and the class dates,
+     and on a quiet minute the answer did not come in time, so the wait
+     bought nothing: the home page's first byte took 1.2 to 2.7 seconds,
+     the class page's 1.5 to 1.9, on nine views in fifteen. The settings
+     (a title, a description, a sharing picture) matter only to a reader
+     that runs no scripts, so only those wait for them. A person on the
+     home page waits for nothing. A person on the class page gets the dates
+     if they are already held at the edge (a fraction of a second), and
+     otherwise the page, which asks for them itself as it starts. */
+  const reader = READER.test(request.headers.get('user-agent') || '');
+  if (!reader && page !== 'handstand-class') return context.next();
+  let E = null, W = [], P = 0, B = null, got = false;
   /* Each on its own clock. They shared one abort and one Promise.all, so a
      slow workshop list cost the page its edits. */
   const get = (path, ms) => {
@@ -83,12 +101,16 @@ export default async (request, context) => {
        up to a second and a half before the first byte was the slow part of
        the class page (16 Oct 2026, review) */
     const [s, w] = await Promise.all([
-      get('/api/app/site?page=' + page, 900),
-      page === 'handstand-class' ? get('/api/app/workshops', 1100) : null]);
+      reader ? get('/api/app/site?page=' + page, 1500) : null,
+      /* ?edge=1 is the copy the edge may hold for a day (see /workshops in app.mjs) */
+      page === 'handstand-class' ? get('/api/app/workshops?edge=1', reader ? 1800 : 600) : null]);
     E = (s && s.e) || null;
     /* the saving for more than one place, as the dashboard sets it (the
        pair price is gone; this still read it, so the page always used £5) */
     W = (w && w.workshops) || []; P = w && w.multi != null ? Number(w.multi) || 0 : 500; got = !!(w && w.workshops);
+    /* any three for one price: it was left out of what is handed to the
+       page, so whenever the dates came this way the offer was not shown */
+    B = (w && w.bundle) || null;
   } catch { /* the page as it is */ }
   const m = (E && E.m) || {};
   const title = m.title || (page === 'handstand-class' ? classTitle(W) : '');
@@ -117,7 +139,7 @@ export default async (request, context) => {
       html = html.replace(/<!--events-->[\s\S]*?<!--\/events-->/, () => '<!--events-->' + classEvents(W, url.origin)
         .map(e => '<script type="application/ld+json">' + JSON.stringify(e).replace(/</g, '\\u003c') + '</script>').join('\n') + '<!--/events-->');
     if (page === 'handstand-class' && got)
-      html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, multi: P }).replace(/</g, '\\u003c') + '</script>\n</head>');
+      html = html.replace('</head>', '<script>window.__LHA_WS=' + JSON.stringify({ workshops: W, multi: P, bundle: B, edge: 1 }).replace(/</g, '\\u003c') + '</script>\n</head>');
     if (img) {
       html = setMeta(html, /<meta\s+property="og:image"[^>]*>/i, `<meta property="og:image" content="${attr(img)}">`);
       html = setMeta(html, /<meta\s+name="twitter:image"[^>]*>/i, `<meta name="twitter:image" content="${attr(img)}">`);
