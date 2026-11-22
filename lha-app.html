@@ -2235,6 +2235,21 @@ button.px-step{cursor:pointer}
 .askpill-t small{font:500 11px/1.2 var(--sans);color:var(--grey)}
 .askpill i{position:absolute;top:-4px;left:30px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--amber);color:#1b1b1b;font:700 10.5px/18px var(--sans);text-align:center;font-style:normal}
 @media (max-width:360px){.askpill-t small{display:none}}
+#askw{position:fixed;inset:0;z-index:960;display:flex;flex-direction:column;background:#fcfcfc;padding-top:env(safe-area-inset-top,0px)}
+#askw.awin{animation:awUp .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes awUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){#askw.awin{animation:none}}
+.askw-h{flex:none;display:flex;align-items:center;gap:12px;padding:14px 14px 12px 16px;background:#fff;border-bottom:1px solid rgba(29,85,102,.08)}
+.askw-h b{display:block;font:600 16px/1.2 var(--sans);color:var(--ink)}
+.askw-h small{display:block;font:400 12.5px/1.35 var(--sans);color:var(--grey);margin-top:2px}
+.askw-x{flex:none;width:40px;height:40px;border-radius:50%;border:1px solid rgba(29,85,102,.14);background:#fff;cursor:pointer;display:grid;place-items:center;color:var(--deep)}
+#askw .schat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 8px}
+#askw .composer{position:static!important;left:auto!important;right:auto!important;bottom:auto!important;flex:none;
+ padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 10px)!important;background:#fff;border-top:1px solid rgba(29,85,102,.08)}
+.askw-note{flex:none;margin:0 12px 10px;padding:14px;border-radius:18px;background:#fff;border:1.5px solid rgba(35,127,149,.35);
+ box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06);display:flex;flex-direction:column;gap:12px;font:400 13.5px/1.45 var(--sans);color:var(--grey)}
+.askw-note b{color:var(--ink);font-weight:600}
+.askw-note .btn,.askw-note .btn2{width:100%;margin:0;min-height:46px}
 .cp-why{font:400 13px/1.45 var(--sans);color:var(--grey)}
 .cp-why b{font:700 9.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest);margin-right:6px}
 .ltd-w{position:relative;margin:14px 0 2px}
@@ -12697,6 +12712,7 @@ function sendAssessment(file, question){
       .then(gateCheck);
   })
   .then(()=>{ upBusy=false; upSay('Sent. Elliott replies on video '+fcWhen()+'.'); st.freeCheckUsed=true; st.awaitingReview=Date.now(); st.fcDraft=null; st.checkOpen=true;
+      st.checkClips=(st.checkClips|0)+1; try{ loadEntitlement(); }catch(e){}
       /* a filmed clip is the baseline. Nothing used to set this, so the
          profile bar stopped at 85% with no way to move it. */
       st.intake=st.intake||{}; st.intake.baseline=Date.now();
@@ -13283,7 +13299,8 @@ const sideChatOn = () => { try{ if(!wide() || !st.token || st.preview) return fa
   if(coachedView()) return ['today','plan','progress'].includes(st.tab) && !st.paused;
   if(st.tab==='hscheck') return true;
   return section()==='co' && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
-const onChatScreen = () => st.tab==='ask' || (fchatAllowed() ? st.fchat==='open' : (st.tab==='coaching' && (coTab()==='chat' || askOne())));
+let askwOpen=false, askwAnim=false;
+const onChatScreen = () => st.tab==='ask' || (askwOpen && askwOk()) || (fchatAllowed() ? st.fchat==='open' : (st.tab==='coaching' && (coTab()==='chat' || askOne())));
 function chatScroller(){ const l=document.getElementById('chatList'); return l ? l.closest('.scroll') : null; }
 function chatToEnd(smooth){
   const sc=chatScroller(); if(!sc) return;
@@ -13455,6 +13472,7 @@ function chatVoice(){
 }
 function chatAttach(){
   if(upBusy){ upSay('Still sending the last one. One moment.'); return; }
+  if(freeClipLeft()){ askwClip(); return; }
   chatSheet([{label:'Video', fn:()=>pickClip()}, {label:'Photo', fn:()=>pickPhoto()}]);
 }
 /* a photo opens over the chat, not in a browser outside the app */
@@ -27091,6 +27109,7 @@ function coScroll(k, smooth){
    that used it. One helper, and it lands on the conversation either way. */
 function goAsk(){
   if(fchatAllowed()){ fchatSet(true); return; }
+  if(askwOk() && st.tab!=='coaching'){ askwSet(true); return; }
   if(coachedView()){ go('ask'); return; }
   st.coTab='chat'; save();
   if(st.tab!=='coaching') go('coaching'); else setCoTab('chat');
@@ -27508,7 +27527,7 @@ function screenCoaching(){
     : `${chatPushBar()}<div id="chatList" class="clist" data-empty="Nothing here yet.&lt;br&gt;Ask about a drill, something that hurts, or ${IOS_APP?'where to start':'which plan fits'}."
         style="flex:1 0 auto">${chatThreadHTML('Nothing here yet.<br>Ask about a drill, something that hurts, or '+(IOS_APP?'where to start':'which plan fits')+'.')}</div>
       <div id="chatEnd"></div>
-      ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}`;
+      ${chatComposerHTML('Message '+coachLabel(), chatMediaOk())}`;
 
   /* Questions people actually ask before they buy, answered against what
      the thing does today: it arrives in this app, it starts with a clip,
@@ -29021,7 +29040,7 @@ function sideChatHTML(float){
       <button class="fcmin" onclick="fchatSet(false)" aria-label="Minimise the chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`:''}</div>
     <div class="scroll schat" onscroll="chatJumpPaint()">${chatPushBar()}<div id="chatList" class="clist" data-empty="${esc(empty)}">${chatThreadHTML(empty)}</div><div id="chatEnd"></div></div>
-    ${chatComposerHTML('Message '+coachLabel(), !!(st.checkOpen||st.coached))}
+    ${chatComposerHTML('Message '+coachLabel(), chatMediaOk())}
   </div>`;
 }
 /* where the chat floats: anywhere on a laptop once opened, and as a pill on
@@ -29040,8 +29059,60 @@ function fchatSet(open){
    second half of the Form check tab, which few found. Now a pill above the
    tab bar on Train, Progress and Learn, with Elliott's face and the count of
    anything he has sent; it opens the chat, where a clip goes too. */
+/* ── Ask Elliott as a chat window (Elliott, 22 Nov 2026: "it should open as
+   a chat window or bubble page, so its still on the handstand section";
+   "there will need to be a way to attach video just limited to one") ─────
+   On a phone the pill opens the conversation over the screen they are on,
+   the way a laptop's floats bottom right, instead of moving them to the
+   Coaching section. A free account's first clip is attached here, from the
+   paperclip or the card above the box, and goes as the free form check
+   with whatever they have typed as the question. One clip: after it, the
+   paperclip is gone until a check is open again. */
+const askwOk = () => { try{ return !wide() && !!st.token && !st.preview && !coachedView(); }catch(e){ return false; } };
+const freeClipLeft = () => { try{ return !!st.token && !st.coached && !st.in && !!st.canCheck && !st.freeCheckUsed && !st.checkOpen && !sentClip(); }catch(e){ return false; } };
+const chatMediaOk = () => !!st.coached || freeClipLeft() || (!!st.checkOpen && (st.checkClips|0) < (st.checkMax||3));
+function askwSet(open){
+  askwOpen=!!open;
+  if(open){ chatSeenAtOpen=st.seenMsgAt||0; markChatSeen(); askwAnim=true; }
+  render(); askwAnim=false;
+  if(open) chatOpened();
+}
+function askwClip(){
+  if(upBusy){ upSay('Still sending the last one. One moment.'); return; }
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*,image/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    const q=String((document.getElementById('askIn')||{}).value||askDraft||'').trim();
+    askDraft=''; const t=document.getElementById('askIn'); if(t){ t.value=''; chatGrow(t); }
+    sendAssessment(f, q); };
+  inp.click();
+}
+function askwHTML(){
+  if(!askwOpen || !askwOk() || st.tab==='coaching') return '';
+  const empty='Nothing here yet.<br>Ask about a drill, something that hurts, or where to start.';
+  const by = st.awaitingReview ? new Date(st.awaitingReview+(fcPaid()?2:7)*864e5).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}) : '';
+  const note = freeClipLeft()
+    ? `<div class="askw-note"><span><b>Your first clip is free.</b> Film one attempt, side on, whole body in frame. Type what you want to know, then send the clip. A video back within 7 days.</span>
+        <button class="btn" onclick="askwClip()">Send a clip</button></div>`
+    : st.awaitingReview
+    ? `<div class="askw-note"><span><b>Your clip is with ${esc(coachLabel())}.</b> A video back by ${esc(by)}. Ask anything here meanwhile.</span></div>`
+    : (st.freeCheckUsed && !chatMediaOk())
+    ? `<div class="askw-note"><span><b>That is your free clip used.</b> Questions are still free, any time.</span>
+        <button class="btn2" onclick="askwOpen=false;st.coTab='check';save();go('coaching')">More form checks</button></div>` : '';
+  return `<div id="askw" class="${askwAnim?'awin':''}" role="dialog" aria-label="Ask ${esc(coachLabel())}">
+    <div class="askw-h"><span class="askpill-i">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>
+      <span style="flex:1;min-width:0"><b>Ask ${esc(coachLabel())}</b><small>A question, or a clip of your handstand. Usually replies within 48 hours.</small></span>
+      <button class="askw-x" onclick="askwSet(false)" aria-label="Close the chat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+    <div class="scroll schat" onscroll="chatJumpPaint()">${chatPushBar()}<div id="chatList" class="clist" data-empty="${esc(empty)}">${chatThreadHTML(empty)}</div><div id="chatEnd"></div></div>
+    ${note}
+    ${chatComposerHTML('Message '+coachLabel(), chatMediaOk())}
+  </div>`;
+}
 function askPillHTML(){
   try{
+    if(askwOpen) return askwHTML();
     if(wide() || !st.token || st.preview || coachedView() || isMU()) return '';
     if(['home','ladder','learn'].indexOf(st.tab)<0) return '';
     if(st.ov) return '';
