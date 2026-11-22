@@ -1162,9 +1162,15 @@ const JR_SCREEN={welcome:'The welcome screen',landed:'Where the quiz put them','
   'ov-paywall':'The upgrade','ov-locked':'Something locked','ov-iap':'The Apple purchase','ov-drill':'A drill film','ov-explainer':'An explainer film',
   'ov-list':'The drill list','ov-intro':'The film about the app','ov-apply':'Applying for coaching','ov-account':'Their account',
   'ov-cleared':'A stage cleared','ov-checkin':'A check in','ov-feedback':'Sending feedback','ov-install':'Installing the app'};
+Object.assign(JR_SCREEN, {learn:'Learn', classes:'Classes', bookings:'Their bookings', 'ladder-over':'Progress, over time',
+  'ov-wsbook':'Booking a class', 'ov-pfilm':'The press film', 'ov-cp':'A check point', 'ov-stuck':'Nothing to build', 'ov-joinform':'Asked for an email',
+  'ov-session':'Booking a 1-2-1', 'ov-fix':'A fix', 'ov-learn':'A Learn page', 'ov-story':'A Learn story'});
 const jrName=k=>{ if(!k) return '?'; if(JR_SCREEN[k]) return JR_SCREEN[k];
   const q=/^quiz-(\d+)$/.exec(k); if(q) return 'Quiz, question '+(Number(q[1])+1);
-  if(k.startsWith('ladder-')) return 'The ladder, '+k.slice(7); if(k.startsWith('ov-')) return 'The '+k.slice(3)+' sheet'; return k; };
+  if(k.startsWith('ladder-')) return 'The ladder, '+k.slice(7); if(k.startsWith('ov-')) return 'The '+k.slice(3).replace(/-/g,' ')+' sheet';
+  return k.charAt(0).toUpperCase()+k.slice(1).replace(/-/g,' '); };
+/* a drill id as its name */
+const drillNm=v=>(libIndex||{})[v]||String(v||'').replace(/-/g,' ');
 /* the Learn stories by name, for the Journey report */
 const STORY_NAME={'why-you-cant-muscle-up-yet':"Why you can't muscle up yet",'the-false-grip':'The false grip',
   'the-kick-up':'The kick up','falling-the-quick-version':'Falling, the quick version'};
@@ -1297,13 +1303,14 @@ function journeyHTML(){
   const st_=jr.stalled||{};
   const ppl=(list,why)=>Array.isArray(list)&&list.length?list.map(p=>`<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.4 var(--sans)">
       <b style="min-width:110px;font-weight:600">${esc(p.name||p.email.split('@')[0])}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(p.email)}</span>
-      <span class="muted" style="flex:none;font-size:12px">joined ${esc(String(p.joined||'').slice(0,10))} · ${p.finished}/${p.sessions} finished${p.coached?' · coached':''}${p.paid?' · paid':''}</span></div>`).join('')
+      <span class="muted" style="flex:none;font-size:12px">joined ${esc(p.joined?new Date(p.joined).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'?')} · ${p.sessions?p.finished+' of '+p.sessions+' finished':'no sessions'}${p.booker?' · booked a class':''}${p.coached?' · coached':''}${p.paid?' · <b style="color:var(--red)">paying</b>':''}</span></div>`).join('')
     :`<div class="muted" style="font-size:13px;padding:6px 0">Nobody. ${why}</div>`;
-  const ET=errThings(jr.errs||[]), errs=ET.things;
+  if(owner) try{ loadPaying(); }catch(e){}
+  const ET=errThings((jr.errs||[]).filter(e=>!((e.who||[]).length && (e.who||[]).every(errMine)))), errs=ET.things;
   return `<div class="card">
     <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
       <div class="kick">THE JOURNEY · ${jrDays===1?'TODAY':'LAST '+jrDays+' DAYS'}</div>
-      <span class="muted" style="font-size:11.5px">against the ${jrDays===1?'day':jrDays+' days'} before · screens, quiz and session counts from 16 Oct</span>
+      <span class="muted" style="font-size:11.5px">against the ${jrDays===1?'day':jrDays+' days'} before · from 23 Nov a session counts as started at its first set, not when its list is opened</span>
       <span style="flex:1"></span>
       ${[1,7,30].map(d=>`<button onclick="jrDays=${d};loadJourney(true)" style="cursor:pointer;border-radius:999px;padding:6px 11px;font:600 11px/1 var(--sans);
         border:1.5px solid ${jrDays===d?'var(--forest)':'var(--line)'};background:${jrDays===d?'var(--forest)':'#fff'};color:${jrDays===d?'#fff':'var(--ink)'}">${d===1?'Today':d+' days'}</button>`).join('')}
@@ -1312,7 +1319,7 @@ function journeyHTML(){
       The biggest drop: <b>${Math.round(worst.lost*100)}%</b> of people who ${esc(worst.from.toLowerCase())} did not go on to ${esc(worst.to.toLowerCase().replace(/^finished/,'finish').replace(/^started/,'start'))}.</div>`:''}
     <div class="kick" style="margin-top:18px">THE APP</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      ${tile(g('open'))}${tile(g('quizq0'),g('open').n,'opens')}${tile(g('quiz'),g('quizq0').n,'quiz starts')}${tile(g('start'),g('open').n,'opens')}
+      ${tile(g('open'))}${tile(g('quizq0'),g('open').n,'opens')}${tile(g('quiz'),g('quizq0').n,'quiz starts')}${A.listopen&&A.listopen.n?tile(g('listopen'),g('open').n,'opens'):''}${tile(g('start'),g('open').n,'opens')}
       ${tile(g('finish'),g('start').n,'starts')}${tile(g('first1'))}${tile(g('first2'),g('first1').n,'first sessions')}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       ${tile(g('signup'))}${tile(g('wall'))}${tile(g('paywall'))}${tile(g('checkout'))}${tile(g('subscribed'),g('checkout').n,'checkouts')}${tile(g('ret7'))}</div>
@@ -1326,10 +1333,10 @@ function journeyHTML(){
         <div class="kick" style="margin-top:18px">SESSIONS CLOSED PART WAY</div>
         ${tenth.length?tenth.map(x=>bar(x.tenth===0?'In the first tenth':x.tenth*10+'% of the way through',x.n,tmax,'')).join('')
           :'<div class="muted" style="font-size:13px;margin-top:8px">None closed early yet.</div>'}
-        ${(Qt.drills||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">On: ${(Qt.drills||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
+        ${(Qt.drills||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">On: ${(Qt.drills||[]).map(x=>esc(drillNm(x.key))+' '+x.n).join(' · ')}</div>`:''}
         ${(Qt.why||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:6px">Why: ${(Qt.why||[]).map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n).join(' · ')}</div>`:''}
         <div class="kick" style="margin-top:18px">DRILLS SKIPPED IN THE FOLLOW ALONG</div>
-        ${(jr.skips||[]).length?(()=>{ const m=Math.max(1,...jr.skips.map(x=>x.n)); return jr.skips.map(x=>bar(x.key.replace(/-/g,' '),x.n,m,'')).join(''); })()
+        ${(jr.skips||[]).length?(()=>{ const m=Math.max(1,...jr.skips.map(x=>x.n)); return jr.skips.map(x=>bar(drillNm(x.key),x.n,m,'')).join(''); })()
           :'<div class="muted" style="font-size:13px;margin-top:8px">None skipped yet. Counting from 30 Oct.</div>'}
       </div>
     </div>
@@ -1346,7 +1353,7 @@ function journeyHTML(){
     <div class="kick" style="margin-top:20px">WHERE NEW ACCOUNTS CAME FROM</div>
     ${(()=>{ const sa=((jr.sources||{}).accounts||[]), se=((jr.sources||{}).events||[]), m=Math.max(1,...sa.map(x=>x.n));
       return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
-        + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
+        + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.filter(x=>x.open||x.first1||x.signup||x.subscribed).map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
     <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}${ET.hidden?` <span class="muted" style="font-weight:400;letter-spacing:0;text-transform:none">· ${ET.hidden} row${ET.hidden===1?'':'s'} hidden: Instagram's in-app browser and lost signal</span>`:''}</div>
     ${errs.length?(errGroups=errs, errs.map((t,ti)=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
         <div style="font:400 13.5px/1.5 var(--sans);cursor:pointer" onclick="errOpen(${ti})">${errLine(t)} <span class="ghostlink">Details</span></div>
@@ -1354,7 +1361,7 @@ function journeyHTML(){
           <span style="flex:none;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--grey)">${e.n}×</span></div>
         <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join(''))
       :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
-    ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(x.key)+' '+x.n).join(' · ')}</div>`:''}
+    ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(filmKeyWords(x.key))+' '+x.n).join(' · ')}</div>`:''}
     <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
     ${st_.error?`<div class="muted" style="font-size:13px">${esc(st_.error)}</div>`:`
       <h5 style="margin:12px 0 2px">Signed up, never trained</h5>${ppl(st_.never,'Everyone who signed up has trained.')}
@@ -9880,7 +9887,7 @@ function websiteHTML(){
    them as sentences, folded to one line so Today stays calm. Each line
    opens the page it came from. */
 /* where an account first came from, in words */
-const srcName=k=>k==='appstore'?'The App Store':k==='unknown'?'Not known (before 30 Oct)':(SRC_NAME[k]||String(k||'?').replace(/-/g,' '));
+const srcName=k=>k==='appstore'?'The App Store':k==='unknown'?'Not known':k==='classbooking'?'Booked a class':(SRC_NAME[k]||String(k||'?').replace(/-/g,' '));
 /* ── where people get stuck on the check points (30 Oct 2026) ─────────
    Every Ladder account's readings, without names, against the targets as
    the app has them (ladder-data.js and this coach's overlay). Reached is
@@ -9961,7 +9968,26 @@ function loadDigest(){
    play is one thing however many screens it failed on. "20 app errors"
    was 14 Instagram browser rows, 1 lost signal row, 1 film and 1 server
    error (Elliott, 5 Nov 2026: "says a lot but doesn't tell me much"). */
-const ERR_NOISE_RE=/_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger/;
+const ERR_NOISE_RE=/_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger|IABInnerFrame|_META\.|contentWindow\.postMessage|EmptyRanges|window\.ethereum|chrome-extension:|moz-extension:|gatherer\.js/;
+/* your own and test accounts, so a line is about real people (23 Nov 2026) */
+const ERR_MINE_RE=/example\.com|lha-test|paytest|livecheck|claude|elliott\.?staley|elliottls97|elliottlstaley|elth200523/i;
+const errMine=w=>ERR_MINE_RE.test(String(w||''));
+/* a film by name, not by the first eight letters of its address */
+const FILM_KNOWN={'3933d775':'Foundations intro film','b90e4fc0':'Wall Work intro film','5e46c2d7':'Pushing More intro film',
+  '853b9e43':'Take-Off intro film','694fce7c':'Wall Work intro film (older cut)','6b31bda2':'Pushing More intro film (older cut)'};
+function filmNameOf(u8){
+  u8=String(u8||'').slice(0,8); if(!u8) return '';
+  if(FILM_KNOWN[u8]) return FILM_KNOWN[u8];
+  const v=Object.keys(libVideo||{}).find(k=>String(libVideo[k]||'').indexOf('/'+u8)>-1);
+  return v ? ((libIndex||{})[v]||v) : '';
+}
+/* "Film would not play: 3933d775" reads as the film's name */
+const errMsg=m=>String(m||'').replace(/^(Film (?:would not play|slow to start):\s*)([a-f0-9]{8})$/, (x,a,u)=>a+(filmNameOf(u)||u));
+/* the app's own words for how a film was tried */
+const FILM_TRIED={pl:'in a session', sh:'opened on its own'}, FILM_HOW={mp4:'as the file', hls:'as the light version', sign:'after asking for a pass', saved:'saved for no signal', once:''};
+function filmKeyWords(k){ const [w,h,u]=String(k||'').split('-'); return (filmNameOf(u)||u)+' ('+[FILM_TRIED[w]||w, FILM_HOW[h]!=null?FILM_HOW[h]:h].filter(Boolean).join(', ')+')'; }
+/* paying members, from /paying, so a failure that hits one stands out */
+const errPaying=w=>{ const lw=String(w||'').trim().toLowerCase(); const r=((paying&&paying.rows)||[]).find(x=>String(x.email||'').trim().toLowerCase()===lw); return !!(r && r.status!=='canceled'); };
 function errThings(errs){
   const real=(errs||[]).filter(e=>e && !ERR_NOISE_RE.test(String(e.m||'')) && !ERR_NOISE_RE.test(String(e.w||''))
     && !(e.k==='promise' && /^(TypeError: )?(Load failed|Failed to fetch|NetworkError)/i.test(String(e.m||'')) && !e.w));
@@ -9977,8 +10003,9 @@ function errThings(errs){
 }
 /* one line a person can act on */
 function errLine(t){
-  const who=t.who.slice(0,3).map(w=>esc(firstName(w)||String(w).split('@')[0])).join(', ');
-  if(t.k==='film') return `<b>${esc(t.m.replace(/^Film would not play:\s*/,''))}</b> film would not play${who?' for '+who:''}, ${t.n}×, last ${esc(ago(t.last))}.`;
+  const real=t.who.filter(w=>!errMine(w));
+  const who=real.slice(0,3).map(w=>esc(firstName(w)||String(w).split('@')[0])+(errPaying(w)?' (paying)':'')).join(', ')+(real.length<t.who.length?(real.length?' and you':'you'):'');
+  if(t.k==='film') return `<b>${esc(errMsg(t.m).replace(/^Film (would not play|slow to start):\s*/,''))}</b> ${/slow to start/.test(t.m)?'film was slow to start':'film would not play'}${who?' for '+who:''}, ${t.n}×, last ${esc(ago(t.last))}.`;
   if(t.k==='api') return `The server failed: <b>${esc(t.m)}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
   return `<b>${esc(t.m.slice(0,80))}</b>, ${t.n}×${who?', '+who:''}, last ${esc(ago(t.last))}.`;
 }
@@ -10112,14 +10139,14 @@ function healthCardHTML(){
   healthLoad();
   const h=healthLast||{}, f=h.films||{}, P=f.problems||[];
   const when=h.at?new Date(h.at).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'}):'not yet';
-  return `<div class="kick" style="margin-top:20px">FILM CHECK</div>
+  return `<div class="card"><div class="kick">FILM CHECK</div>
     <div style="font:400 13px/1.55 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">Every morning at 7:30 every film the app can show is checked on Cloudflare:
       there, ready to play, its file built for Chrome, Android and saving, and Foundations open to everybody. Anything wrong is emailed to you.</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
       <span style="font:600 13px/1.3 var(--sans)">${f.checked?f.checked+' films checked, '+(P.length?P.length+' with a problem':'all fine'):'No check yet'}</span>
       <span class="muted" style="font-size:12px">Last: ${esc(when)}</span>
       <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="healthRun()" ${healthBusy?'disabled':''}>${healthBusy?'Checking…':'Check now'}</button></div>
-    ${P.length?`<div style="margin-top:8px">${P.slice(0,30).map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.45 var(--sans)"><b style="font-weight:600">${esc(x.name)}</b> &middot; ${esc(x.what)}</div>`).join('')}</div>`:''}`;
+    ${P.length?`<div style="margin-top:8px">${P.slice(0,30).map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.45 var(--sans)"><b style="font-weight:600">${esc(x.name)}</b> &middot; ${esc(x.what)}</div>`).join('')}</div>`:''}</div>`;
 }
 function todayHTML(){
   if(!TODAY_CATS.some(c=>c[0]===inboxFilter)) inboxFilter='all';
@@ -12714,8 +12741,12 @@ function errsAgo(t){
   return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
 }
 function errsHTML(){
-  errsLoad();
-  const L=errsList||[];
+  errsLoad(); if(owner) try{ loadPaying(); }catch(e){}
+  const ALL=errsList||[];
+  /* other people's code in browsers, and lines only you and test accounts hit, stay out of the list */
+  const noise=ALL.filter(e=>ERR_NOISE_RE.test(String(e.m||''))||ERR_NOISE_RE.test(String(e.w||''))||ERR_NOISE_RE.test(String(e.stack||'')));
+  const onlyMine=ALL.filter(e=>noise.indexOf(e)<0 && (e.who||[]).length && (e.who||[]).every(errMine));
+  const L=ALL.filter(e=>noise.indexOf(e)<0 && onlyMine.indexOf(e)<0);
   const row=e=>{
     const scr=Object.entries(e.sc||{}).sort((a,b)=>b[1]-a[1]).map(([k,n])=>esc(errScreen(k))+(n>1?' ×'+n:'')).join(', ');
     const dev=Object.entries(e.dv||{}).map(([k,n])=>(k==='ios'?'iPhone app':'web')+(n>1?' ×'+n:'')).join(', ');
@@ -12723,12 +12754,13 @@ function errsHTML(){
     return `<div data-k="err-${esc(e.id)}" style="padding:12px 0;border-top:1px solid rgba(29,85,102,.10)">
       <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
         <span style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:${e.k==='api'?'var(--red)':'var(--forest)'}">${ERR_KIND[e.k]||'Script'}</span>
-        <b style="font:600 13.5px/1.4 var(--sans);color:var(--ink);flex:1;min-width:200px;word-break:break-word">${esc(e.m)}</b>
+        <b style="font:600 13.5px/1.4 var(--sans);color:var(--ink);flex:1;min-width:200px;word-break:break-word">${esc(errMsg(e.m))}${(e.who||[]).some(errPaying)?' <span class="tag" style="background:rgba(164,80,60,.12);color:var(--red);font-size:10.5px">paying member</span>':''}</b>
         <span class="muted" style="font-size:12px">${e.n} time${e.n===1?'':'s'}, last ${errsAgo(e.last)}</span>
         <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px" ${errsBusy?'disabled':''} onclick="errsClear(${esc(JSON.stringify(e.id))})">Fixed</button>
       </div>
       <div class="muted" style="font-size:12px;line-height:1.6;margin-top:4px">
-        ${e.w?esc(e.w)+'. ':''}${scr?'On '+scr+'. ':''}${dev?dev+'. ':''}${(e.who||[]).length?'Hit by '+(e.who||[]).map(esc).join(', ')+'. ':'Not signed in. '}
+        ${e.w?esc(e.w.replace(/\b([a-f0-9]{8})\b/, (x,u)=>filmNameOf(u)||u))+'. ':''}${scr?'On '+scr+'. ':''}${dev?dev+'. ':''}${(()=>{ const real=(e.who||[]).filter(w=>!errMine(w)), mine=(e.who||[]).length-real.length;
+          return real.length||mine ? 'Hit by '+real.map(w=>esc(firstName(w)||w.split('@')[0])+(errPaying(w)?' (paying)':'')).join(', ')+(mine?(real.length?', and you':'you'):'')+'. ' : 'Not signed in. '; })()}
         First seen ${errsAgo(e.first)}.
         ${e.stack?`<a href="#" onclick="errsOpen=errsOpen===${esc(JSON.stringify(e.id))}?'':${esc(JSON.stringify(e.id))};draw();return false" style="color:var(--forest)">${open?'Hide the detail':'The detail'}</a>`:''}</div>
       ${open&&e.stack?`<pre style="margin:8px 0 0;padding:10px 12px;background:rgba(29,85,102,.05);border-radius:10px;font:400 11.5px/1.5 ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;color:var(--deep)">${esc(e.stack)}</pre>`:''}
@@ -12742,7 +12774,8 @@ function errsHTML(){
     </div>
     <p class="muted" style="margin:8px 0 6px;max-width:62ch">
       ${L.length?'Newest first. Press Fixed once it is dealt with; if it comes back, it is not.'
-        :'Nothing has gone wrong for anyone since this was last cleared.'}</p>
+        :'Nothing has gone wrong for anyone since this was last cleared.'}
+      ${noise.length||onlyMine.length?`<br><span style="font-size:12px">${[noise.length?noise.length+' hidden from other people\u2019s code in browsers (Instagram, Facebook, extensions)':'', onlyMine.length?onlyMine.length+' hidden that only you or test accounts hit':''].filter(Boolean).join(' &middot; ')}.</span>`:''}</p>
     ${L.slice(0,60).map(row).join('')}
   </div>`;
 }

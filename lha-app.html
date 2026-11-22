@@ -18407,6 +18407,9 @@ Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.
 /* A card is a drill now, not a set, so the box has to move all of its sets
    at once. Partly ticked is still a state the card can show, because the
    player writes the ticks one set at a time. */
+/* a list session counts as started at its first tick, once a workout (23 Nov 2026) */
+let listTracked=false;
+function listStartOnce(){ if(listTracked || tourBuild) return; listTracked=true; try{ track('start'); }catch(e){} }
 function qTickAll(keys,el){
   const list=String(keys||'').split(',').filter(Boolean);
   if(!list.length) return;
@@ -18419,6 +18422,7 @@ function qTickAll(keys,el){
     if(q && typeof q.gi==='number'){ if(!any){ try{ rollTicks(); }catch(e){} any=true; } st.tick[key(st.day,q.gi,q.ii)]=on; } });
     if(any){ st.tickDay=dayKey(Date.now()); st.tickIdx=st.day; st.tickAt=Date.now(); try{ sendPlanSoon(); }catch(e){} } }
   save(); listKeep();
+  if(on) listStartOnce();
   if(on && dkPageMode) dkClockStart();
   if(on && dkOn() && list.includes('q'+DK.i)){ const g=dkGroup(DK.i); setTimeout(()=>{ dkHalt(); if(g.l>=Q.length-1){ DK.phase='end'; } else dkLoad(g.l+1); dkPaint(); }, 0); }
   if(el){ el.classList.toggle('on', on); if(on){ el.classList.remove('tpop'); void el.offsetWidth; el.classList.add('tpop'); } }
@@ -18434,6 +18438,7 @@ function qTick(k,el){
   st.qTick=st.qTick||{};
   const on = st.qTick[k] = !st.qTick[k];
   save(); listKeep();
+  if(on) listStartOnce();
   /* touch this row only. Redrawing the sheet threw away open demos, the
      stepper you were using and where you had scrolled to. */
   if(el) el.classList.toggle('on', on);
@@ -18849,7 +18854,7 @@ function dkNow(){
    workouts at the top". It sits under the header like a page, the days are
    tabs along the top, and what the plan has ticked today shows ticked. */
 let dkPageMode=false, dkGoNow=false;
-function dkClockStart(){ if(!((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); try{ woStart(); }catch(e){} } }
+function dkClockStart(){ if(!((st.listStartAt||0) > Date.now()-6*3600e3)){ st.listStartAt=Date.now(); try{ woStart(); }catch(e){} listStartOnce(); } }
 function planDesk(day){
   if(st.ov==='list' && dkPageMode) listKeep();
   if(day!=null) st.day=day;
@@ -26379,13 +26384,15 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     st.qTick=tick; st.reps=reps;
   } else if(!tourBuild){ st.qTick={}; st.reps={}; }
   sessionSpent=false;          /* a fresh workout, not yet counted */
+  if(!keep) listTracked=false;
   if(held) tasteHand.q=Q;      /* the same workout, rebuilt: still the free one */
   if(listOnly){
     st.ovList=!!wristDay; st.ovRow=null;
     st.listMode='work';   /* one workout, one shape */
     st.ovFull=true;
     /* a tour's practice workout is not a session started */
-    if(!tourBuild){ track('start'); spendTaste(!!wristDay); }
+    /* looked at, not started: the start is counted at the first set (23 Nov 2026) */
+    if(!tourBuild){ track('listopen'); spendTaste(!!wristDay); }
     openOv('list'); return;
   }
   startQueue(0);
@@ -26413,7 +26420,7 @@ function followMini(i){
   /* drill by drill first, as she prefers it (30 Oct 2026); the follow
      along is the button at the top of the list */
   st.qTick={}; st.reps={}; st.ovList=false; st.ovRow=null; st.listMode='work'; st.ovFull=true; save();
-  track('start'); openOv('list');
+  listTracked=false; track('listopen'); openOv('list');
 }
 function minisHTML(){
   const L=planMinis(); if(!L.length) return '';
@@ -26679,6 +26686,7 @@ function tickSets(k, by){
   st.qTick=st.qTick||{};
   const n=keys.filter(x=>st.qTick[x]).length||keys.length, next=Math.max(1, Math.min(keys.length, n+by));
   const per=keys.map(x=>(st.reps||{})[x]).find(x=>x!=null);
+  listStartOnce();
   keys.forEach((x,j)=>{ if(j<next){ st.qTick[x]=true; if(per!=null){ st.reps=st.reps||{}; st.reps[x]=per; } }
     else { delete st.qTick[x]; if(st.reps) delete st.reps[x]; } });
   save(); listKeep();

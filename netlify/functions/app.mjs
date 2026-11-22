@@ -801,6 +801,7 @@ async function journeyReport(days, full) {
     step('open', 'Opened the app', n(cur, 'open'), n(prev, 'open')),
     step('quizq0', 'Started the quiz', qz(cur), qz(prev)),
     step('quiz', 'Finished the quiz', n(cur, 'quiz'), n(prev, 'quiz')),
+    step('listopen', 'Looked at a session', n(cur, 'listopen'), n(prev, 'listopen')),
     step('start', 'Started a session', n(cur, 'start'), n(prev, 'start')),
     step('finish', 'Finished a session', n(cur, 'finish'), n(prev, 'finish')),
     step('first1', 'Finished their first ever session', n(cur, 'first1'), n(prev, 'first1')),
@@ -889,6 +890,11 @@ async function journeyReport(days, full) {
     const coached = clients();
     const untils = await plusUntilAll();
     const real = accts.filter(a => !marked[norm(a.email)] && !TEST_EMAIL.test(a.email || '') && !Object.keys(coaches()).includes(a.email));
+    /* who has booked a class: their account is made by the booking, which
+       is why so many have never trained and carry no source (23 Nov 2026) */
+    const booked = new Set();
+    try { ((await supa.rows('settings', 'select=key,value&key=like.wsbook%3A*')) || []).forEach(r =>
+      (Array.isArray(r.value) ? r.value : []).forEach(b => { if (b && b.email) booked.add(norm(b.email)); })); } catch {}
     const sess = Object.fromEntries(prog.map(p => [p.email, Array.isArray(p.sessions) ? p.sessions : []]));
     const when = x => ms(x && (x.at || x.t || x.when)) || 0;
     const groups = { never: [], unfinished: [], once: [], paidQuiet: [] };
@@ -898,7 +904,7 @@ async function journeyReport(days, full) {
       const lastAt = Math.max(0, ...list.map(when));
       const age = now - ms(a.first_seen);
       const p = { email: a.email, name: a.name || '', joined: a.first_seen, lastSeen: a.last_seen, sessions: list.length, finished: done.length,
-        coached: !!coached[a.email], paid: plusNow(a) };
+        coached: !!coached[a.email], paid: plusNow(a), booker: booked.has(norm(a.email)) };
       if (!list.length && age > 2 * DAY) groups.never.push(p);
       else if (list.length && !done.length && now - lastAt > 3 * DAY) groups.unfinished.push(p);
       else if (done.length === 1 && now - lastAt > 7 * DAY) groups.once.push(p);
@@ -910,7 +916,7 @@ async function journeyReport(days, full) {
       const refRows = (await supa.rows('settings', `select=key,value&key=like.ref%3A*`)) || [];
       const refOf = Object.fromEntries(refRows.map(r => [r.key.slice(4), String(r.value || '')]));
       const nb = {};
-      for (const a of real) if (now - ms(a.first_seen) < days * DAY) { const k = refOf[a.email] || 'unknown'; nb[k] = (nb[k] || 0) + 1; }
+      for (const a of real) if (now - ms(a.first_seen) < days * DAY) { const k = refOf[a.email] || (booked.has(norm(a.email)) ? 'classbooking' : 'unknown'); nb[k] = (nb[k] || 0) + 1; }
       srcAccounts = Object.entries(nb).map(([src, n]) => ({ src, n })).sort((a, b) => b.n - a.n);
     } catch {}
     stalled = {
@@ -12087,7 +12093,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      about the app was a guess. This counts, and keeps nothing about anyone:
      one row per day of totals, in the settings table, no cookies, no third
      party, no per-person record. */
-  const EVENTS = ['open', 'quiz', 'wall', 'checkout', 'subscribed', 'start',
+  /* listopen: a session list looked at; start is now the first set done or
+     ticked (23 Nov 2026: opening the list counted as starting) */
+  const EVENTS = ['open', 'quiz', 'wall', 'checkout', 'subscribed', 'start', 'listopen',
                   'finish', 'ret7', 'install', 'taste', 'signup', 'code',
                   /* a fix opened, started and finished, and its public page */
                   'fixopen', 'fixstart', 'fixdone', 'sitefix',
