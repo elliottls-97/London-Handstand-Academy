@@ -2221,6 +2221,10 @@ button.px-step{cursor:pointer}
 .p-extend{display:flex;gap:7px}
 .p-extend button{background:var(--mist);border:none;border-radius:999px;padding:8px 13px;
  font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer}
+/* shown through the warm-up only, where the +15s pair sits the rest of the time */
+.p-warmskip{background:var(--mist);border:none;border-radius:999px;padding:9px 14px;
+ font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer}
+.p-warmskip[hidden]{display:none}
 .dr{border-bottom:1px solid rgba(28,32,25,.07)}
 .dr:last-child{border-bottom:none}
 .dr-head{display:flex;align-items:center;gap:12px;padding:13px 15px}
@@ -5019,6 +5023,7 @@ function pressHomeHTML(){
   ].join('');
   const go = plan
     ? `<div style="margin-top:16px">${goModeHTML()}</div>
+       <div style="margin-top:16px">${warmOwnHTML()}</div>
        <button class="px-go" onclick="buildFixSession('press-plan',st.goMode==='list')"><b>Start today's session</b>
         <span>Prep · ${r&&!r.clean?esc(pressLimName(r))+' drills · ':''}Rung ${R} · about ${plan.mins} min</span></button>
        <button class="px-ghost" onclick="buildFixSession('press-prep',st.goMode==='list')">Run the prep on its own · 10 min</button>`
@@ -14167,6 +14172,7 @@ function playerShell(){
           <button class="p-cuesbtn" id="p-cuesbtn" onclick="cueSheet()" aria-controls="p-cuesheet" aria-expanded="false">Form cues</button>
           <button class="p-skip" id="p-skip">Skip this</button>
         </span>
+        <button class="p-warmskip" id="p-skipwarm" hidden>Skip warm-up</button>
         <span class="p-extend">
           <button data-ext="15">+15s</button><button data-ext="30">+30s</button>
         </span>
@@ -14220,6 +14226,7 @@ function bindPlayer(){
     if(phase==='work' && !tourBuild){ const it=(Q[qi]||{}).it||{};
       track('skip', null, String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30)); }
     clearInterval(tick_); tick_=null; phase='work'; qi++; showStep(); };
+  { const sw=$('#p-skipwarm'); if(sw) sw.onclick=skipWarm; }
   document.querySelectorAll('.p-extend button').forEach(b=>{
     b.onclick=()=>{ left+=+b.dataset.ext; tTotal+=+b.dataset.ext; paintClock(); liveSync(); };
   });
@@ -14315,6 +14322,10 @@ function showStep(){
   /* the player moves a set at a time, so counting sets and calling them
      exercises said twenty five exercises in a seventeen drill session */
   $('#p-idx').textContent = resting ? 'REST' : 'SET '+(qi+1)+' OF '+Q.length;
+  /* through the warm-up, one button takes them past all of it (Elliott, 22 Nov 2026) */
+  { const sw=$('#p-skipwarm'), ex=document.querySelector('#player .p-extend'), inWarm=qi<warmEnd() && warmEnd()<Q.length;
+    if(sw) sw.hidden=!inWarm;
+    if(ex) ex.style.display=inWarm?'none':''; }
 
   const vw=$('#p-vwrap'), body=$('#p-body');
   /* a film opened in the up next list goes with the list */
@@ -14573,6 +14584,17 @@ function advance(){
   showStep();
 }
 function skip(){ clearInterval(tick_); tick_=null; advance(); }
+/* Where the warm-up ends: the first set that is not in a block called a
+   warm-up. Only the run a session opens with, so mobility written at the
+   end of a day is never taken for one. */
+function warmEnd(){ let k=0; while(k<Q.length && /warm/i.test(String((Q[k]||{}).grp||''))) k++; return k; }
+/* past the whole warm-up, to the first set of the work. Nothing is ticked:
+   they did not do it here. */
+function skipWarm(){
+  const j=warmEnd(); if(!(j>qi && j<Q.length)) return;
+  if(!tourBuild) track('skip', null, 'warm-up');
+  clearInterval(tick_); tick_=null; phase='work'; qi=j; showStep();
+}
 /* on to the next set or back to the last one, by swipe. Never off the end:
    the session ends by pressing Done on the last set, not by a flick. */
 function swipeStep(dir){
@@ -15653,6 +15675,7 @@ function drawOv(){
            other two questions now and remembered, so Go does what was
            picked last time. -->
       ${goModeHTML(_kick,_seg)}
+      ${_wrist ? '' : warmOwnHTML(_kick,_seg)}
 
       ${(function(){
         /* the coach's set workouts for this stage live in Fixes, so a fix
@@ -15706,7 +15729,7 @@ function drawOv(){
       </div>
       <!-- said at the moment of starting, every time, as the quiz said it once -->
       <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin:-2px 0 2px">
-        It starts with a warm-up. Stop if anything hurts.</div>
+        ${(st.warmOwn && !_wrist) ? 'No warm-up in this one. Stop if anything hurts.' : 'It starts with a warm-up. Stop if anything hurts.'}</div>
 
 
       <!-- mobility sits under Go rather than inside the level control: it is a
@@ -22270,6 +22293,7 @@ function screenFix(){
           background:${mins===m?'var(--forest)':'#fff'};color:${mins===m?'#fff':'var(--ink)'}">${m} min</button>`).join('')}
       </div>
       <div style="margin-top:16px">${goModeHTML()}</div>
+      ${f.warmOnly ? '' : `<div style="margin-top:16px">${warmOwnHTML()}</div>`}
       <button onclick="buildFixSession(${jsq(f.slug)},st.goMode==='list')" style="height:64px;width:100%;border:0;border-radius:18px;margin-top:14px;
         background:linear-gradient(180deg,#2f93a9,#237f95);box-shadow:0 12px 30px rgba(35,127,149,.3);color:var(--on-primary);
         display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 22px;cursor:pointer">
@@ -22331,6 +22355,8 @@ function buildFixSession(slug, listOnly){
     const items=f.warmDrills.map(w=>Object.assign({},w,{d:'30s'}));
     warm={items, secs:items.reduce((t,it)=>t+work(it,'Warm-up')+rest({it,grp:'Warm-up',g:'Warm-up'}),0)};
   } else warm=warmupFor(budget, f.stage||0, null);
+  /* their own warm-up; a session that is only the prep keeps it */
+  if(st.warmOwn && !f.warmOnly) warm={items:[], secs:0};
   const used=new Set(warm.items.map(x=>x.v));
   const pool=(f.drills||[]).filter(d=>!used.has(d.v)).map(toIt);
   if(!pool.length && !f.warmOnly){
@@ -23169,6 +23195,34 @@ function goModeHTML(kick, seg){
     <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${list
       ? 'A list you work down at your own pace, each drill with its film and a timer.'
       : 'It runs itself: every set timed, its film playing, the cues on screen.'}</div>
+  </div>`;
+}
+/* ── their own warm-up (Elliott, 22 Nov 2026: "the ability to do their own
+   warm up / skip warm up") ────────────────────────────────────────────
+   Asked beside the other choices and remembered like them. With My own the
+   session is built without a warm-up, so the whole time is the work. */
+function setWarmOwn(v){
+  st.warmOwn=!!v; save();
+  if(st.ov==='mode'){ repaintMode(); return; }
+  document.querySelectorAll('.warmown').forEach(el=>{ el.outerHTML=warmOwnHTML(); });
+}
+function warmOwnHTML(kick, seg){
+  const own=!!st.warmOwn;
+  kick = kick || 'font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)';
+  seg = seg || (on=>'flex:1;min-height:48px;border:0;border-radius:11px;cursor:pointer;'
+    +'font:600 15px/1 var(--sans);transition:background .18s ease,color .18s ease;'
+    +(on?'background:#fff;color:var(--deep);box-shadow:0 1px 2px rgba(17,17,17,.08)'
+        :'background:transparent;color:var(--grey)'));
+  return `<div class="warmown">
+    <div style="${kick}">WARM-UP</div>
+    <div role="radiogroup" style="display:flex;gap:8px;margin-top:10px;background:rgba(29,85,102,.08);
+      border-radius:14px;padding:4px">
+      <button role="radio" aria-checked="${!own}" onclick="setWarmOwn(false)" style="${seg(!own)}">In the session</button>
+      <button role="radio" aria-checked="${own}" onclick="setWarmOwn(true)" style="${seg(own)}">My own</button>
+    </div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:9px">${own
+      ? 'Straight into the first drill. Warm your wrists and shoulders yourself before you press Go.'
+      : 'It opens with a few minutes for your wrists and shoulders.'}</div>
   </div>`;
 }
 /* the start button's mark: play for the follow along, a list for the list */
@@ -25785,7 +25839,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   /* the coach's own list, worked out here rather than further down, because
      the warm-up is part of the workout they wrote and needs it too */
   const written = wristDay ? null : bandFor(stage, stageLevel(stage));
-  const warm = wristDay ? {items:[], secs:0} : warmupFor(budget, stage, written);
+  /* their own warm-up, done before they pressed Go: none is built, and the time goes to the work */
+  const warm = (wristDay || st.warmOwn) ? {items:[], secs:0} : warmupFor(budget, stage, written);
   /* a drill the warm-up already used should not come round again as skill
      work; every other drill in the stage should still be available, which
      dropping the whole warm-up pool stopped */
