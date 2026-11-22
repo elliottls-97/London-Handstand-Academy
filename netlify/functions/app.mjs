@@ -9940,7 +9940,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        by the time anybody has opened it to look. */
     const S = await settingsMany([ONBOARDING, 'stream:fcheck', 'ladder:extra', 'ladder:off', 'drills:off', 'drills:custom', 'home:order',
       'explain:extra', 'timing:custom', 'ladder:bands', 'ladder:mix', 'ladder:bandtiming', 'ladder:checkpoints',
-      'ladder:story', 'explain:keys', 'explain:edit', 'explain:intro', 'ladder:short', 'ladder:media']);
+      'ladder:story', 'explain:keys', 'explain:edit', 'explain:intro', 'ladder:short', 'ladder:media', 'ladder:phasekeys']);
     /* every six hours: any Foundations film locked since is opened again.
        The stamp goes down first, so two opens at once do not both run it,
        and it runs after the reply rather than holding this one up. A run
@@ -10002,7 +10002,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   shortRules:  S['ladder:short'] || {},
                   /* a picture or a film per stage, from the dashboard. A
                      stage without one looks exactly as it always has. */
-                  ladderMedia: S['ladder:media'] || {} }),
+                  ladderMedia: S['ladder:media'] || {},
+                  /* each phase's key drills and what to have first, as the
+                     coach has changed them; the rest is what ships */
+                  phaseKeys: S['ladder:phasekeys'] || {} }),
       { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=0, must-revalidate',
         'Netlify-CDN-Cache-Control': 'public, s-maxage=20, durable' } });
   }
@@ -10414,7 +10417,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         { method: 'POST', headers: { Authorization: `Bearer ${process.env.CF_STREAM_TOKEN}` } }).catch(() => {});
     };
     if (request.method === 'GET') return json({ explainKeys: all, extra: (await getSetting('explain:extra')) || [],
-      explainEdit: (await getSetting('explain:edit')) || {}, stageIntro: (await getSetting('explain:intro')) || {} });
+      explainEdit: (await getSetting('explain:edit')) || {}, stageIntro: (await getSetting('explain:intro')) || {},
+      phaseKeys: (await getSetting('ladder:phasekeys')) || {} });
     /* ── a shipped explainer, changed ────────────────────────────────
        Only what the coach set is stored, on top of ladder-data.js, so a
        later change to the file still reaches everything not touched here.
@@ -10438,6 +10442,31 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       }
       await setSetting('explain:edit', ed);
       return json({ ok: true, explainEdit: ed });
+    }
+    /* ── a phase's key drills and what to have first (23 Nov 2026) ──
+       The whole phase is stored as the coach left it; null goes back to
+       what ships. Kept small: drill ids, short notes, seconds into the film. */
+    if (request.method === 'POST' && body.phaseKeys && typeof body.phaseKeys === 'object') {
+      const s0 = String(Number(body.phaseKeys.stage));
+      if (!/^[0-5]$/.test(s0)) return json({ error: 'Which phase?' }, 400);
+      const all = (await getSetting('ladder:phasekeys')) || {};
+      const D = body.phaseKeys.data;
+      if (D === null) delete all[s0];
+      else {
+        const secs = t => Math.max(0, Math.min(7200, Math.round((Number(t) || 0) * 10) / 10));
+        const txt = (x, n) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n);
+        const drills = l => (Array.isArray(l) ? l : []).slice(0, 10).map(r => Array.isArray(r) ? r : [])
+          .map(([v, note]) => [String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60), txt(note, 60)])
+          .filter(([v]) => v).map(([v, n]) => n ? [v, n] : [v]);
+        const o = { film: String((D && D.film) || '').replace(/[^a-f0-9]/g, '').slice(0, 32),
+          key: (Array.isArray(D && D.key) ? D.key : []).slice(0, 12).map(s => Array.isArray(s) ? s : [])
+            .map(([name, t, l]) => [txt(name, 40), secs(t), drills(l)]).filter(s => s[0] || s[2].length) };
+        const pre = D && Array.isArray(D.pre) ? [secs(D.pre[0]), drills(D.pre[1])] : null;
+        if (pre && pre[1].length) o.pre = pre;
+        all[s0] = o;
+      }
+      await setSetting('ladder:phasekeys', all);
+      return json({ ok: true, phaseKeys: all });
     }
     /* ── which film introduces a phase ── null goes back to the shipped one,
        an empty id means that phase has no intro film at all */

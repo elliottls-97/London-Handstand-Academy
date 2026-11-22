@@ -5353,7 +5353,7 @@ function exLoad(){
   fetch(API+'/explain',{headers:hdr()})
     .then(r=>r.ok?r.json():null)
     .then(d=>{ exKeyStore=(d&&d.explainKeys)||{}; exExtra=(d&&d.extra)||[];
-      exEdit=(d&&d.explainEdit)||{}; exIntro=(d&&d.stageIntro)||{}; draw(); })
+      exEdit=(d&&d.explainEdit)||{}; exIntro=(d&&d.stageIntro)||{}; pkSaved=(d&&d.phaseKeys)||{}; draw(); })
     .catch(()=>{ exKeyStore={}; exExtra=[]; });
 }
 /* ── the shipped explainers, changed here ──────────────────────────
@@ -5466,6 +5466,81 @@ function exIntrosHTML(){
         ${set?`<button onclick="exIntroSet(${s0},null)" style="border:0;background:none;cursor:pointer;
           font:600 12px/1 var(--sans);color:var(--grey)">As shipped</button>`:''}
       </div>`; }).join('')}
+  </div>`;
+}
+/* ── each phase's key drills and what to have first (23 Nov 2026) ──────
+   Shown under the phase film on Train in the app. Shipped from the intro
+   films (PHASE_KEYS in ladder-data.js); a phase changed here is saved whole
+   and laid over it. A time is where the play button starts the film, and
+   only plays with the film it belongs to, so saving records today's film. */
+let pkSaved={}, pkStage=1, pkD=null, pkDirty=false, pkBusy=false, pkMsg='';
+const pkClone=o=>JSON.parse(JSON.stringify(o||{key:[]}));
+const pkOf=s0=>(pkSaved[s0] && Array.isArray(pkSaved[s0].key)) ? pkSaved[s0] : (PHASE_KEYS[s0]||{key:[]});
+const pkSecs=t=>{ const m=/^\s*(\d+)\s*[:.]\s*(\d{1,2}(?:\.\d)?)\s*$/.exec(String(t||'')); if(m) return Number(m[1])*60+Number(m[2]);
+  const n=Number(String(t||'').trim()); return isFinite(n)?n:0; };
+const pkClk=t=>{ t=Number(t)||0; return Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0'); };
+function pkDraft(){ if(!pkD){ pkD=pkClone(pkOf(pkStage)); if(!Array.isArray(pkD.key)) pkD.key=[]; } return pkD; }
+function pkTouch(){ pkDirty=true; pkMsg='Not saved yet'; const m=document.getElementById('pkMsg'); if(m) m.textContent=pkMsg; }
+function pkPick(s0){ if(pkDirty && !confirm('Leave this phase without saving?')) return; pkStage=s0; pkD=null; pkDirty=false; pkMsg=''; draw(); }
+function pkPreOn(){ const d=pkDraft(); d.pre=[0,[]]; pkTouch(); draw(); }
+function pkSet(path, v){ const d=pkDraft(); let o=d; const p=path.slice(); const last=p.pop(); p.forEach(k=>{ o=o[k]; }); o[last]=v; pkTouch(); }
+function pkAddDrill(listPath){ return v=>{ const d=pkDraft(); let o=d; listPath.forEach(k=>{ o=o[k]; }); o.push([v]); pkTouch(); draw(); }; }
+function pkDel(listPath, i){ const d=pkDraft(); let o=d; listPath.forEach(k=>{ o=o[k]; }); o.splice(i,1); pkTouch(); draw(); }
+function pkMove(i, by){ const d=pkDraft(), j=i+by; if(j<0||j>=d.key.length) return; const x=d.key[i]; d.key[i]=d.key[j]; d.key[j]=x; pkTouch(); draw(); }
+function pkAddSection(){ pkDraft().key.push(['New section', 0, []]); pkTouch(); draw(); }
+function pkSave(clear){
+  if(pkBusy) return; pkBusy=true; pkMsg='Saving…'; draw();
+  const d=pkDraft(); d.film=exIntroOf(pkStage)||d.film||'';
+  fetch(API+'/explain',{method:'POST',headers:hdr(),body:JSON.stringify({phaseKeys:{stage:pkStage, data:clear?null:d}})})
+    .then(r=>r.ok?r.json():r.json().then(x=>Promise.reject(x.error||('the server said '+r.status))))
+    .then(x=>{ pkSaved=x.phaseKeys||{}; pkD=null; pkDirty=false; pkMsg=clear?'Back as shipped. In the app on its next open.':'Saved. In the app on its next open.'; })
+    .catch(e=>{ pkMsg='Not saved: '+e; })
+    .finally(()=>{ pkBusy=false; draw(); });
+}
+function pkEditHTML(){
+  const d=pkDraft(), film=exIntroOf(pkStage), changed=!!pkSaved[pkStage];
+  const off=film && d.film && d.film!==film;
+  const inp='border:1px solid var(--line);border-radius:9px;padding:8px 9px;font:500 12.5px/1.3 var(--sans);background:#fff';
+  const pickSty='flex:1;min-width:200px;border:1px solid var(--line);border-radius:9px;padding:8px 9px;font:500 12.5px/1.3 var(--sans)';
+  const x=go=>`<button onclick="${go}" aria-label="Remove" style="flex:none;width:30px;height:30px;border-radius:50%;border:0;cursor:pointer;background:rgba(17,17,17,.06);color:var(--grey)">&times;</button>`;
+  const rows=(path)=>{ let o=d; path.forEach(k=>{ o=o[k]; }); return (o||[]).map((r,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:7px;flex-wrap:wrap">
+      ${drillPick(r[0], 'pk-'+path.join('-')+'-'+i, v=>{ pkSet(path.concat([i,0]), v); draw(); }, pickSty)}
+      <input value="${esc(r[1]||'')}" placeholder="A short note, like 20 to 30 s" maxlength="60" oninput="pkSet(${esc(JSON.stringify(path.concat([i,1])))},this.value)" style="${inp};flex:1;min-width:160px">
+      ${x(`pkDel(${esc(JSON.stringify(path))},${i})`)}</div>`).join('')
+    + `<div style="margin-top:7px;max-width:320px">${drillPick('', 'pk-add-'+path.join('-'), pkAddDrill(path), pickSty+';color:var(--grey2)')}</div>`; };
+  const kick='font:700 9.5px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)';
+  return `<div style="margin-top:16px;padding:14px;border-radius:14px;background:#fff;border:1px solid var(--line)">
+    <div style="${kick}">KEY DRILLS AND BEFORE YOU START</div>
+    <div style="font:400 12px/1.5 var(--sans);color:var(--grey);margin-top:5px;max-width:70ch">On Train in the app, under the phase film.
+      Each section is a row: its drills, and a play button that starts the film at the time you give. The note is the short line beside a drill.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${STAGES.map((S,s0)=>`<button onclick="pkPick(${s0})" style="border:1px solid ${s0===pkStage?'var(--forest)':'var(--line)'};
+      background:${s0===pkStage?'var(--forest)':'#fff'};color:${s0===pkStage?'#fff':'var(--ink)'};border-radius:999px;padding:7px 12px;cursor:pointer;
+      font:600 12px/1 var(--sans)">${esc(S.n)}${pkSaved[s0]?' &middot; changed':''}</button>`).join('')}</div>
+    ${off?`<div style="margin-top:10px;font:500 12px/1.4 var(--sans);color:var(--red)">The phase film has changed since these times were set. Check them against the new film, then save.</div>`:''}
+    ${!film?`<div style="margin-top:10px;font:500 12px/1.4 var(--sans);color:var(--grey)">This phase has no intro film, so the play buttons will not show.</div>`:''}
+    <div style="margin-top:16px;${kick}">BEFORE YOU START</div>
+    ${d.pre ? `<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <span style="font:500 12.5px/1.3 var(--sans);color:var(--grey)">Why, at</span>
+        <input value="${esc(pkClk(d.pre[0]))}" oninput="pkSet(['pre',0],pkSecs(this.value))" style="${inp};width:70px" aria-label="Where the film explains it, minutes and seconds"></div>${rows(['pre',1])}`
+      : `<button onclick="pkPreOn()" style="margin-top:8px;border:1px dashed var(--line);background:#fff;border-radius:9px;padding:8px 12px;cursor:pointer;font:600 12px/1 var(--sans)">Add a Before you start list</button>`}
+    <div style="margin-top:18px;${kick}">KEY DRILLS</div>
+    ${(d.key||[]).map((s,i)=>`<div style="margin-top:10px;padding:10px;border-radius:12px;border:1px solid var(--line)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font:700 11px/1 var(--sans);color:var(--grey2);width:20px">${String(i+1).padStart(2,'0')}</span>
+        <input value="${esc(s[0]||'')}" maxlength="40" placeholder="Section name" oninput="pkSet(['key',${i},0],this.value)" style="${inp};flex:1;min-width:160px;font-weight:600">
+        <span style="font:500 12px/1 var(--sans);color:var(--grey)">at</span>
+        <input value="${esc(pkClk(s[1]))}" oninput="pkSet(['key',${i},1],pkSecs(this.value))" style="${inp};width:70px" aria-label="Where in the film, minutes and seconds">
+        <button onclick="pkMove(${i},-1)" aria-label="Move up" style="border:0;background:none;cursor:pointer;color:var(--grey)">&uarr;</button>
+        <button onclick="pkMove(${i},1)" aria-label="Move down" style="border:0;background:none;cursor:pointer;color:var(--grey)">&darr;</button>
+        ${x(`pkDel(['key'],${i})`)}
+      </div>${rows(['key',i,2])}</div>`).join('')}
+    <button onclick="pkAddSection()" style="margin-top:10px;border:1px dashed var(--line);background:#fff;border-radius:9px;padding:8px 12px;cursor:pointer;font:600 12px/1 var(--sans)">Add a section</button>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
+      <button class="send" style="width:auto;padding:0 15px" ${pkBusy?'disabled':''} onclick="pkSave(false)">${pkBusy?'Saving…':'Save'}</button>
+      ${changed?`<button class="send" style="width:auto;padding:0 15px;background:#fff;color:var(--grey);border:1px solid var(--line)" ${pkBusy?'disabled':''} onclick="if(confirm('Put this phase back as it ships?')) pkSave(true)">As shipped</button>`:''}
+      ${pkDirty?`<button onclick="pkD=null;pkDirty=false;pkMsg='';draw()" style="border:0;background:none;cursor:pointer;font:600 12.5px/1 var(--sans);color:var(--grey)">Undo changes</button>`:''}
+      <span id="pkMsg" style="font:500 12px/1.4 var(--sans);color:var(--grey)">${esc(pkMsg)}</span>
+    </div>
   </div>`;
 }
 /* ── the coach's own explainers ──────────────────────────────────────
@@ -5613,6 +5688,7 @@ function explainHTML(){
           exKeyBusy?'Saving…':dirty?`Save ${dirty} change${dirty===1?'':'s'}`:'Saved'}</button></span>
     </div>
     ${exIntrosHTML()}
+    ${pkEditHTML()}
     ${body}
     ${exxHTML(inp)}
   </div>`;
@@ -7649,7 +7725,7 @@ function dpFind(q, sel){
 }
 function drillPick(sel, key, fn, style){
   DP_FN[key]=fn;
-  const label=sel?(libIndex[sel]||sel):'';
+  const label=sel?((libIndex||{})[sel]||sel):'';
   return `<button type="button" data-dp="${esc(key)}" data-sel="${esc(sel||'')}" onclick="dpOpen(this)"
     style="${style||''};display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;background:#fff">
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${label?'':'color:var(--grey2)'}">${

@@ -941,3 +941,36 @@ const STAGE_STORY = {
    the ones Elliott chose as its teasers play their films; the others are locked
    cards with their headline, so the locks on the drills still hold. Which
    films the video host happens to leave open does not decide it. */
+
+/* ── each phase's key drills and what to have first, from its intro film
+   (Elliott, 23 Nov 2026). Read from the films' own sections and the drills
+   shown in them. Shared, so the dashboard shows what ships and can change
+   it: a phase changed there is kept in settings (ladder:phasekeys) and laid
+   over this. film is the intro the times were read from; a time only plays
+   with that film. pre: [seconds, [[drill, note]...]];
+   key: [[section, seconds, [[drill, note]...]]...] */
+const PHASE_KEYS = {
+  0: {film:'3933d7757f6a2ba0910ffb16b689ae7f',
+      key:[['Wrists',111.0,[['wrist-circles-mob'],['palm-lifts-table-top'],['plank-fingertip-lifts'],['dd-wrist-taps']]],
+           ['Fear of falling',140.4,[['basic-bail-outs'],['fear-of-falling-cartwheel','Cartwheels'],['kick-up-bounces'],['chest-to-wall-bailouts']]],
+           ['Crow',173.9,[['crow-pose']]],
+           ['The kick up',190.4,[['wall-kick-ups']]]]},
+  1: {film:'b90e4fc0f64dfc49a0c082b085e07cf5', pre:[21.1,[['wall-kick-ups','Kick up back to the wall'],['p-l-handstand','20 to 30 s'],
+        ['fear-of-falling-cartwheel','Falling out'],['plank-pose','Straight arms'],['push-ups-on-knees','Bent arms']]],
+      key:[['Falling out',59.3,[['chest-to-wall-bailouts']]],
+           ['The shoulders',95.5,[['chair-assisted-handstand-shoulder-adjustments']]],
+           ['Walking up the wall',111.5,[['wall-walks']]],
+           ['Chest to wall',133.5,[['chest-to-wall-handstand','20 to 30 s']]],
+           ['More variety',205.9,[['lateral-slide-outs'],['wall-step-ups'],['nose-to-toes','20 s']]]]},
+  2: {film:'5e46c2d7886e6607d1cba4aebd67f33e', pre:[80.7,[['chest-to-wall-handstand','20 s'],['knee-to-chest-kick-ups','In the middle of the room'],
+        ['wall-step-ups'],['lateral-slide-outs']]],
+      key:[['Knees on box',130.1,[['knees-on-box']]],
+           ['Tuck slides',275.9,[['tuck-slides'],['single-leg-tuck-slides','Single leg first']]],
+           ['Wall scapula shrugs',346.8,[['wall-scapula-shrugs']]]]},
+  3: {film:'853b9e439c88ad2375f3b5d038406a43', pre:[50.8,[['tuck-slides','Both legs'],['chair-assisted-handstand-shoulder-adjustments'],['knees-on-box']]],
+      key:[['Tuck take-offs',85.6,[['tuck-take-offs']]],
+           ['Full slide away',145.1,[['slide-away']]],
+           ['Knees on box',208.8,[['knees-on-box-single-leg-lifts','Leg lifts']]],
+           ['Shape changes',247.0,[['straddle-to-straight'],['straddle-to-diamond']]],
+           ['Attempts in the room',297.4,[['knee-to-chest-kick-ups']]]]}
+};

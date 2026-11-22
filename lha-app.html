@@ -17919,7 +17919,7 @@ function loadLadder(){
          always does, so every open redrew the screen once the ladder came
          back. It is true now only when something in it is different. */
       const KEYS=['timing','explainKeys','ladderExtra','ladderOff','drillsOff','ladderBands','ladderMix','bandTiming',
-        'ladderCps','shortRules','homeOrder','ladderMedia','explainEdit','stageIntro','ladderStory','explainExtra'];
+        'ladderCps','shortRules','homeOrder','ladderMedia','explainEdit','stageIntro','ladderStory','explainExtra','phaseKeys'];
       const before=JSON.stringify(KEYS.map(k=>st[k]));
       let moved=false;
       if(d && d.timing)      { st.timing=d.timing;           moved=true; }
@@ -17940,6 +17940,7 @@ function loadLadder(){
       if(d && d.ladderMedia) { st.ladderMedia=d.ladderMedia; moved=true; }
       if(d && d.explainEdit) { st.explainEdit=d.explainEdit; moved=true; }
       if(d && d.stageIntro)  { st.stageIntro=d.stageIntro;   moved=true; }
+      if(d && d.phaseKeys && typeof d.phaseKeys==='object') { st.phaseKeys=d.phaseKeys; moved=true; }
       if(d && d.ladderStory && typeof d.ladderStory==='object') { st.ladderStory=d.ladderStory; moved=true; }
       if(d && typeof d.welcomeFilm==='string') st.welcomeFilm=d.welcomeFilm;
       if(d && Array.isArray(d.explainExtra)) { st.explainExtra=d.explainExtra; moved=true; }
@@ -22475,7 +22476,7 @@ function homeLadderHTML(row){
      so a first visit has the same ladder card as every visit after it. */
   /* up under the greeting on a phone (Elliott, 15 Nov 2026: "move
      silhouettes up") */
-  return `<div class="rise rise-1" style="padding:${wide()?18:4}px 20px 0">${climbCardHTML(cs, S, cpProgress(cs), { h:row?74:62, names:true, noName:true, row, film:phaseFilmHTML()+phaseKeysHTML(),
+  return `<div class="rise rise-1" style="padding:${wide()?18:4}px 20px 0">${climbCardHTML(cs, S, cpProgress(cs), { h:row?74:62, names:true, noName:true, row, film:phaseFilmHTML(),
     above: (above && firstVisit())?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">You placed at
       <b style="color:var(--ink)">${esc(PS.n)}</b>.
       <span onclick="event.stopPropagation();beginTrial(${placed})" role="button" tabindex="0"
@@ -22675,31 +22676,6 @@ function phaseFilmHTML(tile){
    intro video) and also prerequisites to train"). Taken from the films'
    own sections and the drills shown in them; a drill the app does not have
    is left out, and a time only works with the film it was read from. */
-const PHASE_KEYS = {
-  0: {film:'3933d7757f6a2ba0910ffb16b689ae7f',
-      key:[['Wrists',111.0,[['wrist-circles-mob'],['palm-lifts-table-top'],['plank-fingertip-lifts'],['dd-wrist-taps']]],
-           ['Fear of falling',140.4,[['basic-bail-outs'],['fear-of-falling-cartwheel','Cartwheels'],['kick-up-bounces'],['chest-to-wall-bailouts']]],
-           ['Crow',173.9,[['crow-pose']]],
-           ['The kick up',190.4,[['wall-kick-ups']]]]},
-  1: {film:'b90e4fc0f64dfc49a0c082b085e07cf5', pre:[21.1,[['wall-kick-ups','Kick up back to the wall'],['p-l-handstand','20 to 30 s'],
-        ['fear-of-falling-cartwheel','Falling out'],['plank-pose','Straight arms'],['push-ups-on-knees','Bent arms']]],
-      key:[['Falling out',59.3,[['chest-to-wall-bailouts']]],
-           ['The shoulders',95.5,[['chair-assisted-handstand-shoulder-adjustments']]],
-           ['Walking up the wall',111.5,[['wall-walks']]],
-           ['Chest to wall',133.5,[['chest-to-wall-handstand','20 to 30 s']]],
-           ['More variety',205.9,[['lateral-slide-outs'],['wall-step-ups'],['nose-to-toes','20 s']]]]},
-  2: {film:'5e46c2d7886e6607d1cba4aebd67f33e', pre:[80.7,[['chest-to-wall-handstand','20 s'],['knee-to-chest-kick-ups','In the middle of the room'],
-        ['wall-step-ups'],['lateral-slide-outs']]],
-      key:[['Knees on box',130.1,[['knees-on-box']]],
-           ['Tuck slides',275.9,[['tuck-slides'],['single-leg-tuck-slides','Single leg first']]],
-           ['Wall scapula shrugs',346.8,[['wall-scapula-shrugs']]]]},
-  3: {film:'853b9e439c88ad2375f3b5d038406a43', pre:[50.8,[['tuck-slides','Both legs'],['chair-assisted-handstand-shoulder-adjustments'],['knees-on-box']]],
-      key:[['Tuck take-offs',85.6,[['tuck-take-offs']]],
-           ['Full slide away',145.1,[['slide-away']]],
-           ['Knees on box',208.8,[['knees-on-box-single-leg-lifts','Leg lifts']]],
-           ['Shape changes',247.0,[['straddle-to-straight'],['straddle-to-diamond']]],
-           ['Attempts in the room',297.4,[['knee-to-chest-kick-ups']]]]}
-};
 const pkClock = t => Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
 const pkThumb = d => { const id=uidOfUrl((d&&d.url)||''); return id ? STREAM_CDN+sigUid(id)+'/thumbnails/thumbnail.jpg?time=3s&height=160' : ''; };
 const pkHave = list => list.filter(([v])=>drillById(v));
@@ -22713,10 +22689,12 @@ function pkRow(head, list, watch){
     <div class="pk-m"><b>${head}</b>${ds.map(([v,note])=>`<button class="pk-d" onclick="pgDrill(${jsq(v)})">${esc(drillById(v).n)}${note?` <span>&middot; ${esc(note)}</span>`:''}</button>`).join('')}</div>
     ${watch||''}</div>`;
 }
+/* the dashboard's version of a phase where it has one, else what ships */
+const phaseKeysFor = i => { const o=(st.phaseKeys||{})[i]; return (o && Array.isArray(o.key)) ? o : PHASE_KEYS[i]; };
 function phaseKeysHTML(){
   if(isMU() || coachedView()) return '';
-  const i=curStage(), K=PHASE_KEYS[i]; if(!K) return '';
-  const u=phaseFilmUid(), timed=u===K.film;
+  const i=curStage(), K=phaseKeysFor(i); if(!K || !((K.key||[]).length || (K.pre && (K.pre[1]||[]).length))) return '';
+  const u=phaseFilmUid(), timed=!!u && u===K.film;
   const pre=(K.pre && pkHave(K.pre[1]).length) ? K.pre : null;
   const tab=(pre && st.pkTab==='pre') ? 'pre' : 'key';
   const watch=t=>timed ? `<button class="pk-w" onclick="openPhaseFilmAt(${t})" aria-label="Watch this part of the film, from ${pkClock(t)}">
@@ -22727,7 +22705,7 @@ function phaseKeysHTML(){
       + pkHave(pre[1]).map(([v,note])=>{ const d=drillById(v), img=pkThumb(d);
           return `<button class="pk-r pk-pre" onclick="pgDrill(${jsq(v)})"><span class="pk-i">${img?`<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">`:''}</span>
             <span class="pk-m"><b>${esc(d.n)}</b>${note?`<span class="pk-sub">${esc(note)}</span>`:''}</span></button>`; }).join('')
-    : K.key.map(([name,t,list],n)=>pkRow(`<small>${String(n+1).padStart(2,'0')}</small>${esc(name)}`, list, watch(t))).join('');
+    : (K.key||[]).map(([name,t,list],n)=>pkRow(`<small>${String(n+1).padStart(2,'0')}</small>${esc(name)}`, list, watch(t))).join('');
   return `<section class="pkeys" style="padding:12px 0 2px"><div class="pk-card">
     <div class="pk-k">${esc((STAGES[i]||{}).n||'')}, from the film</div>
     ${pre?`<div class="pk-seg" role="tablist">${seg('key','Key drills')}${seg('pre','Before you start')}</div>`:''}
@@ -23014,6 +22992,8 @@ function screenHome(){
     ${!W && !needsLevel() && (fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${needsLevel() ? levelFirstHTML() : ''}
     ${trialPending() ? firstPlacedHTML() : needsLevel() ? `<div class="unplaced">${homeLadderHTML(homeRow)}</div>` : homeLadderHTML(homeRow)}
+    ${/* the phase's key drills and what to have first, on Train (Elliott, 23 Nov 2026) */''}
+    ${(!trialPending() && !needsLevel()) ? `<div class="rise rise-2" style="padding:${W?18:4}px 20px 0">${phaseKeysHTML()}</div>` : ''}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
     ${(W && !trialPending()) ? `<div class="hduo hduo2 hduo3 rise rise-2${needsLevel()?' lvlwait':''}"><div class="hcol">${deskPick ? `<div class="dsess">${deskPick}${deskStart}</div>` : deskStart}${learnListHTML()}</div>${homeCpsHTML()}</div>` : ''}
