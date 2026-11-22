@@ -2226,6 +2226,15 @@ button.px-step{cursor:pointer}
  font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer}
 .p-warmskip[hidden]{display:none}
 /* the phase's key drills and what to have first (23 Nov 2026) */
+.ltd{display:flex;align-items:center;gap:14px;width:100%;margin:14px 0 2px;padding:12px;border-radius:22px;cursor:pointer;text-align:left;
+ background:#fff;border:1.5px solid rgba(243,169,73,.7);box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06);color:var(--ink)}
+.ltd-i{position:relative;flex:none;width:92px;height:92px;border-radius:16px;overflow:hidden;background:var(--sand)}
+.ltd-i img{width:100%;height:100%;object-fit:cover;display:block}
+.ltd-i i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center}
+.ltd-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.ltd-k{font:600 10.5px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:#a86a12}
+.ltd-t b{font:400 22px/1.1 var(--serif)}
+.ltd-t small{font:500 12.5px/1.4 var(--sans);color:var(--grey)}
 .pk-card{background:#fff;border-radius:24px;padding:16px 16px 6px;border:1px solid rgba(29,85,102,.10);
  box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
 .pk-k{font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)}
@@ -20051,12 +20060,14 @@ function learnHTML(inTab){
     if(how){ if(st.howGone==='watched') rows.push(how); else rows.unshift(how); }
     if(ph){ if((st.phaseFilm||{})[curStage()]==='watched') rows.push(ph); else rows.unshift(ph); } }
   if(!rows.length) return (howBig() && !isMU()) ? howBigHTML() : '';
+  const today=(!isMU() && !st.q) ? learnToday(P, rows) : null;
   /* tighter, and no grey line under the heading: the search says what to
      do (Elliott, 30 Oct 2026: "too much empty space here") */
   return `<section class="rise rise-3" style="padding:${inTab?'18px':'12px'} 20px 0">
     ${inTab?'':`<h2 style="margin:0;font:400 26px/1.1 var(--serif)">Learn at <em style="color:var(--forest);font-style:normal">${esc(PS.n)}.</em></h2>`}
     ${/* the search, back (Elliott, 29 Oct 2026): the films and the Learn
           pages, and when nothing answers it, a question to Elliott */''}
+    ${today ? learnTodayHTML(today) : ''}
     ${askBoxHTML('Search, or ask Elliott', true)}
     <div class="lrn-list" style="margin-top:16px">${rows.map((r,j)=>`<button class="lrn"${j?'':' data-tour="explainers"'}${r.ex!=null?` data-ex="${r.ex}"`:''}${lrnHit(r.t+' '+r.sub, r.ex, st.q)?'':' hidden'} onclick="${r.go}">
       <span class="lrn-i">${r.img?`<img src="${esc(r.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="9" height="10" viewBox="0 0 17 19"
@@ -20065,6 +20076,34 @@ function learnHTML(inTab){
     </button>`).join('')}</div>
     <div id="lrnask">${lrnAskHTML(rows.filter(r=>lrnHit(r.t+' '+r.sub, r.ex, st.q)).length, st.q)}</div>
   </section>`;
+}
+/* ── one thing to learn today (Elliott, 23 Nov 2026: "in the learn section,
+   especially on foundations where there is a lot, a new highlighted learn
+   thing every day when they start"). The phase film's sections first, each
+   played from its own moment, in the film's order, then the stage's Learn
+   rows; a new one each day, counted from the first day they opened Learn on
+   this stage, and round again at the end. The rest stay in the list. */
+function learnToday(P, rows){
+  const K=phaseKeysFor(P), u=phaseFilmUid(), items=[];
+  if(K && u && K.film===u) (K.key||[]).forEach(([name,t,list])=>{
+    const ds=(list||[]).map(x=>drillById(x[0])).filter(Boolean);
+    items.push({t:name, kick:'From the film, '+pkClock(t),
+      sub:ds.slice(0,3).map(d=>esc(d.n)).join(', ')+(ds.length>3?' and more':''),
+      img:STREAM_CDN+u+'/thumbnails/thumbnail.jpg?time='+Math.round(t+4)+'s&height=320', go:`openPhaseFilmAt(${t})`}); });
+  rows.forEach(r=>{ if(r.go!=='openHowFilm()' && r.go!=='openPhaseFilm()') items.push({t:r.t, kick:'', sub:r.sub, img:r.img, go:r.go}); });
+  if(!items.length) return null;
+  const day=Math.floor((Date.now()-new Date().getTimezoneOffset()*60000)/864e5);
+  const start=Object.assign({}, st.learnStart||{});
+  if(start[P]==null){ start[P]=day; st.learnStart=start; try{ save(); }catch(e){} }
+  const n=Math.max(0, day-start[P]);
+  return Object.assign({n:n+1}, items[n % items.length]);
+}
+function learnTodayHTML(x){
+  return `<button class="ltd" onclick="${x.go}">
+    <span class="ltd-i">${x.img?`<img src="${esc(x.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="11" height="12" viewBox="0 0 17 19"
+      fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
+    <span class="ltd-t"><span class="ltd-k">Today&rsquo;s learn &middot; day ${x.n}</span><b>${esc(x.t)}</b>
+      <small>${x.kick?esc(x.kick)+(x.sub?' &middot; ':''):''}${x.sub||''}</small></span></button>`;
 }
 /* ── the search on Learn narrows the list itself (Elliott, 15 Nov 2026:
    "this filter on learn should filter the actual list not create a new
@@ -23000,8 +23039,6 @@ function screenHome(){
     ${!W && !needsLevel() && (fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${needsLevel() ? levelFirstHTML() : ''}
     ${trialPending() ? firstPlacedHTML() : needsLevel() ? `<div class="unplaced">${homeLadderHTML(homeRow)}</div>` : homeLadderHTML(homeRow)}
-    ${/* the phase's key drills and what to have first, on Train (Elliott, 23 Nov 2026) */''}
-    ${(!trialPending() && !needsLevel()) ? `<div class="rise rise-2" style="padding:${W?18:4}px 20px 0">${phaseKeysHTML()}</div>` : ''}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
     ${(W && !trialPending()) ? `<div class="hduo hduo2 hduo3 rise rise-2${needsLevel()?' lvlwait':''}"><div class="hcol">${deskPick ? `<div class="dsess">${deskPick}${deskStart}</div>` : deskStart}${learnListHTML()}</div>${homeCpsHTML()}</div>` : ''}
