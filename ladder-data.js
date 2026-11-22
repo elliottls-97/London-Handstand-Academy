@@ -966,7 +966,7 @@ const PHASE_KEYS = {
         ['wall-step-ups'],['lateral-slide-outs']]],
       key:[['Knees on box',130.1,[['knees-on-box']]],
            ['Tuck slides',275.9,[['tuck-slides'],['single-leg-tuck-slides','Single leg first']]],
-           ['Wall scapula shrugs',346.8,[['wall-scapula-shrugs']]]]},
+           ['Wall scapula shrugs',346.8,[['scapula-shrugs','Chest to wall']]]]},
   3: {film:'853b9e439c88ad2375f3b5d038406a43', pre:[50.8,[['tuck-slides','Both legs'],['chair-assisted-handstand-shoulder-adjustments'],['knees-on-box']]],
       key:[['Tuck take-offs',85.6,[['tuck-take-offs']]],
            ['Full slide away',145.1,[['slide-away']]],
