@@ -10,13 +10,13 @@
 
 const CHECKPOINTS={
   0:[
-    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'chair-assisted-knee-lifts', note:'Stacked? How long did you hold it?'},
-    {k:'fall-comfort',n:'Falling off the wall',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable']},
-    {k:'wall-45',     n:'45-degree wall hold',      kind:'secs',  target:30, demo:'45-degree-wall-hold', note:'Alignment held, not just time on the clock.'},
-    {k:'plank',       n:'Plank pose',               kind:'secs',  target:60, demo:'plank-pose'},
-    {k:'crow',        n:'Crow pose',                kind:'secs',  target:10, demo:'crow-pose'},
-    {k:'chaturanga',  n:'Chaturanga push-ups',      kind:'count', target:5,  demo:'push-ups-on-knees', note:'On the knees.'},
-    {k:'kickup-rate', n:'Kick up to the wall',      kind:'count', target:8,  demo:'wall-kick-ups', note:'Out of ten attempts, how many landed?'}
+    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'chair-assisted-knee-lifts', note:'Stacked? How long did you hold it?', why:'Your first time with your weight on your hands, the chair taking the rest. Stacked here is the shape every stage builds on.'},
+    {k:'fall-comfort',n:'Falling off the wall',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable'], why:'Fear of falling holds more people back than strength. Once bailing feels normal you kick up properly and train freely.'},
+    {k:'wall-45',     n:'45-degree wall hold',      kind:'secs',  target:30, demo:'45-degree-wall-hold', note:'Alignment held, not just time on the clock.', why:'The straight line and the push through the shoulders, at a gentler angle, before you go all the way up.'},
+    {k:'plank',       n:'Plank pose',               kind:'secs',  target:60, demo:'plank-pose', why:'Straight arm strength and a braced middle. A handstand is a plank turned upside down.'},
+    {k:'crow',        n:'Crow pose',                kind:'secs',  target:10, demo:'crow-pose', why:'Your first balance on your hands, using your fingers to save it, close to the floor where a fall is nothing.'},
+    {k:'chaturanga',  n:'Chaturanga push-ups',      kind:'count', target:5,  demo:'push-ups-on-knees', note:'On the knees.', why:'Bent arm strength, so you can control your way down and push back up.'},
+    {k:'kickup-rate', n:'Kick up to the wall',      kind:'count', target:8,  demo:'wall-kick-ups', note:'Out of ten attempts, how many landed?', why:'The kick up is your way in. Landing most of them means the wall work is time on your hands, not time getting there.'}
   ],
   1:[
     /* 9 Nov 2026, Elliott, as seen on screen. The app draws this list bottom up, so the first here is the
@@ -24,9 +24,9 @@ const CHECKPOINTS={
        assisted scapula shrugs, kick ups, pike push ups, lateral slide outs (3rd from bottom), step ups,
        nose to toes last. Single leg tuck slides, wall scapula shrugs and single leg wall removals went
        to Pushing More (removals need a solid chest to wall hold first). */
-    {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, demo:'nose-to-toes', note:'The main drill for this stage.'},   /* film 9 Nov 2026 */
-    {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups'},
-    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.'},
+    {k:'nose-toes',   n:'Nose to toes',             kind:'secs',  target:20, demo:'nose-to-toes', note:'The main drill for this stage.', why:'The straight line you will balance in later: ribs in, shoulders open, everything stacked, held against the wall.'},   /* film 9 Nov 2026 */
+    {k:'wall-steps',  n:'Wall step ups',            kind:'count', target:10, demo:'wall-step-ups', why:'Taking weight off the wall one foot at a time, the first step towards balancing without it.'},
+    {k:'lat-slide',   n:'Lateral slide outs',       kind:'count', target:4,  demo:'lateral-slide-outs', goal:'4 each side', note:'Each side.', why:'Moving your weight from hand to hand, which is how you will save a handstand that drifts sideways.'},
     /* 9 Nov 2026 (Elliott): "make the pike push ups recommended but not essential to move on ... merge to 1
        checkpoint ... with levels of difficulty in the same one". extra: shown, never holds the stage back */
     {k:'pike-levels', n:'Pike push-ups',            kind:'face', extra:true, demo:'pike-press-ups', goal:'Negatives, then 5 full reps',
@@ -34,47 +34,47 @@ const CHECKPOINTS={
       /* a film for each level, picked above the film (9 Nov 2026, Elliott: "you also have videos for pike push ups") */
       levels:[{n:'On knees', demo:'p-pike-pushups-knees'},{n:'Negatives', demo:'p-pike-pushup-negs'},{n:'Full reps', demo:'pike-press-ups'}],
       /* the 4 Oct reel that walks through every level, as its own option under them (9 Nov 2026) */
-      explain:{n:'Full explainer, every level', uid:'4af0eaba89d9c837a9b9b632756a1227'}, note:'Recommended, not needed to move on. Start with slow negatives, then full reps.'},
-    {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups'},
-    {k:'chair-shrugs',n:'Chair assisted scapula shrugs', kind:'count', target:10, demo:'chair-assisted-handstand-scapula-shrugs'},
-    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand'},
-    {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.'}
+      explain:{n:'Full explainer, every level', uid:'4af0eaba89d9c837a9b9b632756a1227'}, note:'Recommended, not needed to move on. Start with slow negatives, then full reps.', why:'Pushing strength overhead. Not essential, but it helps the shoulders hold you up for longer.'},
+    {k:'assist-entry',n:'Knee to chest kick ups', kind:'count', target:10, demo:'knee-to-chest-kick-ups', why:'A controlled way up without a big kick, so you can get up the same way every time.'},
+    {k:'chair-shrugs',n:'Chair assisted scapula shrugs', kind:'count', target:10, demo:'chair-assisted-handstand-scapula-shrugs', why:'Teaches the shoulders to push up through the floor, the push that stops a banana back.'},
+    {k:'ctw-hold',    n:'Chest-to-wall handstand',  kind:'secs',  target:30, demo:'chest-to-wall-handstand', why:'Time upside down in the right shape. Thirty relaxed seconds means you have the endurance to start balancing.'},
+    {k:'ctw-bail',    n:'Chest to wall bail outs',  kind:'count', target:3,  demo:'chest-to-wall-bailouts', goal:'3 each way', note:'Each way.', why:'Getting off the wall safely both ways, so chest to wall never feels like a trap.'}
   ],
   2:[
     /* Elliott's order, 12 Nov 2026, read top to bottom on screen: wall step ups, box hold, single leg tuck slides,
        wall scapula shrugs, straddle shoulder leans, tuck slides, entries. Stored bottom row first.
        Single leg wall removals moved to Take-Off and slide aways became the straddle shoulder leans
        (12 Nov); wall scapula shrugs and single leg tuck slides came from Wall Work (9 Nov). */
-    {k:'entry-clean', n:'Entries to eight clean',   kind:'breaks',target:12, demo:'straddle-entries'},
-    {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked']},
-    {k:'straddle-lean', n:'Straddle wall shoulder leans', kind:'count', target:6, demo:'wall-straddle-shoulder-leans'},
-    {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'scapula-shrugs'},
-    {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?'},
-    {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box'},
-    {k:'step-ups',    n:'Wall step ups',            kind:'count', target:5,  demo:'wall-step-ups', goal:'5 each side', note:'Each side.'},
-    {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.'}
+    {k:'entry-clean', n:'Entries to eight clean',   kind:'breaks',target:12, demo:'straddle-entries', why:'Getting up the same way every time. Clean entries are what make your balance attempts count.'},
+    {k:'tuck-depth',  n:'Tuck slides',              kind:'face',  demo:'tuck-slides', note:'Film it. Are the shoulders stacked at depth?', faces:['Not stacked','Nearly','Stacked'], why:'Keeps the hips over the hands as the legs come in, the shape your first balances use.'},
+    {k:'straddle-lean', n:'Straddle wall shoulder leans', kind:'count', target:6, demo:'wall-straddle-shoulder-leans', why:'Moves the shoulders forward over the hands with the legs wide, the lean that shifts your weight off the wall.'},
+    {k:'scap-shrugs', n:'Wall scapula shrugs',      kind:'count', target:10, demo:'scapula-shrugs', why:'The push through the shoulders while upside down, which makes the handstand taller and lighter.'},
+    {k:'sl-tuck',    n:'Single-leg tuck slides',   kind:'count', target:10, demo:'single-leg-tuck-slides', note:'One side. How deep does the knee slide?', why:'One leg at a time, so the shoulders learn to stay forward while the hips move.'},
+    {k:'box-time',    n:'Knees on box, hold',       kind:'secs',  target:20, demo:'knees-on-box', why:'Your weight over your hands with the hips high, without needing a kick to get there.'},
+    {k:'step-ups',    n:'Wall step ups',            kind:'count', target:5,  demo:'wall-step-ups', goal:'5 each side', note:'Each side.', why:'More weight on your hands and less on the wall, each side.'},
+    {k:'box-dist',    n:'Knees on box, distance',   kind:'count', target:40, unit:'cm', lower:true, demo:'knees-on-box', note:'Hands to box on your best hold. Smaller is better.', why:'The closer your hands to the box, the further your shoulders are over them. It measures your lean.'}
   ],
   3:[
     /* from Pushing More, 12 Nov 2026: the first step of leaving the wall, so it sits first */
-    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.'},
-    {k:'side-away',   n:'Slide away',          kind:'secs',  target:5,  demo:'slide-away'},
+    {k:'sl-removal',  n:'Single leg wall removals', kind:'count', target:5,  demo:'single-leg-wall-removals', goal:'5 each side', note:'Each side.', why:'One leg off the wall to balance for a moment, with the other there if you need it.'},
+    {k:'side-away',   n:'Slide away',          kind:'secs',  target:5,  demo:'slide-away', why:'Leaving the wall in a straight shape: your first real balance, with the wall behind you.'},
     /* the leg lifts are one check point, both sides, and the knee lifts are
        their own (Elliott, 12 Nov 2026) */
-    {k:'box-lifts',   n:'Knees on box, single leg lifts', kind:'count', target:10, demo:'knees-on-box-single-leg-lifts', goal:'10 each side', note:'Each side.'},
-    {k:'box-knee-lifts', n:'Knees on box lift offs', kind:'count', target:5, demo:'knees-on-box-knee-lift-offs'},
-    {k:'tuck-takeoff',n:'Tuck take-offs',           kind:'secs',  target:5,  demo:'tuck-take-offs'},
-    {k:'shape-wall',  n:'Shape changes on the wall',kind:'count', target:8,  demo:'wall-shape-changes', note:'Straddle to straight.'},
+    {k:'box-lifts',   n:'Knees on box, single leg lifts', kind:'count', target:10, demo:'knees-on-box-single-leg-lifts', goal:'10 each side', note:'Each side.', why:'Finding the balance over your hands from the box, one leg at a time.'},
+    {k:'box-knee-lifts', n:'Knees on box lift offs', kind:'count', target:5, demo:'knees-on-box-knee-lift-offs', why:'Both knees off the box: a tuck balance without a kick.'},
+    {k:'tuck-takeoff',n:'Tuck take-offs',           kind:'secs',  target:5,  demo:'tuck-take-offs', why:'Tuck is the easiest shape to balance: a lower centre of mass, with the hips already over the hands.'},
+    {k:'shape-wall',  n:'Shape changes on the wall',kind:'count', target:8,  demo:'wall-shape-changes', note:'Straddle to straight.', why:'Changing shape upside down teaches you to keep your balance while your body moves.'},
     /* the harder balance before attempts in the room (12 Nov 2026) */
-    {k:'tuck-wall-bal', n:'Tuck wall balances',     kind:'secs',  target:5,  demo:'tuck-wall-balance'},
-    {k:'free-attempt',n:'Freestanding balance attempts', kind:'count', target:10}
+    {k:'tuck-wall-bal', n:'Tuck wall balances',     kind:'secs',  target:5,  demo:'tuck-wall-balance', why:'A tuck balance near the wall, so a fall is short and safe.'},
+    {k:'free-attempt',n:'Freestanding balance attempts', kind:'count', target:10, why:'Attempts in the middle of the room. Some days nothing lands; keep showing up.'}
   ],
   4:[
-    {k:'tuck-entries',      n:'Tuck entries',           kind:'breaks', target:12, demo:'tuck-entries'},
-    {k:'straight-entries',  n:'Straight entries',       kind:'breaks', target:12, demo:'straight-entries'},
-    {k:'straddle-entries',  n:'Straddle entries',       kind:'breaks', target:12, demo:'straddle-entries'},
-    {k:'straddle-to-straight',n:'Straddle to straight', kind:'breaks', target:14, demo:'straddle-to-straight'},
-    {k:'straight-to-tuck-back',n:'Straight to tuck and back', kind:'breaks', target:14, demo:'straight-to-tuck-back'},
-    {k:'straddle-to-diamond',n:'Straddle to diamond',   kind:'breaks', target:14, demo:'straddle-to-diamond'}
+    {k:'tuck-entries',      n:'Tuck entries',           kind:'breaks', target:12, demo:'tuck-entries', why:'Getting into a balance from the floor in a tuck, the most controlled way up.'},
+    {k:'straight-entries',  n:'Straight entries',       kind:'breaks', target:12, demo:'straight-entries', why:'Up to a straight balance with no wall, and staying there.'},
+    {k:'straddle-entries',  n:'Straddle entries',       kind:'breaks', target:12, demo:'straddle-entries', why:'A straddle entry with control, the way most balances and presses start.'},
+    {k:'straddle-to-straight',n:'Straddle to straight', kind:'breaks', target:14, demo:'straddle-to-straight', why:'Changing shape in balance trains you to correct with your fingers and shoulders, not by walking.'},
+    {k:'straight-to-tuck-back',n:'Straight to tuck and back', kind:'breaks', target:14, demo:'straight-to-tuck-back', why:'Bringing the legs in and back out while you balance, without losing the line.'},
+    {k:'straddle-to-diamond',n:'Straddle to diamond',   kind:'breaks', target:14, demo:'straddle-to-diamond', why:'A harder shape change, so the balance holds whatever your legs do.'}
   ],
   /* the six physical tests from the press masterclass: the start of the
      stage, and the week-six retest */

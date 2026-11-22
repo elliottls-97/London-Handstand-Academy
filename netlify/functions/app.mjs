@@ -14364,6 +14364,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             out.demo = d;                       /* empty clears it */
           }
           if (typeof c.note === 'string') out.note = c.note.slice(0, 200);
+          if (typeof c.why === 'string') out.why = c.why.slice(0, 240);
           if (typeof c.unit === 'string') out.unit = c.unit.slice(0, 8);
           if (c.lower !== undefined) out.lower = !!c.lower;
           if (Array.isArray(c.faces) && c.faces.length === 3) {
