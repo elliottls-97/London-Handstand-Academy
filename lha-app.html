@@ -1185,12 +1185,12 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
    moving edge: the figure's slides up into view as the photo's slides away.
    At rest only the figure shows. */
 .lw-ph image,.lw-ph .ph-wall{opacity:0}
-.ls-run .lw-ph image,.ls-run .lw-ph .ph-wall{opacity:1}
-.ls-run .lw-ph .ph-cs{animation:phWipeS .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
-.ls-run .lw-ph .ph-cp{animation:phWipeP .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
+.ls-run.ls-ph .lw-ph image,.ls-run.ls-ph .lw-ph .ph-wall{opacity:1}
+.ls-run.ls-ph .lw-ph .ph-cs{animation:phWipeS .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
+.ls-run.ls-ph .lw-ph .ph-cp{animation:phWipeP .9s cubic-bezier(.55,0,.3,1) calc(var(--i)*170ms + 1250ms + var(--ls-off,0ms)) both}
 @keyframes phWipeS{from{transform:translateY(150px)}to{transform:translateY(0)}}
 @keyframes phWipeP{from{transform:translateY(0)}to{transform:translateY(-150px)}}
-@media (prefers-reduced-motion: reduce){.ls-run .lw-ph image,.ls-run .lw-ph .ph-wall{opacity:0}.ls-run .lw-ph .ph-cs,.ls-run .lw-ph .ph-cp{animation:none}}
+@media (prefers-reduced-motion: reduce){.ls-run.ls-ph .lw-ph image,.ls-run.ls-ph .lw-ph .ph-wall{opacity:0}.ls-run.ls-ph .lw-ph .ph-cs,.ls-run.ls-ph .lw-ph .ph-cp{animation:none}}
 /* the stage names, under their steps (Elliott, 10 Oct 2026) */
 .lw-names{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:7px}
 .lw-names span{text-align:center;font:600 10px/12px var(--sans);letter-spacing:-.01em;cursor:pointer;
@@ -13283,7 +13283,7 @@ const sideChatOn = () => { try{ if(!wide() || !st.token || st.preview) return fa
   if(coachedView()) return ['today','plan','progress'].includes(st.tab) && !st.paused;
   if(st.tab==='hscheck') return true;
   return section()==='co' && ['coaching','start','coplans'].includes(st.tab); }catch(e){ return false; } };
-const onChatScreen = () => st.tab==='ask' || (fchatAllowed() ? st.fchat==='open' : (st.tab==='coaching' && coTab()==='chat'));
+const onChatScreen = () => st.tab==='ask' || (fchatAllowed() ? st.fchat==='open' : (st.tab==='coaching' && (coTab()==='chat' || askOne())));
 function chatScroller(){ const l=document.getElementById('chatList'); return l ? l.closest('.scroll') : null; }
 function chatToEnd(smooth){
   const sc=chatScroller(); if(!sc) return;
@@ -13492,7 +13492,10 @@ function chatOpened(){
   /* what was unread was noted before it was marked read, by go() and
      setCoTab(); noting it again here, after, made the divider vanish */
   chatHot();
-  setTimeout(()=>{ const g=document.getElementById('askIn'); if(g) chatGrow(g); chatFit(); chatToEnd(false); }, 60);
+  /* the one Ask Elliott page opens on the free clip, at the top, unless
+     Elliott has said something new */
+  const top = st.tab==='coaching' && askOne() && !coachMsgs().some(m=>m.at>(chatSeenAtOpen||0));
+  setTimeout(()=>{ const g=document.getElementById('askIn'); if(g) chatGrow(g); chatFit(); if(!top) chatToEnd(false); }, 60);
 }
 
 function screenAsk(){
@@ -21020,10 +21023,11 @@ const coPlansOn = () => sells() && !st.in;
    not already coached, where coaching is not sold or named */
 const coWord = () => (IOS_APP && !st.coached && !st.in) ? 'Form check' : 'Coaching';
 /* the Form check and Chat tabs are both the coaching screen, either half */
-const tabOn = id => id==='cocheck' ? ((st.tab==='coaching' && coTab()==='check') || (st.tab==='coaching' && wide()) || (st.tab==='coplans' && wide()))
+const tabOn = id => id==='cocheck' ? ((st.tab==='coaching' && (coTab()==='check' || askOne())) || (st.tab==='coaching' && wide()) || (st.tab==='coplans' && wide()))
   : id==='cochat' ? (st.tab==='coaching' && coTab()==='chat') : st.tab===id;
 function coTabsList(){
   if(typeof awaitingBlock==='function' && awaitingBlock()) return [['start','Start'],['cochat','Chat']];
+  if(askOne()) return [['cocheck','Ask Elliott']];
   return [['cocheck', hadFormCheck()?'Form checks':'Form check'],['cochat','Chat']]
     .concat(coPlansOn() ? [['coplans','Plans']] : []);
 }
@@ -24857,14 +24861,26 @@ function ladderSeg(){
    stop it under data-still before the photos ever showed (18 Nov 2026).
    So the clock lives here: a rebuilt strip is started part way through by
    a negative delay, and after about three seconds it is drawn at rest. */
-let lsT0=0, lsSeen=false;
+/* The photos are a moment, not a habit (Elliott, 22 Nov 2026): the first
+   time the ladder is seen, again on moving up a stage ("this is you next"),
+   and at most once a day after that, on the first open. A tab switch never
+   replays them; the rest of the time the figures rise in as silhouettes. */
+let lsT0=0, lsSeen=false, lsPh=false;
+function lsPhotoDue(){
+  if(isMU()) return false;
+  const day=Math.floor((Date.now()-new Date().getTimezoneOffset()*60000)/864e5), cur=curStage();
+  const P=st.ladPh||null;
+  const due = !P || cur>(P.s|0) || P.d!==day;
+  if(due){ st.ladPh={d:day, s:Math.max(cur, P?P.s|0:0)}; try{ save(); }catch(e){} }
+  return due;
+}
 function lsRunSync(arrived){
   const s=document.querySelector('#app .ls-in');
   if(!s){ lsSeen=false; return; }
   const now=performance.now();
-  if(!lsSeen || arrived){ lsT0=now; lsSeen=true; }
+  if(!lsSeen || arrived){ lsT0=now; lsSeen=true; lsPh=lsPhotoDue(); }
   const el=now-lsT0;
-  if(el<3300){ s.classList.add('ls-run'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
+  if(el<3300){ s.classList.add('ls-run'); if(lsPh) s.classList.add('ls-ph'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
 }
 function ladderStripHTML(o){
   o=o||{};
@@ -27299,7 +27315,7 @@ function screenCoaching(){
         <div style="font:400 24px/1.15 var(--serif);margin-top:10px">
           One clip. A video reply ${fcWhen()}.</div>
         <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">
-          ${checksPrice() ? 'Free with an account. After that, '+checksPrice()+' a month to have your handstand assessed every fortnight, up to 3 clips, with the whole Ladder.' : 'Free with an account.'}</div>
+          Free with an account. Film one attempt and I send you a video back with the one thing to change.</div>
         <button class="btn" style="width:100%;margin-top:16px"
           onclick="goJoin('clip')">Make an account and send one</button>
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
@@ -27336,7 +27352,7 @@ function screenCoaching(){
                   sentK.has(c.k)?'Sent':(cpAim(c)?'target '+esc(cpAim(c)):'')}</span></span>
               <button class="rt" ${full?'disabled style="opacity:.35" title="All '+mx+' clips are in"':''} onclick="${full?'':`fcFilmOpen(${jsq(c.k)})`}">${sentK.has(c.k)?'Again':'Film'}</button></div>`).join('')}
           </div>`:''}
-          <button class="btn2" style="width:100%;margin-top:14px" onclick="setCoTab('chat')">Ask or send in the chat</button>
+          <button class="btn2" style="width:100%;margin-top:14px" onclick="askFocus()">Ask or send in the chat</button>
         </div>`;
       })()
     : awaiting || (st.lastReview && st.lastReview > (st.seenReview||0))
@@ -27544,6 +27560,38 @@ function screenCoaching(){
     </div>`;
   /* the Form check / Chat switch is drawn by the top bar, so it is on
      screen whatever is scrolled, on every phone */
+  if(askOne()){
+    const cut=chatBody.indexOf('<div class="composer">');
+    const thread=(cut>-1 ? chatBody.slice(0,cut) : chatBody)
+      .split(IOS_APP?'where to start':'which plan fits').join('where to start');
+    const box=cut>-1 ? chatBody.slice(cut) : '';
+    const steps3=`<div class="card" style="padding:16px 14px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+          ${['Film one attempt','I watch it','A video back within 7 days']
+            .map((t,i)=>`<div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font:400 20px/1 var(--serif);color:var(--forest)">${i+1}</span>
+              <span style="font:500 13px/1.35 var(--sans)">${t}</span></div>`).join('')}
+        </div></div>`;
+    return `<div class="scroll s chat" onscroll="chatJumpPaint()" style="display:flex;flex-direction:column">
+      <div style="flex:none">
+        <div class="rise" style="padding:calc(env(safe-area-inset-top) + 84px) 20px 0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="width:46px;height:46px;flex:none;border-radius:50%;background:var(--forest);overflow:hidden;
+              color:var(--on-primary);display:grid;place-items:center;font:400 22px/1 var(--serif)">E<img src="${esc(COACH_PHOTO)}" alt=""
+              onerror="this.remove()" style="grid-area:1/1;width:100%;height:100%;object-fit:cover"></span>
+            <span style="flex:1;min-width:0">
+              <span style="display:block;font:600 15px/1.2 var(--sans)">Elliott Staley</span>
+              <span style="display:block;margin-top:3px;font:400 13px/1.4 var(--sans);color:var(--grey)">Ask anything, or send a clip.</span></span>
+          </div>
+          <div style="font:400 40px/1 var(--serif);letter-spacing:-.015em;margin-top:18px;text-wrap:balance">Send one clip. <em style="color:var(--forest);font-style:normal">Free.</em></div>
+        </div>
+        <div style="padding:20px 16px 0;display:flex;flex-direction:column;gap:11px">
+          <div data-tour="formcheck">${checkCard}</div>
+          ${steps3}
+        </div>
+        <div class="kick2" style="padding:26px 20px 0;color:var(--forest)">OR ASK ME ANYTHING</div>
+      </div>${thread}</div>${box}`;
+  }
   if(tab==='chat'){
     /* The switch was wrapped here and bare on the other tab, so the rules
        that hold a direct child of the page to its column landed on the
@@ -28515,6 +28563,23 @@ const TABS={
    description of what is on it and the way in to the rest. */
 const hadFormCheck = () => !!st.lastReview
   || ((st.subs||[]).some(x=>x && x.status==='reviewed'));
+/* ── Ask Elliott, one page (Elliott, 22 Nov 2026: "1 page for asking or
+   submitting video. they are allowed 1 video for free, don't mention the
+   plans till they have sent one. for now the aim is to get people to submit
+   form checks") ───────────────────────────────────────────────────────
+   On a phone, for a free account that has never sent a clip, the Form
+   check and Chat tabs are one page: the free clip at the top, the
+   conversation under it, the message box pinned at the foot. Nothing on it
+   is for sale. Once a clip has gone in, the two tabs and the plans return. */
+const sentClip = () => hadFormCheck() || !!st.freeCheckUsed || !!st.awaitingReview
+  || (st.subs||[]).length>0 || !!(st.checks && st.checks.on) || (st.checkClips|0)>0;
+const askOne = () => { try{ return !!st.token && !st.preview && !st.in && !coachedView() && !wide() && !isMU()
+  && !(typeof awaitingBlock==='function' && awaitingBlock()) && !sentClip(); }catch(e){ return false; } };
+function askFocus(){
+  const t=document.getElementById('askIn');
+  if(t && askOne() && st.tab==='coaching'){ try{ t.scrollIntoView({block:'end', behavior:'smooth'}); }catch(e){} t.focus(); return; }
+  setCoTab('chat');
+}
 /* never Coaching in the iPhone app (12 Nov 2026): online coaching is not sold or named there, so
    the tab keeps the name of what it holds */
 const coachTabLabel = () => (!IOS_APP && (hadFormCheck() || (st.bookings||[]).some(b=>b&&b.session))) ? 'Coaching' : (hadFormCheck() ? 'Form checks' : 'Form check');
@@ -28984,7 +29049,7 @@ function askPillHTML(){
   const n=(typeof msgsNew==='function') ? msgsNew() : 0;
   return `<button class="askpill" onclick="goAsk()" aria-label="Ask ${esc(coachLabel())}${n?', '+n+' new':''}">
     <span class="askpill-i">E<img src="${esc(COACH_PHOTO)}" alt="" onerror="this.remove()"></span>
-    <span class="askpill-t"><b>Ask ${esc(coachLabel())}</b><small>A question, or a clip for a form check</small></span>${n?`<i>${n}</i>`:''}</button>`;
+    <span class="askpill-t"><b>Ask ${esc(coachLabel())}</b><small>${sentClip()?'A question, or a clip for a form check':'Send a clip free, or ask a question'}</small></span>${n?`<i>${n}</i>`:''}</button>`;
 }
 function fchatHTML(){
   if(!fchatAllowed()) return '';
@@ -30671,7 +30736,7 @@ function render(){
     const now=app.querySelector('.scroll'); if(now && keepTop) now.scrollTop=keepTop;
     /* arriving on the chat opens at the newest message rather than at the
        top and jumping down two frames later */
-    if(!same && onChatScreen()){ const cs=chatScroller(); if(cs) cs.scrollTop=cs.scrollHeight; }
+    if(!same && onChatScreen() && !(st.tab==='coaching' && askOne() && !unreadMsgs())){ const cs=chatScroller(); if(cs) cs.scrollTop=cs.scrollHeight; }
     /* There used to be a requestAnimationFrame here setting still='1' straight
        after an arrival, which killed the entrance animation about sixteen
        milliseconds into its seven hundred: nothing on any screen has animated
@@ -30840,7 +30905,7 @@ function render(){
         .find(x=>(cpHold||{})[x.id.slice(7)]);
       if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); },260); }
   /* arriving on the chat lands on the latest message, not the oldest */
-  if(!same && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat'))){
+  if(!same && (st.tab==='ask' || (st.tab==='coaching' && coTab()==='chat' && (!askOne() || unreadMsgs()>0)))){
     const end=document.getElementById('chatEnd');
     if(end) setTimeout(()=>{ try{ end.scrollIntoView({block:'end'}); }catch(e){} },30);
   }
