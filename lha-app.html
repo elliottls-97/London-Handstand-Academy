@@ -2237,6 +2237,8 @@ button.px-step{cursor:pointer}
 @media (max-width:360px){.askpill-t small{display:none}}
 .cp-why{font:400 13px/1.45 var(--sans);color:var(--grey)}
 .cp-why b{font:700 9.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest);margin-right:6px}
+.ltd-w{position:relative;margin:14px 0 2px}
+.ltd-w .ltd{margin:0;padding-right:44px}
 .ltd{display:flex;align-items:center;gap:14px;width:100%;margin:14px 0 2px;padding:12px;border-radius:22px;cursor:pointer;text-align:left;
  background:#fff;border:1.5px solid rgba(243,169,73,.7);box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06);color:var(--ink)}
 .ltd-i{position:relative;flex:none;width:92px;height:92px;border-radius:16px;overflow:hidden;background:var(--sand)}
@@ -20157,18 +20159,30 @@ function learnToday(P, rows){
       img:STREAM_CDN+u+'/thumbnails/thumbnail.jpg?time='+Math.round(t+4)+'s&height=320', go:`openPhaseFilmAt(${t})`}); });
   rows.forEach(r=>{ if(r.go!=='openHowFilm()' && r.go!=='openPhaseFilm()') items.push({t:r.t, kick:'', sub:r.sub, img:r.img, go:r.go}); });
   if(!items.length) return null;
+  /* It stays until they look at it or put it away, as the phase film does
+     (Elliott, 23 Nov 2026), and the next one comes the following day. It
+     was a new one every day whether the last was seen or not. */
   const day=Math.floor((Date.now()-new Date().getTimezoneOffset()*60000)/864e5);
-  const start=Object.assign({}, st.learnStart||{});
-  if(start[P]==null){ start[P]=day; st.learnStart=start; try{ save(); }catch(e){} }
-  const n=Math.max(0, day-start[P]);
-  return Object.assign({n:n+1}, items[n % items.length]);
+  const Q=Object.assign({}, st.learnQ||{}), q=Object.assign({i:0}, Q[P]||{});
+  /* the place is kept by title too, so a row added on the dashboard does not move it */
+  if(q.t){ const k=items.findIndex(x=>x.t===q.t); if(k>-1) q.i=k; }
+  if(q.done!=null && q.done<day){ q.i=(q.i+1)%items.length; q.t=items[q.i].t; delete q.done; Q[P]=q; st.learnQ=Q; try{ save(); }catch(e){} }
+  if(q.done!=null) return null;          /* seen today: the next one tomorrow */
+  const i=q.i%items.length;
+  if(q.t!==items[i].t){ q.t=items[i].t; Q[P]=q; st.learnQ=Q; try{ save(); }catch(e){} }
+  return Object.assign({n:i+1, of:items.length, P}, items[i]);
+}
+function learnSeen(P){
+  const day=Math.floor((Date.now()-new Date().getTimezoneOffset()*60000)/864e5);
+  const Q=Object.assign({}, st.learnQ||{}); Q[P]=Object.assign({i:0}, Q[P]||{}, {done:day}); st.learnQ=Q; save();
 }
 function learnTodayHTML(x){
-  return `<button class="ltd" onclick="${x.go}">
+  return `<div class="ltd-w"><button class="ltd" onclick="learnSeen(${x.P});${x.go}">
     <span class="ltd-i">${x.img?`<img src="${esc(x.img)}" alt="" loading="lazy" onerror="this.remove()">`:''}<i><svg width="11" height="12" viewBox="0 0 17 19"
       fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></span>
-    <span class="ltd-t"><span class="ltd-k">Today&rsquo;s learn &middot; day ${x.n}</span><b>${esc(x.t)}</b>
-      <small>${x.kick?esc(x.kick)+(x.sub?' &middot; ':''):''}${x.sub||''}</small></span></button>`;
+    <span class="ltd-t"><span class="ltd-k">Today&rsquo;s learn &middot; ${x.n} of ${x.of}</span><b>${esc(x.t)}</b>
+      <small>${x.kick?esc(x.kick)+(x.sub?' &middot; ':''):''}${x.sub||''}</small></span></button>
+    ${xBtn('learnSeen('+x.P+');render()', 'Put today’s learn away until tomorrow')}</div>`;
 }
 /* ── the search on Learn narrows the list itself (Elliott, 15 Nov 2026:
    "this filter on learn should filter the actual list not create a new
