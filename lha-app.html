@@ -19731,7 +19731,15 @@ function allDrills(){ const out=[];
    and note. A copy written without its film or its cues took nothing from
    the library, so a check point on Crow pose or Plank pose opened with no
    film though the library had one (Elliott, 10 Oct 2026). It borrows them. */
-const drillById=v0=>{ const v=drillAlias(v0);
+/* The standing wall scapula shrugs belong to Foundations. Past it, anything
+   that names them, a dashboard list or an older setting included, gets the
+   chest to wall ones (Elliott, 23 Nov 2026: "make sure that wall scapula
+   shrugs is never shown past foundations"). A coach's written programme is
+   left as written. */
+const PAST_FOUND = {'wall-scapula-shrugs':'scapula-shrugs'};
+const pastFound = v => { if(!PAST_FOUND[v]) return v;
+  try{ return (!coachedView() && curStage()>0) ? PAST_FOUND[v] : v; }catch(e){ return v; } };
+const drillById=v0=>{ const v=pastFound(drillAlias(v0));
   const a=allDrills().find(d=>d.v===v), b=LIBRARY.find(d=>d.v===v);
   if(a && b && (!a.url || !(a.cues||[]).length))
     return Object.assign({}, a, {url:a.url||b.url||'', cues:(a.cues&&a.cues.length)?a.cues:(b.cues||[]), desc:a.desc||b.desc||''});
@@ -25825,7 +25833,8 @@ function coachDayMove(){
 function warmupFor(budgetSecs, stage, written){
   /* a drill put aside is out of the warm-up as well: a sore wrist is a
      reason to skip wrist circles more than anything else in the session */
-  const take=(list,n)=>list.filter(v=>!asideOn(v)).map(drillById).filter(Boolean).slice(0,n);
+  const take=(list,n)=>list.filter(v=>!asideOn(v)).map(drillById).filter(Boolean)
+    .filter((d,k,a)=>a.findIndex(x=>x.v===d.v)===k).slice(0,n);
   /* A coach who writes a workout out writes its warm-up out too, and it is
      the top of the list, the first thing they touch. This built its own from
      the stage and the general ramp whatever they had written, so swapping a
@@ -25926,8 +25935,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     if(ids.indexOf(v)<0 && spare.indexOf(v)<0) spare.push(v); }));
   /* put aside this week, so it is not built into anything */
   const mk=list=>list.filter(v=>!used.has(v) && !asideOn(v) && (st.drillsOff||[]).indexOf(v)<0).map(drillById).filter(Boolean)
+    .filter(d=>!used.has(d.v))
     .map(d=>Object.assign({},d,{d:((st.timing||{})[d.v]||{}).d || d.d || FREE_DOSE[d.v] || '3 × 8'}));
-  const focus=mk(ids), pool=focus.concat(mk(spare));
+  const focus=mk(ids), pool=focus.concat(mk(spare)).filter((d,k,a)=>a.findIndex(x=>x.v===d.v)===k);
   if(!pool.length){
     const aside=ids.concat(spare).filter(v=>asideOn(v));
     if(dryBuild) return [];
