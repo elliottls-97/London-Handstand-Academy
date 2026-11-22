@@ -173,11 +173,12 @@ export const EMAILS = {
     "vars": [
       "name"
     ],
-    "subject": "Film yourself, from the side",
+    "subject": "Film yourself, and I will check it free",
     "title": "You cannot feel a bent hip. You can see one.",
     "paras": [
       "Phone on the floor, side on, whole body in frame. What feels straight almost never is, and thirty seconds of footage teaches more than a month of guessing.",
-      "Each stage in the app has check points, the things you have to be able to do before the next stage opens. Log them as you go, and if you are being coached, send the clip with it."
+      "Then send it to me. Your first form check is free: one clip of up to two minutes, and I reply on video with what I see and the one thing to change next. Most people are surprised by what the film shows.",
+      "Send it from the app, from the Form check tab or the Ask Elliott button, or from the page below. It comes back within a week."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -1035,11 +1036,15 @@ const TIP_LOOK = {
 };
 export function tipEmail(day, T, first, site) {
   const L = TIP_LOOK[day] || {}, href = `${site || SITE}/lha-app.html?ref=tip${day}`;
+  /* day 7 is the free form check (Elliott, 23 Nov 2026: "people should be
+     emailed about the form checks and how they work. Just to get some free ones") */
+  const fc = day === 7 ? `${site || SITE}/form-check?src=tip7` : '';
   return richEmail({ title: T.title, preheader: String((T.paras || [])[0] || '').replace(/<[^>]+>/g, '').slice(0, 110),
     blocks: [
       { t: 'hero', img: L.img, alt: L.alt, href, kicker: L.kicker, head: T.title, btn: { label: "Open today's session", sub: 'Free in the app', href } },
       { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
-        btn: L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
+        btn: fc ? { label: 'Send me your clip', sub: 'Your first form check is free', href: fc }
+          : L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
     ],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }

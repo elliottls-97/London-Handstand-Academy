@@ -1545,7 +1545,7 @@ const NEWS_REVIEWS = [
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
   { text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
 ];
-const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], appstore: ['https://apps.apple.com/gb/app/london-handstand-academy/id6818646346', 'Get it on the App Store'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
+const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], formcheck: ['/form-check?src=newsletter', 'Send me your clip'], learn: ['/learn/?src=newsletter', 'Read Learn'], appstore: ['https://apps.apple.com/gb/app/london-handstand-academy/id6818646346', 'Get it on the App Store'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
   coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'] };
 const STREAM_UID = /^[a-f0-9]{32}$/;
 function newsPhoto(x) {
