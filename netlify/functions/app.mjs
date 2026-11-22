@@ -3918,7 +3918,7 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
 });
 /* one entry in What broke, from a phone, a website page or the server
    itself, counted against the same message and place */
-const ERR_NOISE = /_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger/;
+const ERR_NOISE = /_AutofillCallbackHandler|Java object is gone|webkit\.messageHandlers|iabjs:|navigation_performance_logger|IABInnerFrame|_META\.|contentWindow\.postMessage|EmptyRanges/;
 async function errAdd({ k, m, w, sc, dv, who, st }) {
   const id = (k + '|' + m + '|' + (w || '')).slice(0, 300);
   await changeSetting('errs', cur => {
@@ -10742,7 +10742,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* the dashboard plays films as MP4, which Stream only gives a token
        that says so: without it every locked film there was black, all the
        Muscle Up ones among them (30 Oct 2026). Coaches only. */
-    const dl = !!body.dl && (preview || coachList().includes(who));
+    /* Every pass also opens the film as a file (23 Nov 2026). Chrome and
+       Android play the file, not the ladder of sizes, and so does saving a
+       workout for no signal; a pass without this was refused there (403),
+       so paying members on a laptop or Android saw locked films black.
+       Only paying accounts, coaches and previews reach this line. */
+    const dl = true;
     const tokens = {};
     for (const uid of uids) tokens[uid] = await signUid(k, uid, exp, dl);
     return json({ tokens, exp: exp * 1000 });
@@ -12242,6 +12247,93 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ ok: true });
   }
   /* the list, for the owner; clear one or the lot once it is dealt with */
+  /* ── is anything broken? (23 Nov 2026: "how can you monitor for issues like
+     the black film that won't play") ───────────────────────────────────
+     Once a morning, from health.mjs, and whenever the owner asks: every film
+     the app can show is checked on Cloudflare (there at all, ready to play,
+     its file built for Chrome and Android and for saving, and Foundations
+     open to everybody), and yesterday's failures on real phones are read
+     from the list the app sends. Anything wrong is emailed and pushed to the
+     owner; the result is kept for the dashboard's Today. */
+  async function runHealth() {
+    const out = { at: Date.now(), films: { checked: 0, problems: [] }, errs: [] };
+    const lib = await libraryNow();
+    const names = (lib.names || {}), video = (lib.video || {});
+    const uidOf = u => { const m = /\/([a-f0-9]{32})\//.exec(String(u || '')); return m ? m[1] : ''; };
+    const want = new Map();                       /* uid -> what it is */
+    for (const [v, u] of Object.entries(video)) { const id = uidOf(u); if (id && !want.has(id)) want.set(id, names[v] || v); }
+    const S = await settingsMany(['explain:intro', 'explain:extra', 'explain:edit']);
+    Object.entries(S['explain:intro'] || {}).forEach(([k, u]) => { if (/^[a-f0-9]{32}$/.test(String(u))) want.set(u, 'Phase ' + (Number(k) + 1) + ' intro film'); });
+    (S['explain:extra'] || []).forEach(x => { if (x && /^[a-f0-9]{32}$/.test(String(x.uid))) want.set(x.uid, 'Explainer: ' + String(x.q || '').slice(0, 50)); });
+    Object.values(S['explain:edit'] || {}).forEach(x => { if (x && /^[a-f0-9]{32}$/.test(String(x.uid)) && !x.off) want.set(x.uid, 'Explainer: ' + String(x.q || '').slice(0, 50)); });
+    const free = new Set();
+    try { const ids = await foundationsDrills(); ids.forEach(v => { const id = uidOf(video[v]); if (id) free.add(id); }); } catch {}
+    out.films.checked = want.size;
+    if (CF_TOK()) {
+      /* the account's films in one go */
+      const all = new Map();
+      for (let page = 0, after = ''; page < 5; page++) {
+        const r = await cfStream(`?limit=1000${after ? '&before=' + encodeURIComponent(after) : ''}`);
+        const rows = (r && r.result) || [];
+        rows.forEach(x => all.set(x.uid, x));
+        if (rows.length < 1000) break;
+        after = rows[rows.length - 1].created;
+      }
+      const add = (uid, what) => out.films.problems.push({ uid, name: want.get(uid) || uid.slice(0, 8), what });
+      const ids = [...want.keys()];
+      ids.forEach(uid => { const x = all.get(uid);
+        if (!x) return add(uid, 'not on Cloudflare any more');
+        if (x.status && x.status.state === 'error') return add(uid, 'Cloudflare could not process it');
+        if (!x.readyToStream) add(uid, 'not ready to play');
+        if (free.has(uid) && x.requireSignedURLs) add(uid, 'locked, but it is a Foundations film everybody should see'); });
+      /* the file Chrome, Android and saving play, a few at a time */
+      for (let i = 0; i < ids.length; i += 20) {
+        await Promise.all(ids.slice(i, i + 20).filter(uid => all.has(uid)).map(async uid => {
+          const r = await cfStream(`/${uid}/downloads`);
+          const st0 = r && r.result && r.result.default && r.result.default.status;
+          if (st0 === 'ready') return;
+          if (st0 === 'inprogress') return add(uid, 'its file is still being built');
+          /* missing: ask for it, and say so; it is ready within minutes */
+          await cfStream(`/${uid}/downloads`, { method: 'POST' });
+          add(uid, 'had no file for Chrome, Android or saving; asked Cloudflare to make one');
+        }));
+      }
+    } else out.films.skipped = 'no Cloudflare token';
+    /* what broke on real phones in the last day, the owner's own devices and tests left out */
+    const tests = /example\.com|lha-test|paytest|livecheck|claude/i, mine = new Set([primaryCoach(), ...coachList()].map(norm));
+    const errs = Object.values((await getSetting('errs')) || {});
+    const since = Date.now() - 24 * 3600e3;
+    out.errs = errs.filter(e => e && e.last >= since && !ERR_NOISE.test(String(e.m || '')))
+      .map(e => ({ k: e.k, m: String(e.m || '').slice(0, 120), n: e.n || 1, isNew: (e.first || 0) >= since,
+        who: (e.who || []).filter(w => !tests.test(w) && !mine.has(norm(w))) }))
+      .filter(e => e.k === 'film' || e.k === 'save' || e.isNew)
+      .filter(e => e.who.length || e.k === 'site' || e.k === 'api' || e.k === 'server');
+    await setSetting('health:last', out);
+    const fp = out.films.problems, ep = out.errs;
+    if (fp.length || ep.length) {
+      const to = primaryCoach();
+      const li = a => a.map(t => `&bull; ${t}`).join('<br>');
+      const paras = [];
+      if (fp.length) paras.push(`<b>${fp.length} film${fp.length === 1 ? '' : 's'} with a problem</b>, of ${out.films.checked} checked:<br>` + li(fp.slice(0, 25).map(x => `${esc(x.name)}: ${esc(x.what)}`)) + (fp.length > 25 ? `<br>and ${fp.length - 25} more` : ''));
+      if (ep.length) paras.push(`<b>What broke on people's phones in the last day:</b><br>` + li(ep.slice(0, 20).map(x => `${esc(x.m)}${x.n > 1 ? ' (' + x.n + ' times)' : ''}${x.who.length ? ' &middot; ' + esc(x.who.slice(0, 3).join(', ')) : ''}${x.isNew ? ' &middot; new' : ''}`)));
+      paras.push(`The full list is in the dashboard, Settings, App.`);
+      if (to) await email(to, `LHA: ${[fp.length ? fp.length + ' film' + (fp.length === 1 ? '' : 's') : '', ep.length ? ep.length + ' thing' + (ep.length === 1 ? '' : 's') + ' broke' : ''].filter(Boolean).join(', ')}`,
+        mail({ title: 'Something needs a look.', paras, cta: { href: `${SITE}/lha-coach.html#settings`, label: 'Open the dashboard' } }), undefined, { essential: true }).catch(() => {});
+      await sendCoachAlert(null, [{ kind: 'business', payload: { title: ep.length ? `${ep.length} thing${ep.length === 1 ? '' : 's'} broke on people's phones` : `${fp.length} film${fp.length === 1 ? '' : 's'} need a look`,
+        body: (ep[0] ? ep[0].m : fp[0].name + ': ' + fp[0].what).slice(0, 140), tag: 'health' } }]);
+    }
+    return out;
+  }
+  if (path === '/health/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    return json(await runHealth());
+  }
+  if (path === '/coach/health') {
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    if (request.method === 'POST') return json(await runHealth());
+    return json((await getSetting('health:last')) || {});
+  }
   if (path === '/coach/errs') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     if (!(await isOwner())) return json(ownerOnly, 403);

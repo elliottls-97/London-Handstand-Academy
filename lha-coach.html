@@ -10078,6 +10078,49 @@ function digestHTML(){
     ${dgOpen?`<div style="margin-top:10px">${L.join('')}</div>`:''}
   </div>`;
 }
+/* ── something broke (23 Nov 2026) ─────────────────────────────────
+   The morning check's result, and anything people's phones sent since:
+   a red line at the top of Today, so a film that will not play is seen
+   the day it happens rather than in the next review. It opens the list. */
+let healthLast=null, healthAsked=false, healthBusy=false;
+function healthLoad(){
+  if(healthAsked || !owner) return; healthAsked=true;
+  fetch(API+'/health',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ healthLast=d; draw(); } }).catch(()=>{});
+  errsLoad();
+}
+function healthHTML(){
+  healthLoad();
+  const since=Date.now()-24*3600e3, tests=/example\.com|lha-test|paytest|livecheck|claude|elliott/i;
+  const recent=(errsList||[]).filter(e=>e && e.last>=since && (e.k==='film'||e.k==='save'||(e.first||0)>=since)
+    && ((e.who||[]).some(w=>!tests.test(w)) || ['site','api','server'].includes(e.k)));
+  const films=((healthLast&&healthLast.films&&healthLast.films.problems)||[]);
+  if(!recent.length && !films.length) return '';
+  const bits=[recent.length?recent.length+' thing'+(recent.length===1?'':'s')+' broke on people’s phones in the last day':'',
+    films.length?films.length+' film'+(films.length===1?'':'s')+' need'+(films.length===1?'s':'')+' a look':''].filter(Boolean);
+  const first=recent[0] ? recent[0].m : films[0].name+': '+films[0].what;
+  return `<button onclick="setTab='app';go('settings')" style="display:flex;gap:12px;align-items:center;width:100%;margin:0 0 16px;padding:12px 14px;
+    border-radius:14px;border:1px solid rgba(164,80,60,.35);background:rgba(164,80,60,.07);cursor:pointer;text-align:left;color:var(--ink)">
+    <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font:700 13px/1 var(--sans)">${recent.length+films.length}</span>
+    <span style="flex:1;min-width:0"><b style="display:block;font:600 13.5px/1.35 var(--sans)">${esc(bits.join(' · '))}</b>
+      <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(first)}</span></span>
+    <span style="flex:none;font:600 12px/1 var(--sans);color:var(--red)">See them</span></button>`;
+}
+function healthRun(){ if(healthBusy) return; healthBusy=true; draw();
+  fetch(API+'/health',{method:'POST',headers:hdr()}).then(r=>r.ok?r.json():null)
+    .then(d=>{ healthBusy=false; if(d) healthLast=d; draw(); }).catch(()=>{ healthBusy=false; draw(); }); }
+function healthCardHTML(){
+  healthLoad();
+  const h=healthLast||{}, f=h.films||{}, P=f.problems||[];
+  const when=h.at?new Date(h.at).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'}):'not yet';
+  return `<div class="kick" style="margin-top:20px">FILM CHECK</div>
+    <div style="font:400 13px/1.55 var(--sans);color:var(--grey);margin-top:6px;max-width:66ch">Every morning at 7:30 every film the app can show is checked on Cloudflare:
+      there, ready to play, its file built for Chrome, Android and saving, and Foundations open to everybody. Anything wrong is emailed to you.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <span style="font:600 13px/1.3 var(--sans)">${f.checked?f.checked+' films checked, '+(P.length?P.length+' with a problem':'all fine'):'No check yet'}</span>
+      <span class="muted" style="font-size:12px">Last: ${esc(when)}</span>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="healthRun()" ${healthBusy?'disabled':''}>${healthBusy?'Checking…':'Check now'}</button></div>
+    ${P.length?`<div style="margin-top:8px">${P.slice(0,30).map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.45 var(--sans)"><b style="font-weight:600">${esc(x.name)}</b> &middot; ${esc(x.what)}</div>`).join('')}</div>`:''}`;
+}
 function todayHTML(){
   if(!TODAY_CATS.some(c=>c[0]===inboxFilter)) inboxFilter='all';
   const people=todayPeople();
@@ -10096,6 +10139,7 @@ function todayHTML(){
   const cards=waiting.map(p=>personCardHTML(p,'all')).filter(Boolean);
   const newsCards=todayNewsOpen?news.map(p=>personCardHTML(p,'all')).filter(Boolean):[];
   return `<section class="glass" style="padding:26px 28px;border-radius:24px">
+    ${owner?healthHTML():''}
     ${mailAlertHTML()}
     <p class="muted" style="font-size:13px;margin:0 0 var(--space-1)">${esc(date)}</p>
     <h1 style="margin:0 0 var(--space-2)">${calm}</h1>
@@ -14395,7 +14439,7 @@ function settingsHTML(){
         someone a tier for nothing are all set by the account that owns the business.
         Everything else here is yours. Ask him and he can change any of it in a moment.</div>`}`
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
-      ${owner?errsHTML():''}${owner?emailsHTML():''}`
+      ${owner?healthCardHTML():''}${owner?errsHTML():''}${owner?emailsHTML():''}`
   : setTab==='workshops' ? workshopsHTML()
   : setTab==='calls' ? (owner ? callsSettingsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">Calls are set by Elliott.</div>`)
   : setTab==='sessions' ? (owner ? sessSlotsHTML()+wsCodesHTML(true) : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)

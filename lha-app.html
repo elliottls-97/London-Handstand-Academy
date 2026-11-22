@@ -5934,7 +5934,9 @@ function loadSign(){
      it has paid for, or the films it needs have changed. */
   const paid=isPlus()||!!st.preview;
   const asked=new Set(SIGN.asked||Object.keys(SIGN.t||{}));
-  if(SIGN && SIGN.exp && SIGN.exp-Date.now() > 3600000
+  /* v2: passes made since 23 Nov 2026 also open the file (Chrome, Android,
+     saving); a set kept from before is asked for again */
+  if(SIGN && SIGN.exp && SIGN.exp-Date.now() > 3600000 && SIGN.v===2
      && SIGN.who===(st.email||'') && !!SIGN.paid===paid && uids.every(u=>asked.has(u))){
     clearTimeout(signTimer);
     signTimer=setTimeout(loadSign, Math.max(60000, SIGN.exp-Date.now()-3600000));
@@ -5955,7 +5957,7 @@ function loadSign(){
       const had=Object.keys(SIGN.t).length;
       /* nothing to sign is an answer too: kept for two hours, so a free
          account is not asking again on every open */
-      SIGN={t:d.tokens||{}, exp:Number(d.exp)||(Date.now()+2*3600000), who, paid, asked:uids};
+      SIGN={t:d.tokens||{}, exp:Number(d.exp)||(Date.now()+2*3600000), who, paid, asked:uids, v:2};
       try{ localStorage.setItem(SIGN_KEY, JSON.stringify(SIGN)); }catch(e){}
       if(Object.keys(SIGN.t).length!==had) render();
       clearTimeout(signTimer);
@@ -14434,7 +14436,14 @@ function showStep(){
            on a phone looks the same as one that failed */
         clearTimeout(vEl._watch);
         vEl._watch=setTimeout(()=>{ if(vEl.isConnected && vEl.getAttribute('data-src')===src
-          && phase!=='rest' && vEl.readyState<2 && !(vEl.error)) filmRecover(vEl); }, 8000);
+          && phase!=='rest' && vEl.readyState<2 && !(vEl.error)){
+            /* eight seconds without a picture is a failure to the person
+               holding the phone, so it is reported, not only retried
+               (23 Nov 2026); once a film a visit, never offline */
+            try{ const id=uidOfUrl(it&&it.url)||''; if(navigator.onLine!==false && id && !filmFail.seen['slow-'+id]){ filmFail.seen['slow-'+id]=1;
+              lhaErr('film', 'Film slow to start: '+((it&&it.n)||id.slice(0,8)), 'follow along '+id.slice(0,8),
+                (String(src).indexOf('/manifest/')>-1?'tried: ladder':'tried: file')+' · nothing after 8 s · '+(sigUid(id)!==id?'had a pass':'no pass')+' · device: '+filmDevice()); } }catch(e){}
+            filmRecover(vEl); } }, 8000);
         /* the drill's own first frame while it loads: a black rectangle
            for two seconds on every set reads as a broken player */
         const pu=uidOfUrl(it.url);
