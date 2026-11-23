@@ -850,6 +850,7 @@ async function journeyReport(days, full) {
     started: n(cur, 'start'), finished: n(cur, 'finish'),
     byTenth: Object.entries(cur.quitBy || {}).map(([d, c]) => ({ tenth: Number(d), n: c })).sort((a, b) => a.tenth - b.tenth),
     drills: top(cur.quitDrill, 12),
+    secs: cur.quitSecs || {}, finSecs: cur.finSecs || {},
     /* the reasons given on the way out, and how many skipped the question */
     why: top(cur.whyBy, 12),
   };
@@ -12210,6 +12211,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (n === 'quit') {
         const d = Number(body.s); if (Number.isInteger(d) && d >= 0 && d <= 10) bump('quitBy', String(d), 11);
         bump('quitDrill', scrOf(body.f), 100);
+      }
+      /* how long a session was open when it was closed or finished, in
+         bands, for everybody (23 Nov 2026) */
+      if ((n === 'quit' || n === 'finish') && body.t != null) {
+        const t = Number(body.t);
+        if (Number.isFinite(t) && t >= 0) bump(n === 'quit' ? 'quitSecs' : 'finSecs',
+          t < 15 ? 'a' : t < 60 ? 'b' : t < 300 ? 'c' : t < 900 ? 'd' : t < 1800 ? 'e' : 'f', 6);
       }
       /* where the quiz put them, which is the one breakdown that matters */
       if (n === 'quiz' || n === 'wall') {

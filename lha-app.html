@@ -3180,10 +3180,10 @@ const authed = () => ({'Content-Type':'application/json','Authorization':'Bearer
    most a stage number: never who, never a cookie. The server adds one to a
    daily total. That is the whole of it, and it is what makes the funnel on
    the dashboard say something rather than nothing. */
-function track(n, s, f){
+function track(n, s, f, x){
   if(st.preview) return;   /* a coach looking is not a visit */
   try{
-    const body=JSON.stringify(Object.assign({n}, s==null?{}:{s}, st.ref?{r:st.ref}:{}, f?{f}:{}));
+    const body=JSON.stringify(Object.assign({n}, s==null?{}:{s}, st.ref?{r:st.ref}:{}, f?{f}:{}, x||{}));
     if(navigator.sendBeacon){
       navigator.sendBeacon('/api/app/event', new Blob([body],{type:'application/json'}));
     } else {
@@ -14796,13 +14796,18 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
   filmSlowLater();
   setTimeout(()=>{ try{ widgetPush(); }catch(e){} }, 2000);
   const d=day();
-  const partWay = !done && qi>0 && qi<Q.length-1;
+  /* how long it was open, for everybody, not only the signed in (23 Nov
+     2026: "are they on it for 15 seconds and move off") */
+  const tSecs=sessionStart ? Math.round((Date.now()-sessionStart)/1000) : 0;
+  /* most people who close it do so on the first drill, so that is asked
+     about too, once they have been in it long enough to have a reason */
+  const partWay = !done && qi<Q.length-1 && (qi>0 || tSecs>=8);
   if(partWay) whyStopContext=(Q[qi]&&Q[qi].it&&Q[qi].it.n)||'';
   /* the journey: closed before the end, how far through in tenths, and on which drill */
   if(!done && Q.length && !tourBuild){
     const it=(Q[Math.min(qi,Q.length-1)]||{}).it||{};
     track('quit', Math.max(0,Math.min(10,Math.round(qi/Q.length*10))),
-      String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30));
+      String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30), {t:tSecs});
   }
   /* The player has known the drill-by-drill all along — every set in Q
      carries its drill, its block and its position — and threw it away at
@@ -14871,7 +14876,7 @@ function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(
     block: done?'':((Q[qi]&&Q[qi].grp)||'')}});
   st.lastSessionMins = plReal;
   /* a mini never moves the plan on to its next day */
-  if(done){ track('finish'); noteFinish(); if(miniAt==null) coachDayDone(); }
+  if(done){ track('finish', null, null, {t:tSecs}); noteFinish(); if(miniAt==null) coachDayDone(); }
   /* a list session switched to the follow along part way moves on here */
   if(done) applyRotNext();
   fixSessionDone(done);
@@ -15872,7 +15877,7 @@ function drawOv(){
         <span style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
           color:var(--grey2)">${esc(label||'REST')}</span>
       </div>`;
-    const rows=groups.map((grp,gi)=>{
+    const rowsArr=groups.map((grp,gi)=>{
       const q=grp.q, it=q.it, k=grp.keys[0];
       const nSets=grp.keys.length;
       /* the rest after this drill's last set, which is the gap before the
@@ -16001,7 +16006,30 @@ function drawOv(){
             ${(st.in&&levelLine(it.v))?`<div id="lvl-${k}" style="margin-top:8px;
               font:600 12px/1.4 var(--sans);color:var(--forest)">${esc(levelLine(it.v))}</div>`:''}
         </div>
-      </div>${restChip(after)}`;}).join('');
+      </div>${restChip(after)}`;});
+    /* ── the warm-up as one line (23 Nov 2026) ──────────────────────
+       The list opened on six warm-up rows, about five minutes, before
+       anything that looked like a handstand, and most people left from
+       it. The warm-up is one line now, ticked as one or opened to see
+       it; the handstand work is the first thing on the list. */
+    const warmIdx=groups.map((g,gi)=>WARM_GRP.test(String(g.q.grp||''))?gi:-1).filter(x=>x>-1);
+    const foldWarm=!dkOn() && warmIdx.length>1 && warmIdx[0]===0;
+    let rows;
+    if(foldWarm){
+      const wKeys=warmIdx.flatMap(gi=>groups[gi].keys), wOn=wKeys.some(x=>(st.qTick||{})[x]);
+      const wSecs=warmIdx.reduce((s,gi)=>s+groups[gi].idx.reduce((t,i)=>t+work(Q[i].it,'Warm-up')+rest(Q[i],i,Q),0),0);
+      const wMin=Math.max(1,Math.round(wSecs/60));
+      rows=`<div class="lrow" id="warmLine" style="background:${wOn?'#faf8f5':'#fff'};border:1px solid rgba(17,17,17,.07);border-radius:18px;padding:12px 10px 12px 14px">
+          <div style="display:flex;gap:12px;align-items:center">
+            <div role="button" tabindex="0" onclick="warmFold()" style="flex:1;min-width:0;cursor:pointer">
+              <div style="font:600 15px/1.25 var(--sans)">Warm-up</div>
+              <div style="font:500 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${warmIdx.length} drills, about ${wMin} min
+                <span id="warmArrow" style="color:var(--forest);font-weight:600">&middot; ${warmOpen?'Hide':'Show'} them</span></div></div>
+            <button class="box-hit" aria-label="Tick the warm-up as done" onclick="warmTick('${wKeys.join(',')}',this.firstElementChild)"><span class="box ${wOn?'on':''}" id="box-warm">✓</span></button>
+          </div></div>
+        <div id="warmRows" ${warmOpen?'':'hidden'} style="display:${warmOpen?'flex':'none'};flex-direction:column;gap:9px">${warmIdx.map(gi=>rowsArr[gi]).join('')}</div>
+        ${rowsArr.filter((_,gi)=>warmIdx.indexOf(gi)<0).join('')}`;
+    } else rows=rowsArr.join('');
     const mins=qMins();
     const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
     /* Keep and Save: above the list on a phone, under it on a laptop, so
@@ -16028,8 +16056,9 @@ function drawOv(){
           ticked?' · '+ticked+' done':''}</div>
       <!-- the same workout, run for you. It is the first thing on the list
            rather than an alternative to it. -->
-      ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px"
-        onclick="closeOv();startQueue(0)">Start follow along</button>`}
+      ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px;min-height:60px;font-size:18px"
+        onclick="closeOv();startQueue(0)">Start, ${mins} min</button>
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center;margin:-8px 0 14px">I talk you through every drill and rest. Or tick them off below.</div>`}
       <!-- Keep it for another day, or keep it for no signal as well. The
            free session at a paid stage had neither: the row was hidden, so
            the one workout somebody was given at their stage could not be
@@ -16052,7 +16081,9 @@ function drawOv(){
             Bring ${a.length===1?'it':'them'} back now</button></div>`; })()}
       ${repsAreLocal()?`<div style="font:400 12px/1.5 var(--sans);color:var(--grey2);
         text-align:center;margin-top:12px">Reps stay on this device until you have an account.</div>`:''}
-      <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px"
+      <!-- on screen whatever is scrolled, once anything is ticked (23 Nov 2026) -->
+      <button class="btn" id="qdone" ${ticked?'':'hidden'} style="width:100%;margin-top:14px;position:sticky;
+        bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:3"
         onclick="finishChecklist()">Done for today</button>`;
   }
   if(st.ov==='checkin'){
@@ -18442,6 +18473,24 @@ Object.keys(st.rate||{}).forEach(function(k){ if(st.rate[k]==='good') delete st.
 /* a list session counts as started at its first tick, once a workout (23 Nov 2026) */
 let listTracked=false;
 function listStartOnce(){ if(listTracked || tourBuild) return; listTracked=true; try{ track('start'); }catch(e){} }
+let warmOpen=false;
+function warmFold(){
+  warmOpen=!warmOpen;
+  const r=document.getElementById('warmRows'), a=document.getElementById('warmArrow');
+  if(r){ r.hidden=!warmOpen; r.style.display=warmOpen?'flex':'none'; }
+  if(a) a.innerHTML='&middot; '+(warmOpen?'Hide':'Show')+' them';
+}
+/* the warm-up's one tick ticks every set of it, and the rows under it follow */
+function warmTick(keys, el){
+  qTickAll(keys, el);
+  const on=String(keys).split(',').some(k=>(st.qTick||{})[k]);
+  const line=document.getElementById('warmLine'); if(line) line.style.background=on?'#faf8f5':'#fff';
+  document.querySelectorAll('#warmRows .lrow').forEach(row=>{
+    const b=row.querySelector('.box'); if(b) b.classList.toggle('on', on);
+    row.style.background=on?'#faf8f5':'#fff';
+    const nm=row.querySelector('[id^="name-"]'); if(nm){ nm.style.color=on?'var(--grey2)':''; nm.style.textDecoration=on?'line-through':''; }
+  });
+}
 function qTickAll(keys,el){
   const list=String(keys||'').split(',').filter(Boolean);
   if(!list.length) return;
@@ -18596,7 +18645,9 @@ function toggleStep(k){
 function finishChecklist(){
   const ticked=(Q||[]).filter((_,i)=>(st.qTick||{})['q'+i]).length;
   if(!ticked) return;
-  const done=ticked>=(Q||[]).length;
+  /* half the sets ticked is a session trained (23 Nov 2026): every set
+     ticked was the bar, so people who trained were counted as quitting */
+  const done=ticked*2>=(Q||[]).length;
   const mins=Math.round((Q||[]).reduce((a,x,_i)=>a+work(x.it)+rest(x,_i,Q),0)/60);
   /* there is no clock on the list, so the time is what the ticked sets
      take: three sets of twenty five were logged as the whole half hour */
@@ -18642,7 +18693,10 @@ function finishChecklist(){
   }
   logReps();
   strFromSession();
-  if(done){ track('finish'); noteFinish(); }
+  if(done) track('finish', null, null, {t:lsSecs});
+  else { const iu=(Q||[]).findIndex((_,i)=>!(st.qTick||{})['q'+i]), it=((Q||[])[iu]||{}).it||{};
+    track('quit', Math.max(0,Math.min(10,Math.round(ticked/(Q||[1]).length*10))), String(it.v||it.n||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-').slice(0,30), {t:lsSecs}); }
+  if(done) noteFinish();
   /* a finished list moves the rotation and the written week on, as the
      follow along does (13 Oct 2026) */
   if(done) applyRotNext();
@@ -19705,7 +19759,7 @@ function skipIntake(){
 function skipFinish(){
   st.quizSkip=false;
   const L=levelDef();
-  st.stage=0; st.placed=0; st.time=st.time||30; st.perWeek=st.perWeek||(L&&L.def)||3;
+  st.stage=0; st.placed=0; st.time=st.time||15; st.perWeek=st.perWeek||(L&&L.def)||3;
   /* Train. It went to the sign up form: the screen that says where the
      quiz put them needs answers a skip does not give, so the form was next
      (16 Oct 2026, review). The session sheet waits for Start session: it
@@ -19728,7 +19782,7 @@ function finishIntake(){
   /* the skills place them; the four level words only for an answer given
      before the skills existed */
   const sk=skillsOf(a), PL = (Object.keys(sk).length && skillNext(sk)<0) ? skillStage(sk) : (isMU() ? 0 : L.v);
-  st.stage=PL; st.placed=PL; st.time=a.mins||30; st.perWeek=when.length||L.def;
+  st.stage=PL; st.placed=PL; st.time=a.mins||15; st.perWeek=when.length||L.def;
   /* a new placement is a new question: whatever they chose about the free
      week last time was about the stage they were on then */
   delete st.freeChoice;
@@ -23355,7 +23409,9 @@ Object.defineProperty(window,'LADDER_MINS',{get(){ const m=shortRules().mins;
 
 function ladderMins(){
   const opts=LADDER_MINS;
-  return opts.indexOf(st.time) > -1 ? st.time : 30;
+  /* fifteen for anybody who has not chosen (23 Nov 2026): half an hour
+     looks like a commitment on day one */
+  return opts.indexOf(st.time) > -1 ? st.time : (opts.indexOf(15) > -1 ? 15 : 30);
 }
 /* Easier tops out at half an hour. Three quarters of an hour of the easiest
    work in the stage is not an easier session, it is a long one, and the
@@ -26014,7 +26070,11 @@ function warmupFor(budgetSecs, stage, written){
     return pin.concat(spinW(rest, rotW));
   };
   const picks = arrange(said.length ? said : [].concat(take(RAMP.wrists,2), rest4));
-  const cap=budgetSecs*0.25;
+  /* the very first session gets to the handstand quickly: wrists and
+     little else, then the wall (23 Nov 2026: most quits were on wrist
+     circles, the first drill of a five minute warm-up) */
+  const firstEver = !coachedView() && !(Number(st.finN)>0) && !(((st.prog||{}).sessions||[]).length);
+  const cap=budgetSecs*(firstEver ? 0.1 : 0.25);
   const out=[]; let secs=0;
   /* A warm-up used to be one pass whatever anyone said, so a set count typed
      in the Workouts tab changed nothing and the field was locked to 1 to stop
