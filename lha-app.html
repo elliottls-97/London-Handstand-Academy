@@ -8330,12 +8330,12 @@ function pressHave(P){
     : (top.kind==='count'&&top.target && !/\d/.test(top.n)) ? ', '+top.target+' reps' : '';
   return top.n+t;
 }
-function pressClipHTML(P){
-  const d=P ? drillById(P.clip) : null;
+function pressClipHTML(P, drillOnly){
+  const d=P ? drillById(drillOnly||P.clip) : null;
   /* a part plays its stretch of the press guide, where its levels are shown
      side by side; without the guide, the drill's own film */
   const guide=(typeof PHASE_INTRO!=='undefined' && PHASE_INTRO[5]) || '';
-  const seg=(P && guide && Array.isArray(P.seg)) ? P.seg : null;
+  const seg=(P && !drillOnly && guide && Array.isArray(P.seg)) ? P.seg : null;
   const url=seg ? STREAM_CDN+guide+'/downloads/default.mp4' : P ? (d && d.url) : STREAM_CDN+PRESS_FULL_UID+'/downloads/default.mp4';
   /* the clip at its own shape, tall or wide, on a soft ground: a phone clip
      in a wide box had black bars down both sides (Elliott, 23 Nov 2026:
@@ -8433,13 +8433,31 @@ function pressLogged(k){
    now. They train the level after it; one who can do the top is logged as
    having reached it. */
 let pqStep=0, pqAns={};
-function openPressQuiz(){ pqStep=0; pqAns=Object.assign({}, (st.pressQuiz||{}).a||{}); st.ovFull=true; openOv('pressq'); }
+function openPressQuiz(){ pqStep=-1; pqAns=Object.assign({}, (st.pressQuiz||{}).a||{}); st.ovFull=true; openOv('pressq'); }
 function pqPick(j){
   const P=PRESS_LADDERS[pqStep]; if(!P) return;
   pqAns[P.k]=j; pqStep++;
   if(pqStep>=PRESS_LADDERS.length) pqFinish(); else drawOv();
 }
-function pqBack(){ if(pqStep>0){ pqStep--; drawOv(); } }
+function pqToggle(j){
+  const P=PRESS_LADDERS[pqStep], lv=P && P.levels[j]; if(!lv) return;
+  P.levels.forEach((_,k)=>{ const d=document.getElementById('pqd-'+k), b=document.getElementById('pqb-'+k); if(!d) return;
+    const open = k===j && d.hidden;
+    if(!open){ try{ filmsFree(d); }catch(e){} d.innerHTML=''; d.hidden=true; }
+    else {
+      const v=(lv.drills||[]).find(x=>{ const dd=drillById(x); return dd && dd.url; });
+      const names=(lv.drills||[]).map(x=>(drillById(x)||{}).n).filter(Boolean);
+      d.innerHTML=(v ? pressClipHTML(P, v) : `<div style="padding:14px;border-radius:14px;background:rgba(29,85,102,.05);font:500 13px/1.4 var(--sans);color:var(--grey);margin-bottom:12px">Film coming soon.</div>`)
+        +(lv.note?`<div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-bottom:10px">${esc(lv.note)}</div>`:'')
+        +(names.length?`<div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-bottom:12px">Try: ${esc(names.join(', '))}</div>`:'')
+        +`<button class="btn" style="width:100%;margin:0" onclick="pqPick(${j})">I can do this</button>`;
+      d.hidden=false; try{ d.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(e){}
+    }
+    if(b){ b.setAttribute('aria-expanded', String(open)); const c=b.querySelector('.pq-ch'); if(c) c.style.transform=open?'rotate(180deg)':''; }
+  });
+}
+function pqBack(){ if(pqStep>-1){ pqStep--; drawOv(); } }
+function pqStart(){ pqStep=0; drawOv(); }
 function pqFinish(){
   const lv={}, now=Date.now();
   st.track=st.track||{}; st.track.checkpoints=st.track.checkpoints||{};
@@ -8480,6 +8498,18 @@ function pressQuizBody(){
       <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();go('home')">See my check points</button>
       <button class="btn2" style="width:100%;margin-top:8px" onclick="openPressQuiz()">Answer again</button>`;
   }
+  /* before the questions: give it time, try the drills, and a form check
+     for anything they are unsure of (Elliott, 23 Nov 2026) */
+  const sure=`<button onclick="closeOv();goAsk()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;cursor:pointer;margin-top:12px;
+      padding:12px 14px;border-radius:16px;background:rgba(232,150,47,.14);border:0">
+      <span style="flex:1;min-width:0;font:500 13.5px/1.4 var(--sans);color:var(--ink)"><b style="font-weight:600">Not sure you are doing it right?</b> Send me a clip and I will tell you.</span>
+      <span style="flex:none;font:600 13px/1 var(--sans);color:#8a5a12">Form check ›</span></button>`;
+  if(pqStep<0) return `<div class="kick2" style="color:var(--forest)">FIND YOUR LEVEL</div>
+    <div style="font:400 30px/1.05 var(--serif);margin-top:8px">Eight parts, <em style="color:var(--forest);font-style:normal">tried for real.</em></div>
+    <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Do this somewhere you can train, with a wall and a chair, and give it fifteen minutes or so. Each question shows the levels of one part: try them, then pick the hardest one you can do. Guessing puts you on the wrong check points.</div>
+    <button class="btn" style="width:100%;margin-top:18px" onclick="pqStart()">Start</button>
+    <button class="btn2" style="width:100%;margin-top:8px" onclick="closeOv()">Later, when I can train</button>
+    ${sure}`;
   const P=PRESS_LADDERS[pqStep], cur=pqAns[P.k];
   const opt=(j,t,sub)=>`<button onclick="pqPick(${j})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
       padding:14px 16px;border-radius:16px;background:#fff;border:1.5px solid ${cur===j?'var(--forest)':'rgba(29,85,102,.14)'};margin-top:8px">
@@ -8487,14 +8517,27 @@ function pressQuizBody(){
       <span style="flex:none;color:var(--forest);font:600 18px/1 var(--sans)">›</span></button>`;
   const aim=lv=>lv.kind==='secs'&&lv.target ? lv.target+' seconds' : lv.kind==='count'&&lv.target ? lv.target+' reps' : lv.kind==='rate'&&lv.target ? lv.target+' out of 10' : '';
   return `<div style="display:flex;align-items:center;gap:10px">
-      ${pqStep>0?`<button onclick="pqBack()" aria-label="Back" style="flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(29,85,102,.14);background:#fff;cursor:pointer;color:var(--deep)">&larr;</button>`:''}
+      ${pqStep>-1?`<button onclick="pqBack()" aria-label="Back" style="flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(29,85,102,.14);background:#fff;cursor:pointer;color:var(--deep)">&larr;</button>`:''}
       <div class="kick2" style="color:var(--forest)">PART ${pqStep+1} OF ${N} &middot; ${esc(P.n.toUpperCase())}</div></div>
     <div style="display:flex;gap:5px;margin-top:12px">${PRESS_LADDERS.map((_,i)=>`<i style="flex:1;height:4px;border-radius:99px;background:${i<=pqStep?'var(--forest)':'rgba(29,85,102,.12)'}"></i>`).join('')}</div>
+    ${P.yn ? `<div style="font:400 28px/1.08 var(--serif);margin-top:16px">${esc(P.yn)}</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin:8px 0 12px">${esc(P.why)}</div>
+    ${pressClipHTML(P, P.ynClip)}
+    <div style="margin-top:8px">${opt(P.levels.length-1, 'Yes', '')}${opt(-1, 'Not yet', 'You start here')}</div>${sure}` : ''}
+    ${P.yn ? '<div hidden>' : ''}
     <div style="font:400 28px/1.08 var(--serif);margin-top:16px">Which of these can you <em style="color:var(--forest);font-style:normal">do now?</em></div>
-    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin:8px 0 12px">${esc(P.why)} Pick the hardest one you can do.</div>
-    ${pressClipHTML(P)}
-    <div style="margin-top:8px">${P.levels.map((lv,j)=>opt(j, lv.n, [aim(lv), lv.opt?'More than a press needs':''].filter(Boolean).join(' &middot; '))).reverse().join('')}
-      ${opt(-1, 'None of these yet', 'You start at the first one')}</div>`;
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin:8px 0 12px">${esc(P.why)} Try them, then pick the hardest one you can do.</div>
+    ${P.yn ? '' : pressClipHTML(P)}
+    <div style="margin-top:8px">${P.levels.map((lv,j)=>{ const sub=[aim(lv), lv.opt?'More than a press needs':''].filter(Boolean).join(' &middot; ');
+        /* a level opens to its own film and what counts, with the answer inside it
+           (Elliott, 23 Nov 2026: "can they tap on each of the levels ... to expand on it") */
+        return `<div class="pq-lv" style="margin-top:8px;border-radius:16px;background:#fff;border:1.5px solid ${cur===j?'var(--forest)':'rgba(29,85,102,.14)'};overflow:hidden">
+          <button onclick="pqToggle(${j})" aria-expanded="false" id="pqb-${j}" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;padding:14px 16px;background:none;border:0">
+            <span style="flex:none;width:22px;height:22px;border-radius:50%;background:rgba(29,85,102,.10);color:var(--deep);font:700 11.5px/22px var(--sans);text-align:center">${j+1}</span>
+            <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${esc(lv.n)}</b>${sub?`<span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${sub}</span>`:''}</span>
+            <span class="pq-ch" style="flex:none;color:var(--forest);font:600 16px/1 var(--sans);transition:transform .2s">⌄</span></button>
+          <div id="pqd-${j}" hidden style="padding:0 14px 14px"></div></div>`; }).reverse().join('')}
+      ${opt(-1, 'None of these yet', 'You start at the first one')}</div>${P.yn ? '</div>' : sure}`;
 }
 function saveCheckpoint(k,v,video){
   /* fix:<slug>:start and :finish are the before and after of a fix. They sit

@@ -670,11 +670,11 @@ const PRESS_FACES=['Not yet','Getting there','Solid'];
 /* a whole press, six seconds, for the first card of the parts (press-story-full-press) */
 const PRESS_FULL_UID='6c9fd342e99f3761044931a313eb4b8a';
 const PRESS_LADDERS=[
-  {k:'stack', seg:[66,88], clip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:1,
+  {k:'stack', seg:[66,88], clip:'p-l-handstand', yn:'Can you hold an L shaped handstand for 30 seconds?', ynClip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:1,
    why:'Shoulders over the hands, hips over the shoulders. The first port of call before any press work.',
    levels:[
-    {n:'Chair assisted handstand', kind:'secs', target:15, drills:['chair-assisted-handstand-walks']},
-    {n:'Chair assisted or L shaped handstand', kind:'secs', target:30, drills:['chair-assisted-handstand-walks','p-l-handstand'], demo:'p-l-handstand'}]},
+    {n:'Chair assisted handstand', kind:'secs', target:30, drills:['chair-assisted-handstand-walks']},
+    {n:'L shaped handstand', kind:'secs', target:30, drills:['p-l-handstand','chair-assisted-handstand-walks'], demo:'p-l-handstand'}]},
   {k:'lean', seg:[154,186], clip:'chair-assisted-handstand-shoulder-adjustments', c:'patterning', n:'The lean', t:111, order:5,
    why:'Getting the shoulders over the hands, then the endurance to hold them there long enough for the feet to come off.',
    levels:[
