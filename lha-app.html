@@ -2262,6 +2262,7 @@ button.px-step{cursor:pointer}
  box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06);display:flex;flex-direction:column;gap:12px;font:400 13.5px/1.45 var(--sans);color:var(--grey)}
 .askw-note b{color:var(--ink);font-weight:600}
 .askw-note .btn,.askw-note .btn2{width:100%;margin:0;min-height:46px}
+.lc-tag{font-style:normal;font-weight:600;color:var(--forest)}
 .rrl{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:40px;margin:2px 0 4px;border:0;background:none;cursor:pointer;
  font:600 13.5px/1.3 var(--sans);color:var(--forest)}
 .cp-why{font:400 13px/1.45 var(--sans);color:var(--grey)}
@@ -5322,7 +5323,17 @@ function pressPrepFix(){
 
 /* at the Press stage the session chooser offers the plan first */
 function pressChooserHTML(){
-  if(isMU() || curStage()!==5 || typeof PRESS_TEST==='undefined') return '';
+  if(isMU() || curStage()!==5) return '';
+  /* the parts of the press, from the film (23 Nov 2026): the quiz first, then Go builds from the levels */
+  if(typeof PRESS_LADDERS!=='undefined'){
+    if(st.pressQuiz) return '';
+    return `<button onclick="closeOv();openPressQuiz()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+      padding:14px 16px;border-radius:16px;cursor:pointer;background:rgba(35,127,149,.06);border:1px solid rgba(35,127,149,.16)">
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.25 var(--sans);color:var(--ink)">Find your level on each part first</span>
+        <span style="display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:3px">Eight questions. Your sessions follow the answers.</span></span>
+      <span style="flex:none;color:var(--forest);font:600 18px/1 var(--sans)">›</span></button>`;
+  }
+  if(typeof PRESS_TEST==='undefined') return '';
   const p=st.pressTest && ptDone(st.pressTest.scores), f=p ? pressPlanFix() : null;
   if(!f) return `<button onclick="closeOv();openLimiter()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;
       padding:14px 16px;border-radius:16px;cursor:pointer;background:rgba(35,127,149,.06);border:1px solid rgba(35,127,149,.16)">
@@ -8285,6 +8296,87 @@ function cpReach(k){
   document.querySelectorAll('[data-cpin="'+k+'"]').forEach(el=>{ el.outerHTML=cpRow(it); });
   toast(esc(c.n)+': reached.');
 }
+/* ── the Press, part by part: a level reached opens the next ───────────
+   The check point is the level they are on in that part, so reaching it
+   moves that part up one and the card becomes the next level's test. The
+   top level stays as it is once reached. (Elliott, 23 Nov 2026) */
+function pressLogged(k){
+  const m=/^pl-([a-z]+)-(\d+)$/.exec(String(k||'')); if(!m || typeof PRESS_LADDERS==='undefined') return false;
+  const P=PRESS_LADDERS.find(x=>x.k===m[1]); if(!P) return false;
+  const i=Number(m[2])-1; if(i!==pressLvlOf(P.k) || i>=P.levels.length-1) return false;
+  const c=(cpsFor(5)||[]).find(x=>x.k===k); if(!c || !cpHit(c)) return false;
+  const lv=Object.assign({}, (st.pressLvl||{}).lv||{}, {[P.k]:i+1});
+  st.pressLvl={lv, at:Date.now()}; save(); try{ saveState(); }catch(e){}
+  setTimeout(()=>toast(esc(P.n)+': level '+(i+2)+' of '+P.levels.length+'. '+esc(P.levels[i+1].n)+'.'), 400);
+  return true;
+}
+/* ── the Press quiz: where are you on each part ───────────────────────
+   One question a part, in the film's order: the hardest level they can do
+   now. They train the level after it; one who can do the top is logged as
+   having reached it. */
+let pqStep=0, pqAns={};
+function openPressQuiz(){ pqStep=0; pqAns=Object.assign({}, (st.pressQuiz||{}).a||{}); st.ovFull=true; openOv('pressq'); }
+function pqPick(j){
+  const P=PRESS_LADDERS[pqStep]; if(!P) return;
+  pqAns[P.k]=j; pqStep++;
+  if(pqStep>=PRESS_LADDERS.length) pqFinish(); else drawOv();
+}
+function pqBack(){ if(pqStep>0){ pqStep--; drawOv(); } }
+function pqFinish(){
+  const lv={}, now=Date.now();
+  st.track=st.track||{}; st.track.checkpoints=st.track.checkpoints||{};
+  PRESS_LADDERS.forEach(P=>{
+    const n=P.levels.length, j=Number.isInteger(pqAns[P.k]) ? pqAns[P.k] : -1;
+    lv[P.k]=Math.max(0, Math.min(n-1, j+1));
+    if(j>=n-1){ const top=P.levels[n-1], key='pl-'+P.k+'-'+n;
+      const v = top.kind==='face' ? 2 : top.kind==='yn' ? 1 : Number(top.target)||1;
+      if(!(st.track.checkpoints[key]||[]).length) st.track.checkpoints[key]=[{v, at:now, quiz:1}]; }
+  });
+  st.pressLvl={lv, at:now}; st.pressQuiz={a:Object.assign({}, pqAns), at:now};
+  save(); try{ saveState(); }catch(e){}
+  try{ track('presstest', null, 'ladders'); }catch(e){}
+  pqStep=PRESS_LADDERS.length; drawOv();
+}
+function pressQuizBody(){
+  const N=PRESS_LADDERS.length;
+  if(pqStep>=N){
+    const rows=PRESS_LADDERS.slice().sort((a,b)=>a.order-b.order).map(P=>{ const i=pressLvlOf(P.k), n=P.levels.length;
+      return `<div style="display:flex;gap:12px;align-items:baseline;padding:11px 0;border-top:1px solid rgba(29,85,102,.08)">
+        <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(P.n)}</b>
+          <span style="display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc(P.levels[i].n)}</span></span>
+        <span style="flex:none;font:600 12px/1 var(--sans);color:var(--forest)">${i+1} of ${n}</span></div>`; }).join('');
+    /* the triangle, for the limiting factor: the dot sits towards the corner
+       furthest from its top */
+    const PC=pressCorners(), lim=PC.limiter;
+    const w={}; ['strength','mobility','patterning'].forEach(c=>{ w[c]=Math.max(.04, 1-PC.score[c]); });
+    const LBL=(typeof PT_LBL!=='undefined') ? PT_LBL : {strength:'Strength', mobility:'Mobility', patterning:'Patterning'};
+    const tri=(typeof ptTriSVG==='function') ? `<div style="max-width:280px;margin:14px auto 0">${ptTriSVG(lim?w:null,{top:lim})}</div>` : '';
+    return `<div class="kick2" style="color:var(--forest)">YOUR LIMITING FACTOR</div>
+      <div style="font:400 30px/1.05 var(--serif);margin-top:8px">${lim
+        ? `${esc(LBL[lim])}${PC.tie?' and '+esc(LBL[PC.tie].toLowerCase()):''} <em style="color:var(--forest);font-style:normal">first.</em>`
+        : PC.even ? `Level on every side. <em style="color:var(--forest);font-style:normal">An all rounder.</em>`
+        : `Nothing is holding you back. <em style="color:var(--forest);font-style:normal">Go press.</em>`}</div>
+      ${tri}
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">${lim?'That is the side furthest from its top, so it gets the most time. ':''}Your sessions train each part at its level, listed here. Reach its check point and the next level opens.</div>
+      <div style="margin-top:14px">${rows}</div>
+      <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();go('home')">See my check points</button>
+      <button class="btn2" style="width:100%;margin-top:8px" onclick="openPressQuiz()">Answer again</button>`;
+  }
+  const P=PRESS_LADDERS[pqStep], cur=pqAns[P.k];
+  const opt=(j,t,sub)=>`<button onclick="pqPick(${j})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+      padding:14px 16px;border-radius:16px;background:#fff;border:1.5px solid ${cur===j?'var(--forest)':'rgba(29,85,102,.14)'};margin-top:8px">
+      <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${esc(t)}</b>${sub?`<span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${sub}</span>`:''}</span>
+      <span style="flex:none;color:var(--forest);font:600 18px/1 var(--sans)">›</span></button>`;
+  const aim=lv=>lv.kind==='secs'&&lv.target ? lv.target+' seconds' : lv.kind==='count'&&lv.target ? lv.target+' reps' : lv.kind==='rate'&&lv.target ? lv.target+' out of 10' : '';
+  return `<div style="display:flex;align-items:center;gap:10px">
+      ${pqStep>0?`<button onclick="pqBack()" aria-label="Back" style="flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(29,85,102,.14);background:#fff;cursor:pointer;color:var(--deep)">&larr;</button>`:''}
+      <div class="kick2" style="color:var(--forest)">PART ${pqStep+1} OF ${N} &middot; ${esc(P.n.toUpperCase())}</div></div>
+    <div style="display:flex;gap:5px;margin-top:12px">${PRESS_LADDERS.map((_,i)=>`<i style="flex:1;height:4px;border-radius:99px;background:${i<=pqStep?'var(--forest)':'rgba(29,85,102,.12)'}"></i>`).join('')}</div>
+    <div style="font:400 28px/1.08 var(--serif);margin-top:16px">Which of these can you <em style="color:var(--forest);font-style:normal">do now?</em></div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${esc(P.why)} Pick the hardest one you can do.</div>
+    <div style="margin-top:8px">${P.levels.map((lv,j)=>opt(j, lv.n, [aim(lv), lv.opt?'More than a press needs':''].filter(Boolean).join(' &middot; '))).reverse().join('')}
+      ${opt(-1, 'None of these yet', 'You start at the first one')}</div>`;
+}
 function saveCheckpoint(k,v,video){
   /* fix:<slug>:start and :finish are the before and after of a fix. They sit
      in the same history and reach the coach the same way, but no stage owns
@@ -8325,7 +8417,7 @@ function saveCheckpoint(k,v,video){
   /* onboarding tests are not the ladder's, whatever their keys */
   const sg = (coachedView()||isFix||awaitingBlock()) ? -1 : stageOfCp(k);
   /* their push check point reached: up a level, so its card is a new one */
-  const upNow = strLogged(k, v);
+  const upNow = strLogged(k, v) || pressLogged(k);
   const clearedNow = sg>-1 && sg===curStage() && !wasReady && cpProgress(sg).ready;
   save();
   /* under an open sheet render() bails out, so logging one used to change
@@ -10065,7 +10157,7 @@ function climbHTML(si, mode, use){
           <img src="${esc(th.src)}" alt="" decoding="async" onerror="this.remove()">`:''}
           <span class="pl"><svg width="7" height="8" viewBox="0 0 17 19" fill="#237f95"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
-        <span class="lc-t"><b>${esc(r.c.n)}</b><small>${climbSub(r,isNext)}</small></span>
+        <span class="lc-t"><b>${esc(r.c.n)}</b><small>${r.c.tag?`<i class="lc-tag">${esc(r.c.tag)}</i> &middot; `:''}${climbSub(r,isNext)}</small></span>
         </button>${use==='log'
           ? `<button class="lc-ring" onclick="climbTick(this)" aria-label="${esc(climbTickLabel(r))}">${climbRing(r,use)}</button>`
           : `<span class="lc-ring" onclick="climbTap(this)" aria-hidden="true">${climbRing(r,use)}</span>`}
@@ -10216,7 +10308,7 @@ function cpListHTML(si){
             onerror="var p=this.parentNode.querySelector('.pl');if(p)p.remove();this.remove()">
           <span class="pl"><svg width="7" height="8" viewBox="0 0 17 19" fill="#237f95"><path d="M16 8.63a1 1 0 0 1 0
             1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></span>`:''}</span>
-        <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c)+cpFbWords(r.c):''}</span>
+        <span class="lc-t"><b>${esc(r.c.n)}</b><small class="lc-up" data-cpup="${esc(r.c.k)}"></small><small class="lc-s">${r.c.tag?`<i class="lc-tag">${esc(r.c.tag)}</i> &middot; `:''}${cpListSub(r)}</small>${coachedView()?cpFbChip(r.c)+cpFbWords(r.c):''}</span>
         </button>
         ${film?`<button class="lc-camb${ri===first?' lab':''}${coachedView()?' ico':''}" onclick="event.stopPropagation();cpCam(${jsq(r.c.k)})" aria-label="Form check: film ${esc(r.c.n)} for ${esc(coachLabel())}"
           title="Film it for ${esc(coachLabel())}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
@@ -12783,6 +12875,7 @@ function loadState(){
       if(d.pressRung && d.pressRung.at && (!st.pressRung || d.pressRung.at>st.pressRung.at)) st.pressRung=d.pressRung;
       if(d.pushTest && d.pushTest.at && (!st.pushTest || d.pushTest.at>st.pushTest.at)) st.pushTest=d.pushTest;
       if(d.shoulderTest && d.shoulderTest.at && (!st.shoulderTest || d.shoulderTest.at>st.shoulderTest.at)) st.shoulderTest=d.shoulderTest;
+      if(d.pressLvl && d.pressLvl.at && (!st.pressLvl || d.pressLvl.at>st.pressLvl.at)) st.pressLvl=d.pressLvl;
       /* the cues kept from Elliott's replies, from whichever phone kept them */
       if(Array.isArray(d.cues)) st.cues=d.cues;
       /* Where they are on the ladder followed the phone, not the person. It
@@ -12867,6 +12960,7 @@ function saveState(now){
       ...(st.pressRung?{pressRung:st.pressRung}:{}),
       ...(st.pushTest?{pushTest:st.pushTest}:{}),
       ...(st.shoulderTest?{shoulderTest:st.shoulderTest}:{}),
+      ...(st.pressLvl?{pressLvl:st.pressLvl}:{}),
       ...(stateIn?{cues:st.cues||[]}:{}),
       ob:{youIn:!!st.youInSeen, call:!!st.callBooked, ...(st.callBooked&&st.callBy?{callBy:st.callBy, callAt:st.callAt||0}:{}), ...(st.callNo?{callNo:true}:{})}
     })}).then(r=>{ if(r.ok && placing && st.placeSent===false){ st.placeSent=true; save(); } }).catch(()=>{});
@@ -15638,6 +15732,7 @@ function drawOv(){
           <span style="font:400 14.5px/1.5 var(--sans)">${esc(c)}</span></div>`).join('')}</div>`:''}`;
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
+  if(st.ov==='pressq'){ body=pressQuizBody(); }
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='wsbook'){ body=wsBookBody(); }
@@ -20334,8 +20429,10 @@ function stageFilmsHTML(){
   const lim = P===5 && typeof PRESS_TEST!=='undefined'
     ? (typeof PRESS_PHASES!=='undefined' ? railTile({img:PRESS_PHASES[1].img, title:'The whole press, start to finish',
         sub:'Anatomy, the ladder, the faults', go:'openPress()'}) : '')
-      + railTile({art:ptTriSVG(ptr?ptr.w:null,{mini:true}), title:'Find your limiting factor',
-        sub:ptr ? 'Yours: '+(ptr.clean?'nothing, go press':ptr.tie.map(k=>PT_LBL[k]).join(' and ')) : '8 steps, about 15 minutes', go:'openLimiter()'})
+      + (typeof PRESS_LADDERS!=='undefined'
+        ? railTile({art:ptTriSVG(null,{mini:true}), title:'Your level on each part', sub:st.pressQuiz?'Answer again':'Eight questions', go:'openPressQuiz()'})
+        : railTile({art:ptTriSVG(ptr?ptr.w:null,{mini:true}), title:'Find your limiting factor',
+        sub:ptr ? 'Yours: '+(ptr.clean?'nothing, go press':ptr.tie.map(k=>PT_LBL[k]).join(' and ')) : '8 steps, about 15 minutes', go:'openLimiter()'}))
       + (plan ? railTile({img:fixCover(plan), title:plan.name, sub:'Week '+pressWeek()+' of 6 · '+plan.week.phase,
         go:"openFix('press-plan')", lock:!isPlus()?paid:''}) : '') : '';
   const fixes = (fx.length||lim) ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
@@ -26207,14 +26304,34 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const dayDef = wristDay ? WRIST_DAY
     : (plan ? (plan[dayIdx==null?nextDayIdx():dayIdx] || plan[nextDayIdx()]) : null);
   const stage=curStage();
-  const ids = (dayDef && dayDrills(dayDef, stage)) || (dayDef && dayDef.drills) || s.drillIds;
+  let ids = (dayDef && dayDrills(dayDef, stage)) || (dayDef && dayDef.drills) || s.drillIds;
+  /* the Press, part by part (23 Nov 2026): the drills of the level they are
+     on in each part, balance first as the film says, the parts furthest
+     from their top first within that */
+  const pressParts = !wristDay && stage===5 && !isMU() && typeof PRESS_LADDERS!=='undefined';
+  /* where each Press drill sits in the session: its part's place, then its place in the part */
+  const pressOrd={};
+  if(pressParts){
+    /* one drill from every part first, then the second of each, so a short
+       session still touches every part */
+    const seen=new Set(), out=[];
+    const lim=(st.pressQuiz ? pressCorners().limiter : '');
+    const parts=PRESS_LADDERS.slice().sort((a,b)=>a.order-b.order)
+      .map((P,pi)=>{ const L=(P.levels[pressLvlOf(P.k)].drills||[]).filter(v=>{ const d=drillById(v); return d && d.url; });
+        L.forEach((v,r)=>{ if(pressOrd[v]==null) pressOrd[v]=pi*10+r; }); return {c:P.c, L}; });
+    const put=(p,r)=>{ const v=p.L[r]; if(v && !seen.has(v)){ seen.add(v); out.push(v); } };
+    parts.forEach(p=>put(p,0));
+    /* then the second drills, the limiting factor's parts before the rest */
+    for(let r=1;r<4;r++){ parts.filter(p=>p.c===lim).forEach(p=>put(p,r)); parts.filter(p=>p.c!==lim).forEach(p=>put(p,r)); }
+    if(out.length) ids=out;
+  }
   const budget=mins*60;
   /* A wrist day has no warm-up and no top-up: the drills are the warm-up,
      and reaching into the stage for more turned the short day that keeps
      people training into a full session of kick ups. */
   /* the coach's own list, worked out here rather than further down, because
      the warm-up is part of the workout they wrote and needs it too */
-  const written = wristDay ? null : bandFor(stage, stageLevel(stage));
+  const written = (wristDay || pressParts) ? null : bandFor(stage, stageLevel(stage));
   /* their own warm-up, done before they pressed Go: none is built, and the time goes to the work */
   const warm = (wristDay || st.warmOwn) ? {items:[], secs:0} : warmupFor(budget, stage, written);
   /* a drill the warm-up already used should not come round again as skill
@@ -26312,7 +26429,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const inPool = (wristDay?focus:pool);
   /* the coach's list is the pool for this band, minus whatever the warm-up
      has already taken out of it */
-  let cands = inPool;
+  let cands = pressParts ? focus : inPool;
   if(written){
     const byId={};
     inPool.forEach(it=>{ if(!byId[it.v]) byId[it.v]=it; });
@@ -26321,7 +26438,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
        session, so fall back to the stage rather than hand over nothing */
     if(fromList.length) cands = fromList;
   }
-  const scripted = false;
+  /* the Press parts come in their own order, not shuffled or by level */
+  const scripted = pressParts;
   /* ── a different session each time ──────────────────────────────
      The order is the coach's and the shares are the coach's, so the only
      honest way to vary it is where in the pool it starts. Each session
@@ -26355,7 +26473,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const known  = cands.filter(it=>lvlOf(it.v));
   let picked;
   if(scripted){
-    picked = cands.slice();
+    picked = cands.slice(0, wantN);
   } else if(!known.length){
     /* a stage the workbook has not given levels to yet, and the mobility day:
        no shares to apply, so take the day as it is written */
@@ -26425,7 +26543,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   /* Easiest first where the shares built it, so the session ramps. A written
      list is in the coach's order and re-sorting it would quietly undo the
      thing they came here to set. */
-  if(!written){
+  if(pressParts){ /* the parts stay in the order they were laid out in */ }
+  else if(!written){
     /* a stage with a session order runs grouping by grouping, easiest first
        inside each, so the box work is together and the wall work after it */
     const so=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
@@ -26552,8 +26671,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const soG=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
     const ordG=v=>{ if(!soG) return 0; const i=soG.indexOf(grpOf(v)); return i<0 ? 99 : i; };
     skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((a.it.vol?1:0)-(b.it.vol?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
-      || (written ? 0 : ordG(a.it.v)-ordG(b.it.v))
-      || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
+      || (pressParts ? (pressOrd[a.it.v]==null?999:pressOrd[a.it.v])-(pressOrd[b.it.v]==null?999:pressOrd[b.it.v]) : 0)
+      || ((written||pressParts) ? 0 : ordG(a.it.v)-ordG(b.it.v))
+      || ((written||pressParts) ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
     out.length=warmN; skill.forEach(q=>{ q.ii=out.length; out.push(q); });

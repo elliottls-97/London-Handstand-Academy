@@ -654,7 +654,112 @@ function poolFor(stage){
    target, the drill the demo comes from, or add and remove one, and it is
    kept as an overlay keyed by the same k so a shipped one that has not been
    touched stays exactly as it shipped. */
+/* ── the Press, part by part (Elliott, 23 Nov 2026) ──────────────────
+   The press guide film teaches the press in eight parts, and each part is a
+   small ladder: a quiz puts somebody on a level of each, their sessions
+   train that level's drills, and reaching its test opens the next level of
+   that part. The check points on the Press stage are the level each person
+   is on, so they change as they climb. From the press guide notes of 23 Nov
+   2026 and Elliott's changes the same day. t is where the part starts in
+   the film, in seconds. A level marked opt is more than a press needs. */
+const PRESS_FACES=['Not yet','Getting there','Solid'];
+const PRESS_LADDERS=[
+  {k:'stack', c:'strength', n:'Stacked hold', t:67, order:1,
+   why:'Shoulders over the hands, hips over the shoulders. The first port of call before any press work.',
+   levels:[
+    {n:'Chair assisted handstand', kind:'secs', target:15, drills:['chair-assisted-handstand-walks']},
+    {n:'Chair assisted or L shaped handstand', kind:'secs', target:30, drills:['chair-assisted-handstand-walks','p-l-handstand'], demo:'p-l-handstand'}]},
+  {k:'lean', c:'patterning', n:'The lean', t:111, order:5,
+   why:'Getting the shoulders over the hands, then the endurance to hold them there long enough for the feet to come off.',
+   levels:[
+    {n:'Down dog to plank leans', kind:'face', drills:[]},
+    {n:'Chair or straddle wall shoulder leans', kind:'face', drills:['chair-assisted-handstand-shoulder-adjustments','wall-straddle-shoulder-leans']},
+    {n:'Feet on box press lean', kind:'secs', target:20, drills:['feet-on-box-press-leans'], note:'Hips high, weight into the palms, not the fingertips. Hold time, not distance.'}]},
+  {k:'push', c:'strength', n:'Not collapsing', t:224, order:7,
+   why:'If you lean and collapse, you need more strength in the front of the shoulders. Not a handstand push up or a planche.',
+   levels:[
+    {n:'Chaturanga on knees, pike push ups on boxes', kind:'count', target:5, drills:['push-ups-on-knees','p-pike-pushups-knees'], demo:'p-pike-pushups-knees'},
+    {n:'Full chaturanga, 5 pike push ups on the floor', kind:'count', target:5, drills:['chaturganga-push-ups','p-pike-pushups','p-pike-pushup-negs'], demo:'p-pike-pushups',
+     note:'Forward and down, then back the way you came, as if a band pulls the hips back.'},
+    {n:'Pike push ups, feet and hands raised', kind:'count', target:5, drills:['pike-press-ups']},
+    {n:'Handstand push up variations', kind:'face', opt:true, drills:[], note:'More than a press needs. Not required.'}]},
+  {k:'flex', c:'mobility', n:'Flexibility', t:305, order:8,
+   why:'Hands close to the feet means a smaller lean and less strength needed. The more flexible you are, the easier the press.',
+   levels:[
+    {n:'Standing pancake', kind:'face', drills:['pancake-lift-combo']},
+    {n:'Pancake on the sofa or on blocks', kind:'face', drills:['pancake-lift-combo','pancake-to-wide-standing']},
+    {n:'Pancake at 45°', kind:'face', drills:['pancake-lift-combo','pancake-to-wide-standing'], note:'45° is enough to press.'},
+    {n:'Pancake all the way down', kind:'face', opt:true, drills:['pancake-lift-combo'], note:'Not needed to press.'}]},
+  {k:'float', c:'patterning', n:'Feet float off', t:406, order:4,
+   why:'Coming off the floor slowly is an unusual feeling. Learn it, then take the hop away. The hip flexors do the lifting.',
+   levels:[
+    {n:'Press walks', kind:'face', drills:['press-walks','pancake-leg-lifts']},
+    {n:'Press slides', kind:'face', drills:['press-slides','pancake-leg-lifts','p-dd-toe-taps']},
+    {n:'Walks and slides, feet on blocks', kind:'face', drills:['sideways-press-walks','press-slides','chest-to-wall-toe-taps','press-eccentrics']},
+    {n:'Feet float off with no hop', kind:'rate', target:5, drills:['press-slides','press-eccentrics'], note:'Out of ten tries, how many came off the floor with no jump?'}]},
+  {k:'tuck', c:'patterning', n:'The tuck', t:511, order:3,
+   why:'The middle of the press is a tuck handstand with the legs out. Pelvis tipped forward and the shoulders pushed tall.',
+   levels:[
+    {n:'Single leg tuck slides', kind:'face', drills:['single-leg-tuck-slides','press-scapula-shrugs']},
+    {n:'Double tuck slides and knees on box', kind:'face', drills:['tuck-slides','knees-on-box']},
+    {n:'Tuck handstand on the wall', kind:'secs', target:10, drills:['p-tuck-handstand','knees-on-box']},
+    {n:'Tuck handstand, freestanding', kind:'face', drills:['p-tuck-handstand']}]},
+  {k:'back', c:'strength', n:'Lower back', t:622, order:6,
+   why:'The last part of the middle: the lower back drives the legs over.',
+   levels:[
+    {n:'Bench zombies on the elbows', kind:'face', drills:['p-bench-zombies'], note:'On the elbows the back does the pulling, not the arms.'},
+    {n:'Back to wall negative press', kind:'face', drills:['p-back-to-wall']},
+    {n:'Back to wall press', kind:'count', target:3, drills:['p-back-to-wall'], note:'Lower back into the wall, legs down and back up with control.'}]},
+  {k:'unroll', c:'patterning', n:'The unroll', t:754, order:2,
+   why:'From a piked straddle handstand to the full handstand. Mostly your handstand getting better, so it comes first in the session.',
+   levels:[
+    {n:'Straddle piked balance', kind:'face', drills:['straddle-entries']},
+    {n:'Straddle handstand', kind:'secs', target:10, drills:['straddle-entries']},
+    {n:'Shape changes', kind:'face', drills:['straddle-to-straight','straddle-to-diamond','straight-to-tuck-back'], note:'Straddle to diamond, straddle to straight, tuck to extended.'},
+    {n:'Press circles', kind:'face', drills:['p-solo-press-circles'], note:'Start small and make them bigger.'}]}
+];
+/* the level someone is on in a part, 0 at the start (the dashboard has no st) */
+function pressLvlOf(k){
+  const L=(typeof st!=='undefined' && st && st.pressLvl && st.pressLvl.lv)||{};
+  const P=PRESS_LADDERS.find(x=>x.k===k), n=P ? P.levels.length : 1;
+  return Math.max(0, Math.min(n-1, Number.isInteger(L[k]) ? L[k] : 0));
+}
+/* how far up each corner of the triangle they are, 0 to 1, and which is
+   the limiting factor: the corner furthest from its top. A level marked
+   opt is not counted. (The triangle is for finding the limiter, not for
+   the check points: Elliott, 23 Nov 2026.) */
+function pressCorners(){
+  const sum={strength:[0,0], mobility:[0,0], patterning:[0,0]};
+  const L=(typeof st!=='undefined' && st && st.pressLvl && st.pressLvl.lv)||{};
+  const top=(typeof st!=='undefined' && st && st.pressQuiz && st.pressQuiz.a)||{};
+  PRESS_LADDERS.forEach(P=>{
+    const need=P.levels.filter(x=>!x.opt).length;
+    /* reached = the levels below the one being trained, or all of them for somebody who can do the top */
+    const at=Number.isInteger(L[P.k]) ? L[P.k] : 0;
+    const done=Math.min(need, Number(top[P.k])>=P.levels.length-1 ? need : at);
+    sum[P.c][0]+=done/need; sum[P.c][1]++;
+  });
+  const score={}; Object.keys(sum).forEach(c=>{ score[c]=sum[c][1] ? sum[c][0]/sum[c][1] : 0; });
+  const low=Object.keys(score).sort((a,b)=>score[a]-score[b]);
+  const clean=low.every(c=>score[c]>=0.999);
+  /* level on every side: no one corner is the limiter */
+  const even=!clean && score[low[2]]-score[low[0]]<0.08;
+  return {score, even, limiter:(clean||even) ? '' : low[0], tie:(!clean && !even && score[low[1]]-score[low[0]]<0.08) ? low[1] : ''};
+}
+/* the Press check points: the level each part is on, as a check point */
+function pressCps(){
+  return PRESS_LADDERS.map(P=>{
+    const i=pressLvlOf(P.k), lv=P.levels[i], n=P.levels.length;
+    const c={k:'pl-'+P.k+'-'+(i+1), n:lv.n, kind:lv.kind, demo:lv.demo||(lv.drills||[])[0]||'',
+      why:P.why, note:lv.note||'', tag:P.n+' · '+(i+1)+' of '+n, ladder:P.k, lvl:i+1, of:n, filmAt:P.t};
+    if(lv.target!=null) c.target=lv.target;
+    if(lv.kind==='face') c.faces=PRESS_FACES;
+    if(lv.opt) c.extra=true;
+    return c;
+  });
+}
 function cpsFor(stage){
+  if(Number(stage)===5 && !(typeof isMU==='function' && isMU())) return pressCps();
   const over=((typeof st!=='undefined' && st.ladderCps)||{})[ladKey(stage)];
   const base=(CHECKPOINTS[stage]||[]);
   if(!over) return base;

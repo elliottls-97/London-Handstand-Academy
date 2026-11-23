@@ -11710,6 +11710,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
             .map(x => ({ at: Number(x.at), r: Number(x.r), c: (Array.isArray(x.c) ? x.c : []).slice(0, 8).map(Boolean) }));
           if (Number.isInteger(r) && r >= 1 && r <= 10) cur.pressRung = { r, at: Number(body.pressRung.at) || Date.now(), log };
         }
+        /* the level they are on in each part of the press (23 Nov 2026) */
+        if (body.pressLvl && typeof body.pressLvl === 'object' && body.pressLvl.lv && typeof body.pressLvl.lv === 'object') {
+          const K = ['stack', 'lean', 'push', 'flex', 'float', 'tuck', 'back', 'unroll'], lv = {};
+          for (const k of K) { const v = Number(body.pressLvl.lv[k]); if (Number.isInteger(v) && v >= 0 && v <= 5) lv[k] = v; }
+          cur.pressLvl = { lv, at: Number(body.pressLvl.at) || Date.now() };
+        }
         /* the cues kept from the coach's video replies (17 Oct 2026), newest
            first: a line each, and the reply it came from */
         if (Array.isArray(body.cues)) cur.cues = body.cues.slice(0, 5)
@@ -11853,7 +11859,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, shoulderTest: out.shoulderTest || null, pressRung: out.pressRung || null, ob: out.ob || {},
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, shoulderTest: out.shoulderTest || null, pressRung: out.pressRung || null, pressLvl: out.pressLvl || null, ob: out.ob || {},
       cues: Array.isArray(out.cues) ? out.cues : [],
       /* the coach's own call link for a new client, where one is set */
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
