@@ -1079,3 +1079,19 @@ const PHASE_KEYS = {
            ['Shape changes',247.0,[['straddle-to-straight'],['straddle-to-diamond']]],
            ['Attempts in the room',297.4,[['knee-to-chest-kick-ups']]]]}
 };
+/* ── the press guide, by part (23 Nov 2026) ─────────────────────────
+   The Press stage's film is the press guide, and its parts are the eight
+   parts of PRESS_LADDERS at the times they start. `film` is empty until the
+   guide is on Stream: put its uid here (and set it as the stage's intro in
+   the dashboard) and the parts appear on Learn and in Today's learn, each
+   opening the film at its time. */
+PHASE_KEYS[5]={film:'', key:[
+  ['The lean',111,[['chair-assisted-handstand-shoulder-adjustments'],['feet-on-box-press-leans']]],
+  ['Not collapsing',224,[['chaturganga-push-ups'],['p-pike-pushups-knees'],['p-pike-pushups']]],
+  ['Flexibility and where the hands go',305,[['pancake-lift-combo']]],
+  ['Fighting the inertia',406,[['press-walks'],['press-slides']]],
+  ['Hip flexors',466,[['pancake-leg-lifts'],['p-dd-toe-taps'],['press-eccentrics']]],
+  ['The tuck midpoint',511,[['single-leg-tuck-slides'],['tuck-slides'],['knees-on-box'],['p-tuck-handstand']]],
+  ['Lower back engagement',622,[['p-bench-zombies'],['p-back-to-wall']]],
+  ['The unrolling',754,[['straddle-entries'],['straddle-to-straight'],['straddle-to-diamond'],['p-solo-press-circles']]]
+]};

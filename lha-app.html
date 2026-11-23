@@ -4724,6 +4724,8 @@ const ptDone=sc=>!!sc && PRESS_TEST.every(t=>Number.isInteger(sc[t.id]));
 const ptName=v=>{ const d=drillById(v); return (d&&d.n)||v; };
 const ptDay=ts=>new Date(ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
 function openLimiter(){
+  /* the limiting factor comes from the Press quiz now */
+  if(typeof PRESS_LADDERS!=='undefined' && typeof openPressQuiz==='function'){ openPressQuiz(); return; }
   clearTimeout(ptTimer);
   const p=st.pressTest;
   if(p && ptDone(p.scores)){ ptScores=Object.assign({},p.scores); ptStep=ptN(); }
@@ -5060,6 +5062,7 @@ const PX_CHEV = '<svg class="px-chev" width="16" height="16" viewBox="0 0 24 24"
 const PX_TICK = '<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5"/></svg>';
 const PX_PLAY = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5v9l7-4.5z" fill="#fff"/></svg>';
 function openPress(view, i){
+  if(typeof PRESS_LADDERS!=='undefined'){ go('home'); return; }
   st.tab='press'; st.pressView=view||'home'; if(i!=null) pvStage=i; save(); render();
   const sc=document.querySelector('#app .scroll'); if(sc) sc.scrollTop=0; window.scrollTo(0,0);
 }
@@ -5209,6 +5212,10 @@ function pressViewHTML(){
   return v==='stage' ? pressStageHTML() : v==='ladder' ? pressLadderHTML() : v==='prep' ? pressPrepHTML() : pressHomeHTML();
 }
 function screenPress(){
+  /* retired with the Press parts (23 Nov 2026): the test, the six week plan
+     and the ten rungs gave way to the eight parts, their quiz and their
+     check points on Train. Anybody left on the old screen lands on Train. */
+  if(typeof PRESS_LADDERS!=='undefined'){ st.tab='home'; st.pressView='home'; try{ save(); }catch(e){} return screenHome(); }
   if(typeof PRESS_PHASES==='undefined') return `<div class="scroll s"></div>`;
   trackOnce('fixopen', null, 'press-'+(st.pressView||'home'));
   return `<div class="scroll s"><div class="px"><div id="pxv">${pressViewHTML()}</div><div style="height:110px"></div></div></div>`;
@@ -8300,6 +8307,25 @@ function cpReach(k){
    The check point is the level they are on in that part, so reaching it
    moves that part up one and the card becomes the next level's test. The
    top level stays as it is once reached. (Elliott, 23 Nov 2026) */
+/* under an opened Press check point: this part of the press guide, when the
+   film is in, and a way back down a level for a level that is too much
+   (the quiz is their own word for it, and people overrate themselves) */
+function pressPartLinks(c){
+  const P=(typeof PRESS_LADDERS!=='undefined') ? PRESS_LADDERS.find(x=>x.k===c.ladder) : null; if(!P) return '';
+  const u=(typeof phaseFilmUid==='function') ? phaseFilmUid() : '';
+  const clock=t=>Math.floor(t/60)+':'+String(Math.round(t%60)).padStart(2,'0');
+  const film=(u && P.t!=null) ? `<button type="button" class="wk-link" style="display:inline;margin:0;padding:0" onclick="event.stopPropagation();openPhaseFilmAt(${Number(P.t)})">Watch this part of the press guide, from ${clock(P.t)}</button>` : '';
+  const down=(c.lvl>1) ? `<button type="button" class="wk-link" style="display:inline;margin:0;padding:0;color:var(--grey)" onclick="event.stopPropagation();pressDown(${jsq(P.k)})">Too hard for now? Go back to level ${c.lvl-1}</button>` : '';
+  return (film||down) ? `<div class="pl-links" style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:10px">${film}${down}</div>` : '';
+}
+function pressDown(k){
+  const P=PRESS_LADDERS.find(x=>x.k===k); if(!P) return;
+  const i=pressLvlOf(k); if(i<1) return;
+  const lv=Object.assign({}, (st.pressLvl||{}).lv||{}, {[k]:i-1});
+  st.pressLvl={lv, at:Date.now()}; save(); try{ saveState(); }catch(e){}
+  try{ lcOpen.log=null; }catch(e){}
+  render(); toast(esc(P.n)+': back to level '+i+'. '+esc(P.levels[i-1].n)+'.');
+}
 function pressLogged(k){
   const m=/^pl-([a-z]+)-(\d+)$/.exec(String(k||'')); if(!m || typeof PRESS_LADDERS==='undefined') return false;
   const P=PRESS_LADDERS.find(x=>x.k===m[1]); if(!P) return false;
@@ -10443,7 +10469,8 @@ function rungBody(c, i, total, use, noteFirst){
     : one ? (one.indexOf('lc-none')>-1 ? one : `<div class="lc-film">${one}</div>`) : '';
   const note=(c.note ? `<div class="lc-note">${esc(c.note)}</div>` : '')
     /* why it is on the ladder (Elliott, 23 Nov 2026: "each checkpoint needs a bit of why they are included") */
-    + (c.why ? `<div class="cp-why"><b>Why</b> ${esc(c.why)}</div>` : '');
+    + (c.why ? `<div class="cp-why"><b>Why</b> ${esc(c.why)}</div>` : '')
+    + (c.ladder ? pressPartLinks(c) : '');
   if(use!=='log') return `<div class="lc-xi">${film}${note}</div>`;
   /* the parts repaintCp swaps keep their ids, so logging redraws the
      numbers and never the film */
@@ -20427,13 +20454,16 @@ function stageFilmsHTML(){
   const ptr = P===5 && typeof PRESS_TEST!=='undefined' && st.pressTest && ptDone(st.pressTest.scores) ? ptResult(st.pressTest.scores) : null;
   const plan = ptr ? pressPlanFix() : null;
   const lim = P===5 && typeof PRESS_TEST!=='undefined'
-    ? (typeof PRESS_PHASES!=='undefined' ? railTile({img:PRESS_PHASES[1].img, title:'The whole press, start to finish',
+    ? ((typeof PRESS_PHASES!=='undefined' && typeof PRESS_LADDERS==='undefined') ? railTile({img:PRESS_PHASES[1].img, title:'The whole press, start to finish',
         sub:'Anatomy, the ladder, the faults', go:'openPress()'}) : '')
       + (typeof PRESS_LADDERS!=='undefined'
-        ? railTile({art:ptTriSVG(null,{mini:true}), title:'Your level on each part', sub:st.pressQuiz?'Answer again':'Eight questions', go:'openPressQuiz()'})
+        ? (()=>{ const PC=st.pressQuiz ? pressCorners() : null, w={};
+            if(PC && PC.limiter) ['strength','mobility','patterning'].forEach(c=>{ w[c]=Math.max(.04, 1-PC.score[c]); });
+            return railTile({art:ptTriSVG((PC && PC.limiter) ? w : null,{mini:true}), title:'Find your limiting factor',
+              sub:PC ? (PC.limiter ? 'Yours: '+PT_LBL[PC.limiter].toLowerCase()+'. Answer again' : 'Answer again') : 'Eight questions', go:'openPressQuiz()'}); })()
         : railTile({art:ptTriSVG(ptr?ptr.w:null,{mini:true}), title:'Find your limiting factor',
         sub:ptr ? 'Yours: '+(ptr.clean?'nothing, go press':ptr.tie.map(k=>PT_LBL[k]).join(' and ')) : '8 steps, about 15 minutes', go:'openLimiter()'}))
-      + (plan ? railTile({img:fixCover(plan), title:plan.name, sub:'Week '+pressWeek()+' of 6 · '+plan.week.phase,
+      + ((plan && typeof PRESS_LADDERS==='undefined') ? railTile({img:fixCover(plan), title:plan.name, sub:'Week '+pressWeek()+' of 6 · '+plan.week.phase,
         go:"openFix('press-plan')", lock:!isPlus()?paid:''}) : '') : '';
   const fixes = (fx.length||lim) ? railHTML('Fixes at '+esc(PS.n), FX_SUB,
       lim+fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:`openFix(${jsq(f.slug)})`,
