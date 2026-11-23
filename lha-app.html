@@ -20233,12 +20233,24 @@ function skipDown(i){ st.preOk=Object.assign({}, st.preOk, {[i]:Date.now()}); sa
    this stage, and round again at the end. The rest stay in the list. */
 function learnToday(P, rows){
   const K=phaseKeysFor(P), u=phaseFilmUid(), items=[];
+  /* a section of the intro film that has a film or page of its own plays
+     that instead (Elliott, 23 Nov 2026: "the highlighted learn does not
+     refer to the right video its the intro video but i think there is a
+     video specifically on wrists"): Wrists is the wrists explainer, falling
+     is Learn to fall, the kick up is its story. It is listed once. */
+  const own=rows.filter(r=>r.go!=='openHowFilm()' && r.go!=='openPhaseFilm()');
+  const word=n=>{ const s=String(n||'').toLowerCase();
+    return /wrist/.test(s)?/wrist/i : /fall/.test(s)?/fall/i : /kick/.test(s)?/kick/i : /crow/.test(s)?/crow/i
+      : new RegExp(s.replace(/^the\s+/,'').split(/\s+/)[0].replace(/[^a-z]/g,'')||'^$','i'); };
+  const taken=new Set();
   if(K && u && K.film===u) (K.key||[]).forEach(([name,t,list])=>{
+    const w=word(name), hit=own.find(r=>!taken.has(r) && w.test(String(r.t||'').replace(/<[^>]+>/g,'')));
     const ds=(list||[]).map(x=>drillById(x[0])).filter(Boolean);
+    if(hit){ taken.add(hit); items.push({t:hit.t, kick:'', sub:hit.sub, img:hit.img, go:hit.go}); return; }
     items.push({t:name, kick:'From the film, '+pkClock(t),
       sub:ds.slice(0,3).map(d=>esc(d.n)).join(', ')+(ds.length>3?' and more':''),
       img:STREAM_CDN+u+'/thumbnails/thumbnail.jpg?time='+Math.round(t+4)+'s&height=320', go:`openPhaseFilmAt(${t})`}); });
-  rows.forEach(r=>{ if(r.go!=='openHowFilm()' && r.go!=='openPhaseFilm()') items.push({t:r.t, kick:'', sub:r.sub, img:r.img, go:r.go}); });
+  own.forEach(r=>{ if(!taken.has(r)) items.push({t:r.t, kick:'', sub:r.sub, img:r.img, go:r.go}); });
   if(!items.length) return null;
   /* It stays until they look at it or put it away, as the phase film does
      (Elliott, 23 Nov 2026), and the next one comes the following day. It
