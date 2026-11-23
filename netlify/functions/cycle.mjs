@@ -668,6 +668,7 @@ export default async () => {
   });
   await run('coaching', () => coachingLoop(done, now));
   await run('tips', () => firstTenDays(done));
+  await run('day2', () => dayTwo(done));
   await run('push', () => trainingPush(done));
   await run('quiet', () => quietFreeAccounts(done));
   await run('voice', () => voiceSweep(done));
@@ -788,6 +789,49 @@ async function trainingPush(done) {
     const res = await pushSend(e, payload).catch(err => ({ sent: 0, why: String(err && err.message || err) }));
     await supa.upsert('nudges', { key: dayKey, sent_at: now.toISOString() }, 'key').catch(() => {});
     if (res.sent) done.trainPush++;
+  }
+}
+
+/* ── day 2 (23 Nov 2026) ─────────────────────────────────────────────
+   Nobody trained on a second day in the month to 22 November. The morning
+   after somebody's first ever session, one note: a push to their phone if
+   there is one, otherwise the email. Once per person, ever, and not to a
+   coached client, whose coach is already in touch. */
+async function dayTwo(done) {
+  const ukDay = t => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+  const today = ukDay(Date.now()), yest = ukDay(Date.now() - DAY);
+  const rows = (await supa.rows('progress', 'select=email,sessions').catch(() => [])) || [];
+  const roster = new Set((await rosterList()).map(c => c.email).concat(Object.keys(await pastClients())));
+  const sent = await nudgeKeys('day2:');
+  done.day2 = 0;
+  for (const r of rows) {
+    const e = norm(r.email || ''); if (!e || roster.has(e)) continue;
+    const ss = (Array.isArray(r.sessions) ? r.sessions : []).filter(x => x && x.at);
+    if (!ss.length) continue;
+    const days = new Set(ss.map(x => ukDay(x.at)));
+    /* every session they have ever done was yesterday, and none today */
+    if (days.size !== 1 || !days.has(yest) || days.has(today)) continue;
+    const key = `day2:${e}`;
+    if (await nudgeSent(sent, key)) continue;
+    await supa.upsert('nudges', { key, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+    let pushed = false;
+    if (pushReady() && (await wantsPush(e, 'reminders')) && mayEmail(e) && (await clientMailAllowed(e))) {
+      const res = await pushSend(e, { title: 'Day 2: five minutes counts', body: 'Warm-up and the first drill, and today is done.',
+        url: '/lha-app.html?go=today&src=day2', tag: 'train' }).catch(() => ({ sent: 0 }));
+      pushed = !!(res && res.sent);
+      /* the day's training push would say the same thing again */
+      if (pushed) await supa.upsert('nudges', { key: `pushtrain:${e}:${new Date().toISOString().slice(0, 10)}`, sent_at: new Date().toISOString() }, 'key').catch(() => {});
+    }
+    if (!pushed) {
+      const acct = await supa.row('accounts', `email=eq.${enc(e)}&select=name`).catch(() => null);
+      const first = String((acct && acct.name) || '').split(' ')[0];
+      const T = await emailCopy('day2', { name: esc(first) });
+      if (T.off) continue;
+      const ok = await email(e, T.subject, mail({ title: T.title, greeting: first, paras: T.paras,
+        cta: { href: `${SITE}/lha-app.html?go=today&src=day2`, label: "Start today's session" },
+        signoff: { line: 'See you upside down,', name: 'Elliott' }, footnote: T.footnote || undefined }), 'reminders');
+      if (ok) done.day2++;
+    } else done.day2++;
   }
 }
 

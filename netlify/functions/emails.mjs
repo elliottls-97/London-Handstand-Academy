@@ -196,6 +196,20 @@ export const EMAILS = {
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
+  "day2": {
+    "name": "Day 2, after a first session",
+    "when": "The morning after somebody's first ever session, by email when there is no phone to push to",
+    "vars": [
+      "name"
+    ],
+    "subject": "Day 2: five minutes counts",
+    "title": "Day 2. Five minutes counts.",
+    "paras": [
+      "Yesterday was your first session. The second is the one that turns it into something you do, and it does not need to be long.",
+      "Open the app, do the warm-up and the first drill, and that is today done. If it is going well, keep going."
+    ],
+    "footnote": "One note, once. Reminders off in the app, in the menu at the top left, stops all of it."
+  },
   "quiet5d": {
     "name": "Gone quiet, 5 days",
     "when": "Five days after a free account last opened the app",
