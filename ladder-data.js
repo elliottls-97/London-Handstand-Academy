@@ -463,6 +463,7 @@ const PHASE_INTRO = {
   2: '5e46c2d7886e6607d1cba4aebd67f33e',   /* Pushing More intro, the sofa talk with his films, 9 Nov 2026 (8:32), voice in sync 11 Nov; was 6b31bda2 */
   3: '853b9e439c88ad2375f3b5d038406a43',   /* Take-Off intro, the sofa talk with his films, 11 Nov 2026 (6:20), voice in sync; set live from the
                                               dashboard the same night (the shipped one was the placeholder 'tucktakeoffexplainer') */
+  5: '1bd85467c3e68e762cb133c37b57488e',   /* Press: "The complete guide to the press to handstand", 15:54, on Stream 23 Nov 2026 */
 };
 /* A drill with a long explainer of its own offers it under the drill's
    demo, which stays as it is ("want an explainer on how to do this?").
@@ -1081,11 +1082,10 @@ const PHASE_KEYS = {
 };
 /* ── the press guide, by part (23 Nov 2026) ─────────────────────────
    The Press stage's film is the press guide, and its parts are the eight
-   parts of PRESS_LADDERS at the times they start. `film` is empty until the
-   guide is on Stream: put its uid here (and set it as the stage's intro in
-   the dashboard) and the parts appear on Learn and in Today's learn, each
-   opening the film at its time. */
-PHASE_KEYS[5]={film:'', key:[
+   parts of PRESS_LADDERS at the times they start. The guide went onto
+   Stream on 23 Nov 2026 (PHASE_INTRO[5]), so the parts appear on Learn and
+   in Today's learn, each opening the film at its time. */
+PHASE_KEYS[5]={film:'1bd85467c3e68e762cb133c37b57488e', key:[
   ['The lean',111,[['chair-assisted-handstand-shoulder-adjustments'],['feet-on-box-press-leans']]],
   ['Not collapsing',224,[['chaturganga-push-ups'],['p-pike-pushups-knees'],['p-pike-pushups']]],
   ['Flexibility and where the hands go',305,[['pancake-lift-combo']]],
