@@ -1137,8 +1137,25 @@ async function workshopMail(done) {
           /* the book button under the line itself (Elliott, 7 Nov 2026: "wheres the button to book next weeks class") */
           const withCode = h => caliCode ? h.replace(/^([^#?]*)(\?[^#]*)?(#.*)?$/, (m, p, q, hh) => p + (q ? q + '&' : '?') + 'code=' + encodeURIComponent(caliCode.c) + (hh || '')) : h;
           const caliCta = caliNext ? { href: withCode(wsBookHref(caliNext.w)), label: caliCode ? `Book ${dm(caliNext)} for ${gbp(offPrice)}` : `Book ${dm(caliNext)}` } : null;
+          /* ── their first session, for a booker who has never trained (23 Nov
+             2026): 40 of 67 accounts never started one, most of them made by
+             booking a class. The stage Elliott placed them on in the
+             dashboard, or Foundations, and one link. */
+          let firstLine = '';
+          try {
+            const pr = await supa.row('progress', `email=eq.${enc(e)}&select=sessions`).catch(() => null);
+            if (!(pr && Array.isArray(pr.sessions) && pr.sessions.length)) {
+              const ac = await supa.row('accounts', `email=eq.${enc(e)}&select=stage`).catch(() => null);
+              const SN = ['Foundations', 'Wall Work', 'Pushing More', 'Take-Off', 'Freestanding', 'Press'];
+              const sg = Math.max(0, Math.min(5, Number(ac && ac.stage) || 0));
+              firstLine = (sg > 0
+                ? `From watching you today I would start you on <b>${SN[sg]}</b>. Your first session is ready in the app, fifteen minutes, and it talks you through every drill.`
+                : `Your first session is ready in the free app, on <b>Foundations</b>: fifteen minutes, and it talks you through every drill.`)
+                + ` <a href="${SITE}/lha-app.html?ref=classmail&amp;go=today" style="color:#237f95;font-weight:600">Open your first session</a>`;
+            }
+          } catch (err) { firstLine = ''; }
           /* no photo on the thank you (Elliott, 7 Nov 2026) */
-          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: caliLine ? T.paras.concat([].concat(caliLine)[0]) : T.paras, heroAfter: caliLine ? [].concat(caliLine)[1] || '' : '', footnote: T.footnote, cta: caliCta,
+          const M = afterClassEmail({ site: SITE, first, title: T.title, paras: (caliLine ? T.paras.concat([].concat(caliLine)[0]) : T.paras).concat(firstLine ? [firstLine] : []), heroAfter: caliLine ? [].concat(caliLine)[1] || '' : '', footnote: T.footnote, cta: caliCta,
             kicker: w.title, review: reviewUrl,
             headshot: '/assets/site/coach-elliott-headshot.jpg',
             preheader: A.coming.length ? `Thank you for coming. Next date: ${wsWhenTxt(A.coming[0].w).split(', ')[0]}.` : 'Thank you for coming.',
