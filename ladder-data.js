@@ -664,21 +664,24 @@ function poolFor(stage){
    2026 and Elliott's changes the same day. t is where the part starts in
    the film, in seconds. A level marked opt is more than a press needs. */
 const PRESS_FACES=['Not yet','Getting there','Solid'];
+/* seg on a part is the stretch of the press guide, in seconds, where its levels are shown
+   side by side: the part's card plays that stretch on a loop (Elliott, 23 Nov 2026: "there are
+   better shots of me stretching on the flexibility, could have the levels of pancake") */
 /* a whole press, six seconds, for the first card of the parts (press-story-full-press) */
 const PRESS_FULL_UID='6c9fd342e99f3761044931a313eb4b8a';
 const PRESS_LADDERS=[
-  {k:'stack', clip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:1,
+  {k:'stack', seg:[66,88], clip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:1,
    why:'Shoulders over the hands, hips over the shoulders. The first port of call before any press work.',
    levels:[
     {n:'Chair assisted handstand', kind:'secs', target:15, drills:['chair-assisted-handstand-walks']},
     {n:'Chair assisted or L shaped handstand', kind:'secs', target:30, drills:['chair-assisted-handstand-walks','p-l-handstand'], demo:'p-l-handstand'}]},
-  {k:'lean', clip:'chair-assisted-handstand-shoulder-adjustments', c:'patterning', n:'The lean', t:111, order:5,
+  {k:'lean', seg:[154,186], clip:'chair-assisted-handstand-shoulder-adjustments', c:'patterning', n:'The lean', t:111, order:5,
    why:'Getting the shoulders over the hands, then the endurance to hold them there long enough for the feet to come off.',
    levels:[
     {n:'Down dog to plank leans', kind:'face', drills:[]},
     {n:'Chair or straddle wall shoulder leans', kind:'face', drills:['chair-assisted-handstand-shoulder-adjustments','wall-straddle-shoulder-leans']},
     {n:'Feet on box press lean', kind:'secs', target:20, drills:['feet-on-box-press-leans'], note:'Hips high, weight into the palms, not the fingertips. Hold time, not distance.'}]},
-  {k:'push', clip:'p-pike-pushups', c:'strength', n:'Not collapsing', t:224, order:7,
+  {k:'push', seg:[250,266], clip:'p-pike-pushups', c:'strength', n:'Not collapsing', t:224, order:7,
    why:'If you lean and collapse, you need more strength in the front of the shoulders. Not a handstand push up or a planche.',
    levels:[
     {n:'Chaturanga on knees, pike push ups on boxes', kind:'count', target:5, drills:['push-ups-on-knees','p-pike-pushups-knees'], demo:'p-pike-pushups-knees'},
@@ -686,34 +689,34 @@ const PRESS_LADDERS=[
      note:'Forward and down, then back the way you came, as if a band pulls the hips back.'},
     {n:'Pike push ups, feet and hands raised', kind:'count', target:5, drills:['pike-press-ups']},
     {n:'Handstand push up variations', kind:'face', opt:true, drills:[], note:'More than a press needs. Not required.'}]},
-  {k:'flex', clip:'pancake-lift-combo', c:'mobility', n:'Flexibility', t:305, order:8,
+  {k:'flex', seg:[346,362], clip:'pancake-lift-combo', c:'mobility', n:'Flexibility', t:305, order:8,
    why:'Hands close to the feet means a smaller lean and less strength needed. The more flexible you are, the easier the press.',
    levels:[
     {n:'Standing pancake', kind:'face', drills:['pancake-lift-combo']},
     {n:'Pancake on the sofa or on blocks', kind:'face', drills:['pancake-lift-combo','pancake-to-wide-standing']},
     {n:'Pancake at 45°', kind:'face', drills:['pancake-lift-combo','pancake-to-wide-standing'], note:'45° is enough to press.'},
     {n:'Pancake all the way down', kind:'face', opt:true, drills:['pancake-lift-combo'], note:'Not needed to press.'}]},
-  {k:'float', clip:'press-slides', c:'patterning', n:'Feet float off', t:406, order:4,
+  {k:'float', seg:[434,470], clip:'press-slides', c:'patterning', n:'Feet float off', t:406, order:4,
    why:'Coming off the floor slowly is an unusual feeling. Learn it, then take the hop away. The hip flexors do the lifting.',
    levels:[
     {n:'Press walks', kind:'face', drills:['press-walks','pancake-leg-lifts']},
     {n:'Press slides', kind:'face', drills:['press-slides','pancake-leg-lifts','p-dd-toe-taps']},
     {n:'Walks and slides, feet on blocks', kind:'face', drills:['sideways-press-walks','press-slides','chest-to-wall-toe-taps','press-eccentrics']},
     {n:'Feet float off with no hop', kind:'rate', target:5, drills:['press-slides','press-eccentrics'], note:'Out of ten tries, how many came off the floor with no jump?'}]},
-  {k:'tuck', clip:'p-tuck-handstand', c:'patterning', n:'The tuck', t:511, order:3,
+  {k:'tuck', seg:[594,610], clip:'p-tuck-handstand', c:'patterning', n:'The tuck', t:511, order:3,
    why:'The middle of the press is a tuck handstand with the legs out. Pelvis tipped forward and the shoulders pushed tall.',
    levels:[
     {n:'Single leg tuck slides', kind:'face', drills:['single-leg-tuck-slides','press-scapula-shrugs']},
     {n:'Double tuck slides and knees on box', kind:'face', drills:['tuck-slides','knees-on-box']},
     {n:'Tuck handstand on the wall', kind:'secs', target:10, drills:['p-tuck-handstand','knees-on-box']},
     {n:'Tuck handstand, freestanding', kind:'face', drills:['p-tuck-handstand']}]},
-  {k:'back', clip:'p-back-to-wall', c:'strength', n:'Lower back', t:622, order:6,
+  {k:'back', seg:[692,722], clip:'p-back-to-wall', c:'strength', n:'Lower back', t:622, order:6,
    why:'The last part of the middle: the lower back drives the legs over.',
    levels:[
     {n:'Bench zombies on the elbows', kind:'face', drills:['p-bench-zombies'], note:'On the elbows the back does the pulling, not the arms.'},
     {n:'Back to wall negative press', kind:'face', drills:['p-back-to-wall']},
     {n:'Back to wall press', kind:'count', target:3, drills:['p-back-to-wall'], note:'Lower back into the wall, legs down and back up with control.'}]},
-  {k:'unroll', clip:'p-solo-press-circles', c:'patterning', n:'The unroll', t:754, order:2,
+  {k:'unroll', seg:[810,826], clip:'p-solo-press-circles', c:'patterning', n:'The unroll', t:754, order:2,
    why:'From a piked straddle handstand to the full handstand. Mostly your handstand getting better, so it comes first in the session.',
    levels:[
     {n:'Straddle piked balance', kind:'face', drills:['straddle-entries']},
