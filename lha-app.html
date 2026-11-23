@@ -3742,7 +3742,9 @@ function rest(x, i, list){
   if(WARM_GRP.test(grp)) return 10;
   if(HARD_GRP.test(grp)) return 90;
   if(/entries|build to/.test(t)) return 60;
-  return 35;
+  /* seventy, not thirty five (Elliott, 23 Nov 2026): half a minute is not
+     enough to be ready to go upside down again */
+  return 70;
 }
 
 function queue(){
@@ -16058,7 +16060,8 @@ function drawOv(){
            rather than an alternative to it. -->
       ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px;min-height:60px;font-size:18px"
         onclick="closeOv();startQueue(0)">Start, ${mins} min</button>
-        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center;margin:-8px 0 14px">I talk you through every drill and rest. Or tick them off below.</div>`}
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center;margin:-8px 0 14px">I talk you through every drill and rest. Or tick them off below.${
+          (rerollOk() && !ticked) ? ` <button onclick="rerollSession()" style="background:none;border:0;padding:0;cursor:pointer;color:var(--forest);font:600 12.5px/1.4 var(--sans);text-decoration:underline">Give me a different one</button>` : ''}</div>`}
       <!-- Keep it for another day, or keep it for no signal as well. The
            free session at a paid stage had neither: the row was hidden, so
            the one workout somebody was given at their stage could not be
@@ -25990,6 +25993,32 @@ function isRestCell(c){
 }
 
 /* which session is next: they rotate, and finishing one advances it */
+/* ── which session today (23 Nov 2026) ─────────────────────────────
+   Elliott: "each time i click on foundations standard 15 mins its the same
+   workout every time". The rotation only moved when a session was finished,
+   and by one drill, so somebody who never finished one (most people) got the
+   same session for ever. Now it moves every day as well, the same all day so
+   a list can be opened and come back to, and Give me a different one moves
+   it again on the spot. The drills in each level are dealt from a seeded
+   shuffle rather than slid along by one. */
+const sessDayN = () => Math.floor((Date.now()-new Date().getTimezoneOffset()*60000)/864e5);
+function sessSeed(stage){
+  const d=sessDayN(), R=st.reroll;
+  const rr=(R && R.d===d && R.s===stage) ? (R.n|0) : 0;
+  return Number((st.rot||{})[stage]||0) + d*5 + rr*3;
+}
+function seedShuffle(list, seed){
+  const a=list.slice(); let s=((Number(seed)||1)*2654435761)>>>0 || 1;
+  for(let i=a.length-1;i>0;i--){ s^=s<<13; s>>>=0; s^=s>>>17; s^=s<<5; s>>>=0; const j=s%(i+1); const t=a[i]; a[i]=a[j]; a[j]=t; }
+  return a;
+}
+let lastBuildDay=null;
+function rerollSession(){
+  const d=sessDayN(), stg=curStage(), R=st.reroll;
+  st.reroll={d, s:stg, n:((R && R.d===d && R.s===stg) ? (R.n|0) : 0)+1}; save();
+  closeOv(); buildFreeSession(false, true, lastBuildDay);
+}
+const rerollOk = () => { try{ return !coachedView() && !qFix && st.miniOn==null && !st.ovList && !(typeof tasting==='function' && tasting()); }catch(e){ return false; } };
 function nextDayIdx(){
   const plan=weekPlan(); if(!plan) return 0;
   return ((st.planDay|0) % plan.length + plan.length) % plan.length;
@@ -26061,7 +26090,7 @@ function warmupFor(budgetSecs, stage, written){
      the whole thing and warming them is not optional, so they open every
      session that has them rather than coming round in turn. */
   const PINNED = /^wrist-circles/;
-  const rotW = Number((st.rot||{})[stage] || 0);
+  const rotW = sessSeed(stage);
   const spinW = (list, by) => list.length ? list.slice(by % list.length)
                                             .concat(list.slice(0, by % list.length)) : list;
   const arrange = list => {
@@ -26244,7 +26273,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      honest way to vary it is where in the pool it starts. Each session
      begins one further down than the last and wraps around, so everything
      comes up in turn and two sessions running are not the same. */
-  const rot = Number((st.rot||{})[stage] || 0);
+  const rotBase = Number((st.rot||{})[stage] || 0), rot = sessSeed(stage);
+  if(!dryBuild && !wristDay) lastBuildDay = dayIdx==null ? null : dayIdx;
   const spin = (list, by) => list.length ? list.slice(by % list.length)
                                            .concat(list.slice(0, by % list.length)) : list;
   /* ── Easier reaches back a stage ────────────────────────────────
@@ -26283,9 +26313,10 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
        strength day is still a strength day, and then the rotation decides
        which of them this session gets */
     lvls.forEach(L=>{
-      const bucket=(byLvl[L]||[]).slice()
+      /* dealt fresh, then the day's own groupings first, so the theme of
+         the day holds and which of them comes up changes */
+      byLvl[L]=seedShuffle(byLvl[L]||[], rot+L*17)
         .sort((a,b)=>(focus.indexOf(a)<0?1:0)-(focus.indexOf(b)<0?1:0));
-      byLvl[L]=spin(bucket, rot);
     });
     /* largest remainder, so the places add up to the number of drills asked
        for instead of rounding each share on its own and landing anywhere */
@@ -26451,7 +26482,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      started, so closing it part way and pressing Start built a different
      session (16 Oct 2026, review). endPlayer moves it on when done. */
   if(!tourBuild && !dryBuild){
-    st.rotNext={stage, to:(rot+1)%997};
+    st.rotNext={stage, to:(rotBase+1)%997};
     save();
   }
   /* A written list is already in the coach's order and the whole point of

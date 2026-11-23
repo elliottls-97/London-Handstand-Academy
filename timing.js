@@ -87,7 +87,8 @@ function lhaRest(it, grp, i, list){
   if(LHA_WARM_GRP.test(g)) return 10;
   if(LHA_HARD_GRP.test(g)) return 90;
   if(/entries|build to/.test(t)) return 60;
-  return 35;
+  /* seventy, as the app (23 Nov 2026) */
+  return 70;
 }
 /* A whole session, in seconds. Takes the blocks as the programme stores
    them, expands each drill by the sets its dose asks for, and counts the
