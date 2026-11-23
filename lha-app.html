@@ -8310,6 +8310,69 @@ function cpReach(k){
 /* under an opened Press check point: this part of the press guide, when the
    film is in, and a way back down a level for a level that is too much
    (the quiz is their own word for it, and people overrate themselves) */
+/* ── the press in eight parts, under the film (Elliott, 23 Nov 2026) ────
+   "how do we tell the story of the video to someone not watching" it all:
+   "the cards can be below the video which unlocks the checkpoints". On the
+   Press stage the film leads Train and the parts are a card each under it:
+   a clip, the part in his words, and what having it looks like. Going
+   through them, or watching the film, opens the check points. Nobody has
+   to take the quiz: without it they are on the starting check points, and
+   the quiz "should help put them in the right buckets". */
+let pcI=0;
+const pressLocked = () => { try{ return !coachedView() && !isMU() && curStage()===5 && typeof PRESS_LADDERS!=='undefined'
+  && !st.pressSeen && (st.phaseFilm||{})[5]!=='watched'; }catch(e){ return false; } };
+function pressHave(P){
+  const top=P.levels.filter(x=>!x.opt).slice(-1)[0]; if(!top) return '';
+  const t = top.kind==='secs'&&top.target ? ', '+top.target+' seconds' : top.kind==='rate'&&top.target ? ', '+top.target+' out of 10'
+    : (top.kind==='count'&&top.target && !/\d/.test(top.n)) ? ', '+top.target+' reps' : '';
+  return top.n+t;
+}
+function pressCardsHTML(){
+  const N=PRESS_LADDERS.length+1; pcI=Math.max(0, Math.min(N-1, pcI));
+  const P=pcI>0 ? PRESS_LADDERS[pcI-1] : null;
+  const d=P ? drillById(P.clip) : null;
+  const url=P ? (d && d.url) : STREAM_CDN+PRESS_FULL_UID+'/downloads/default.mp4';
+  const film=url ? drillFilm(url,'4/3').replace('loop muted','loop muted autoplay') : '';
+  const last=pcI===N-1;
+  return `<div id="pcards" class="card" style="padding:18px 16px 16px;margin:6px 0 4px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span class="kick2" style="color:var(--forest)">THE PRESS IN EIGHT PARTS</span>
+      <span style="font:600 12px/1 var(--sans);color:var(--grey)">${pcI===0?'Start':pcI+' of '+(N-1)}</span></div>
+    <div style="display:flex;gap:4px;margin:10px 0 12px">${Array.from({length:N},(_,i)=>`<i style="flex:1;height:3px;border-radius:2px;background:${i<=pcI?'var(--forest)':'rgba(29,85,102,.14)'}"></i>`).join('')}</div>
+    ${film}
+    <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${P ? esc(P.n) : 'A press, start <em style="color:var(--forest);font-style:normal">to finish.</em>'}</div>
+    <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${P ? esc(P.why)
+      : 'Eight parts go into it. You do not need every one finished: all of them decent, and a couple of them strong.'}</div>
+    ${P?`<div style="margin-top:12px;padding:11px 13px;border-radius:14px;background:rgba(35,127,149,.07);font:400 13.5px/1.45 var(--sans);color:var(--deep)">
+      <b style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest);margin-right:6px">You have it when</b>${esc(pressHave(P))}</div>`:''}
+    <div style="display:flex;gap:9px;margin-top:14px">
+      ${pcI>0?`<button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="pcGo(-1)">Back</button>`:''}
+      <button class="btn" style="flex:1;margin:0" onclick="${last?'pressUnlock()':'pcGo(1)'}">${last?'Open my check points':pcI===0?'The eight parts':'Next'}</button></div>
+    <button onclick="pressUnlock()" style="display:block;width:100%;background:none;border:0;cursor:pointer;padding:12px 0 0;font:500 12.5px/1.3 var(--sans);color:var(--grey)">${last?'':'Skip to my check points'}</button>
+  </div>`;
+}
+function pcGo(dn){
+  pcI+=dn; const el=document.getElementById('pcards'); if(!el){ render(); return; }
+  try{ filmsFree(el); }catch(e){}
+  el.outerHTML=pressCardsHTML();
+  const n=document.getElementById('pcards'); if(n){ try{ n.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(e){} const v=n.querySelector('video'); if(v){ try{ v.play().catch(()=>{}); }catch(e){} } }
+}
+function pressUnlock(){
+  st.pressSeen=Date.now(); pcI=0; save();
+  try{ track('story', pcI, 'press-parts'); }catch(e){}
+  render();
+  toast(st.pressQuiz ? 'Your check points are open.' : 'Your check points are open, at the starting level.');
+}
+/* above the open check points until the quiz is answered: it is what puts
+   them on the right level of each */
+function pressQuizPromptHTML(){
+  if(coachedView() || isMU() || curStage()!==5 || typeof PRESS_LADDERS==='undefined' || st.pressQuiz) return '';
+  return `<button onclick="openPressQuiz()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin:8px 0 4px;
+      padding:13px 16px;border-radius:18px;cursor:pointer;background:rgba(232,150,47,.14);border:0">
+      <span style="flex:1;min-width:0"><span style="display:block;font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:#8a5a12">YOU ARE ON THE STARTING CHECK POINTS</span>
+        <span style="display:block;font:600 14.5px/1.3 var(--sans);color:var(--ink);margin-top:4px">Eight questions put you on the right level of each.</span></span>
+      <span style="flex:none;font:600 13px/1 var(--sans);color:#8a5a12">Start ›</span></button>`;
+}
 function pressPartLinks(c){
   const P=(typeof PRESS_LADDERS!=='undefined') ? PRESS_LADDERS.find(x=>x.k===c.ladder) : null; if(!P) return '';
   const u=(typeof phaseFilmUid==='function') ? phaseFilmUid() : '';
@@ -22958,7 +23021,8 @@ function phaseFilmHide(){ st.phaseFilm=Object.assign({}, st.phaseFilm, {[curStag
    film's title and the six figures, as the film opens. */
 /* t: the moment he smiles; z: a little zoom from the left edge, which moves
    him right, clear of a longer phase name */
-const PHASE_SMILE = {'694fce7c0221a03611d801f782bc2d80':{t:'370.5s'}, '6b31bda28932030f284de4ef2afb5554':{t:'52.6s', z:1.12},
+const PHASE_SMILE = {'1bd85467c3e68e762cb133c37b57488e':{t:'75s'},   /* the press guide: the L shape on the box, clear of its own titles */
+  '694fce7c0221a03611d801f782bc2d80':{t:'370.5s'}, '6b31bda28932030f284de4ef2afb5554':{t:'52.6s', z:1.12},
   /* the same moments in the films re-exported in sync, 11 Nov 2026 */
   'b90e4fc0f64dfc49a0c082b085e07cf5':{t:'370.5s'}, '5e46c2d7886e6607d1cba4aebd67f33e':{t:'52.6s', z:1.12},
   /* Foundations and Take-Off open on the film's own title card */
@@ -23323,8 +23387,8 @@ function screenHome(){
   const reroll = (!coachedView() && !isMU() && !(typeof tasting==='function' && tasting()))
     ? `<button class="rrl" onclick="rerollHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>I want a different workout</button>` : '';
-  const homeRow = trialPending() ? '' : W ? (cpDayCardHTML(true) || '<span hidden></span>')
-    : (()=>{ const cap=capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W), k=cap.indexOf('<div class="hcps');
+  const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressQuizPromptHTML()+(cpDayCardHTML(true) || '<span hidden></span>'))
+    : (()=>{ const cap=pressQuizPromptHTML()+capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W), k=cap.indexOf('<div class="hcps');
         /* straight under Start session, above the check points when they are open */
         return (k>-1 ? cap.slice(0,k)+reroll+cap.slice(k) : cap+reroll)+cpDayCardHTML(true); })();
   const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
@@ -29419,6 +29483,8 @@ function askPillHTML(){
     if(wide() || !st.token || st.preview || coachedView() || isMU()) return '';
     if(['home','ladder','learn'].indexOf(st.tab)<0) return '';
     if(st.ov) return '';
+    /* not over the Press part cards, whose button it sat on */
+    if(st.tab==='home' && typeof pressLocked==='function' && pressLocked()) return '';
   }catch(e){ return ''; }
   const n=(typeof msgsNew==='function') ? msgsNew() : 0;
   return `<button class="askpill" onclick="goAsk()" aria-label="Ask ${esc(coachLabel())}${n?', '+n+' new':''}">
