@@ -8407,7 +8407,17 @@ function pressUnlock(){
 /* above the open check points until the quiz is answered: it is what puts
    them on the right level of each */
 function pressQuizPromptHTML(){
-  if(coachedView() || isMU() || curStage()!==5 || typeof PRESS_LADDERS==='undefined' || st.pressQuiz) return '';
+  if(coachedView() || isMU() || curStage()!==5 || typeof PRESS_LADDERS==='undefined') return '';
+  if(st.pressQuiz){ const B=pressBlock(), W=pressWeakest(1)[0]; if(!B) return '';
+    const day=new Date(B.end).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+    return B.due ? `<button onclick="openPressQuiz()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin:8px 0 4px;padding:13px 16px;border-radius:18px;cursor:pointer;background:rgba(232,150,47,.14);border:0">
+        <span style="flex:1;min-width:0"><span style="display:block;font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:#8a5a12">${PRESS_BLOCK_WEEKS} WEEKS DONE</span>
+          <span style="display:block;font:600 14.5px/1.3 var(--sans);color:var(--ink);margin-top:4px">Time to retest. Answer the eight questions again.</span></span>
+        <span style="flex:none;font:600 13px/1 var(--sans);color:#8a5a12">Retest ›</span></button>`
+      : `<div style="margin:8px 0 4px;padding:12px 16px;border-radius:18px;background:rgba(35,127,149,.07)">
+        <div style="font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">PRESS BLOCK · WEEK ${B.wk} OF ${B.of} · RETEST ${esc(day.toUpperCase())}</div>
+        ${W?`<div style="display:flex;align-items:center;gap:10px;margin-top:6px"><span style="flex:1;min-width:0;font:600 14px/1.35 var(--sans);color:var(--ink)">${esc(W.issue||W.n)}</span>
+          <button class="rt" onclick="pressPartSession(${jsq(W.k)})">Train it</button></div>`:''}</div>`; }
   return `<button onclick="openPressQuiz()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin:8px 0 4px;
       padding:13px 16px;border-radius:18px;cursor:pointer;background:rgba(232,150,47,.14);border:0">
       <span style="flex:1;min-width:0"><span style="display:block;font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:#8a5a12">YOU ARE ON THE STARTING CHECK POINTS</span>
@@ -8420,7 +8430,8 @@ function pressPartLinks(c){
   const clock=t=>Math.floor(t/60)+':'+String(Math.round(t%60)).padStart(2,'0');
   const film=(u && P.t!=null) ? `<button type="button" class="wk-link" style="display:inline;margin:0;padding:0" onclick="event.stopPropagation();openPhaseFilmAt(${Number(P.t)})">Watch this part of the press guide, from ${clock(P.t)}</button>` : '';
   const down=(c.lvl>1) ? `<button type="button" class="wk-link" style="display:inline;margin:0;padding:0;color:var(--grey)" onclick="event.stopPropagation();pressDown(${jsq(P.k)})">Too hard for now? Go back to level ${c.lvl-1}</button>` : '';
-  return (film||down) ? `<div class="pl-links" style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:10px">${film}${down}</div>` : '';
+  const train=`<button type="button" class="btn2" style="width:100%;margin:0 0 4px" onclick="event.stopPropagation();pressPartSession(${jsq(P.k)})">Train this part, 15 min</button>`;
+  return `<div class="pl-links" style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:10px">${train}${film}${down}</div>`;
 }
 function pressDown(k){
   const P=PRESS_LADDERS.find(x=>x.k===k); if(!P) return;
@@ -8429,6 +8440,24 @@ function pressDown(k){
   st.pressLvl={lv, at:Date.now()}; save(); try{ saveState(); }catch(e){}
   try{ lcOpen.log=null; }catch(e){}
   render(); toast(esc(P.n)+': back to level '+i+'. '+esc(P.levels[i-1].n)+'.');
+}
+/* one part's workout: fifteen minutes on the level they are on in it */
+let pressOnly='';
+function pressPartSession(k){
+  pressOnly=k; const was=st.time; st.time=15;
+  try{ closeOv(); buildFreeSession(false, true); } finally { pressOnly=''; st.time=was; }
+}
+/* the block: four weeks from the quiz, then the eight questions again */
+const PRESS_BLOCK_WEEKS=4;
+function pressBlock(){
+  const at=(st.pressQuiz||{}).at; if(!at) return null;
+  const wk=Math.floor((Date.now()-at)/(7*864e5))+1, end=at+PRESS_BLOCK_WEEKS*7*864e5;
+  return {wk, of:PRESS_BLOCK_WEEKS, due:wk>PRESS_BLOCK_WEEKS, end};
+}
+/* what to work on first: the two parts furthest from having them */
+function pressWeakest(n){
+  return PRESS_LADDERS.map(P=>{ const need=P.levels.filter(x=>!x.opt).length; return {P, f:Math.min(1, pressLvlOf(P.k)/need)}; })
+    .filter(x=>x.f<1).sort((a,b)=>a.f-b.f).slice(0,n||2).map(x=>x.P);
 }
 function pressLogged(k){
   const m=/^pl-([a-z]+)-(\d+)$/.exec(String(k||'')); if(!m || typeof PRESS_LADDERS==='undefined') return false;
@@ -8517,7 +8546,15 @@ function pressQuizBody(){
         : `Nothing is holding you back. <em style="color:var(--forest);font-style:normal">Go press.</em>`}</div>
       ${tri}
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:12px">${lim?'That is the side furthest from its top, so it gets the most time. ':''}Your sessions train each part at its level, listed here. Reach its check point and the next level opens.</div>
-      <div style="margin-top:14px">${rows}</div>
+      ${(()=>{ const W=pressWeakest(2); if(!W.length) return '';
+        return `<div class="kick2" style="color:#8a5a12;margin-top:18px">WORK ON THESE FIRST</div>
+          ${W.map(P=>`<div style="margin-top:8px;padding:14px;border-radius:16px;background:rgba(232,150,47,.12)">
+            <div style="font:600 15.5px/1.3 var(--sans);color:var(--ink)">${esc(P.issue||P.n)}</div>
+            <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:4px">${esc(P.n)}: ${esc(P.levels[pressLvlOf(P.k)].n)} is your level.</div>
+            <button class="btn2" style="width:100%;margin:10px 0 0" onclick="pressPartSession(${jsq(P.k)})">Train this part, 15 min</button></div>`).join('')}`; })()}
+      <div class="kick2" style="margin-top:20px">WHERE YOU ARE ON ALL EIGHT</div>
+      <div style="margin-top:6px">${rows}</div>
+      <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:12px">This is a ${PRESS_BLOCK_WEEKS} week block. Three sessions a week, then answer these again and your levels move.</div>
       <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();go('home')">See my check points</button>
       <button class="btn2" style="width:100%;margin-top:8px" onclick="openPressQuiz()">Answer again</button>`;
   }
@@ -26506,15 +26543,25 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     /* one drill from every part first, then the second of each, so a short
        session still touches every part */
     const seen=new Set(), out=[];
+    /* a workout for one part (Elliott, 23 Nov 2026: "even a workout for that
+       section as well as all rounder workouts"): every drill of the level
+       they are on in it, after one from the level below to work in on */
+    const only=pressOnly && PRESS_LADDERS.find(x=>x.k===pressOnly); let onlyDone=false;
+    if(only){
+      const i=pressLvlOf(only.k), ok=v=>{ const d=drillById(v); return d && d.url; };
+      const cur=(only.levels[i].drills||[]).filter(ok), below=i>0 ? (only.levels[i-1].drills||[]).filter(ok).slice(0,1) : [];
+      const one=below.concat(cur).filter((v,j,arr)=>arr.indexOf(v)===j);
+      if(one.length){ one.forEach((v,j)=>{ pressOrd[v]=j; }); ids=one; onlyDone=true; if(!dryBuild) qLabel=only.n; }
+    }
     const lim=(st.pressQuiz ? pressCorners().limiter : '');
     const parts=PRESS_LADDERS.slice().sort((a,b)=>a.order-b.order)
       .map((P,pi)=>{ const L=(P.levels[pressLvlOf(P.k)].drills||[]).filter(v=>{ const d=drillById(v); return d && d.url; });
-        L.forEach((v,r)=>{ if(pressOrd[v]==null) pressOrd[v]=pi*10+r; }); return {c:P.c, L}; });
+        if(!onlyDone) L.forEach((v,r)=>{ if(pressOrd[v]==null) pressOrd[v]=pi*10+r; }); return {c:P.c, L}; });
     const put=(p,r)=>{ const v=p.L[r]; if(v && !seen.has(v)){ seen.add(v); out.push(v); } };
     parts.forEach(p=>put(p,0));
     /* then the second drills, the limiting factor's parts before the rest */
     for(let r=1;r<4;r++){ parts.filter(p=>p.c===lim).forEach(p=>put(p,r)); parts.filter(p=>p.c!==lim).forEach(p=>put(p,r)); }
-    if(out.length) ids=out;
+    if(out.length && !onlyDone) ids=out;
   }
   const budget=mins*60;
   /* A wrist day has no warm-up and no top-up: the drills are the warm-up,
