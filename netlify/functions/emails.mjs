@@ -939,6 +939,17 @@ function pill(b, dark, top = 24) {
 const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
 const P = t => `<p style="margin:0 0 16px;font:400 17px/1.65 ${FS};color:#2b2f2e">${t}</p>`;
 const blockHTML = {
+  /* more on the same thing: a film still and a line a row, each a link to
+     the Learn page or the film it comes from (Elliott, 24 Nov 2026: "can we
+     use the learn articles and intro videos to make these more useful") */
+  more: b => !(b.rows || []).length ? '' : `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:26px 30px 14px">
+    ${kick(b.kicker || 'Go deeper', '#237f95')}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px">${b.rows.map((r, i) => `<tr>
+      <td width="112" valign="top" style="padding:0 0 14px"><a href="${escH(r.href)}"><img src="${escH(r.img)}" width="112" height="84" alt="" style="display:block;width:112px;height:84px;object-fit:cover;border-radius:12px;border:0;background:#cfe6ec"></a></td>
+      <td valign="middle" style="padding:0 0 14px 14px;font:400 14px/1.45 ${FS};color:#5a5a5a">
+        <a href="${escH(r.href)}" style="display:block;font:600 16px/1.3 ${FS};color:#111111;text-decoration:none">${escH(r.title)}</a>
+        <span style="display:block;margin-top:3px">${escH(r.sub)}</span>
+        <a href="${escH(r.href)}" style="display:inline-block;margin-top:5px;font:600 13.5px/1.3 ${FS};color:#237f95;text-decoration:none">${escH(r.go || 'Watch and read')} &rarr;</a></td></tr>`).join('')}</table></td></tr>`,
   /* light: the app's look (Elliott, 22 Oct 2026), a white panel under the
      photo, the headline in ink with its last word in teal, the teal button */
   hero: b => b.light ? `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#ffffff">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
@@ -1048,6 +1059,25 @@ const TIP_LOOK = {
                { title: 'The cartwheel out', text: 'Get your hips over your hands, then fall out to the side, never over the top.' },
                { img: filmStill(BAILOUT, 7, 300), title: 'The chest to wall bailout', text: 'Walk up the wall, take one leg out to the side, step a hand and turn down.' }] },
 };
+/* the Learn pages and films each day's note leads on to: the page of the same
+   name first, with its film, then one or two that answer the next question */
+const TIP_MORE = {
+  1: [['wrists', 'Your wrists carry the whole thing', 'Why they hurt, and the warm up that stops it. Film and article.', 'a7cd457020f580093be946524a84c3af', 3],
+      ['app:intro', 'Foundations, explained', 'Five minutes on what this stage is for and what to train first.', '3933d7757f6a2ba0910ffb16b689ae7f', 12, 'Watch in the app'],
+      ['do-i-need-to-be-strong', 'Do I need to be strong to start?', 'In short, no. What a handstand needs instead.', '7467f41353ab66c13b57543f0a7105d6', 6]],
+  2: [['chair-wall-walks-then-the-wall', 'Chair, wall walks, then the wall', 'The four steps on film, in the order to learn them.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
+      ['how-a-handstand-should-feel', 'How should a handstand feel?', 'Stacked, and relaxed. Two coaches on what to feel for.', 'f84f53ba8026f8bd0348cb6836a46aad', 6],
+      ['where-to-look-in-a-handstand', 'Where should I look?', 'Between your hands. Exactly where, and why.', 'e1ff0eb98d4c9721ede040f7db994acf', 5]],
+  4: [['twice-a-week', 'Twice a week is the number', 'Fifteen minutes, twice a week, beats one long Sunday.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
+      ['how-long-to-learn-a-handstand', 'How long does it take?', 'An honest answer, and what it depends on.', 'd692864081a3d4976dbafaaaff314213', 6]],
+  7: [['film-yourself', 'Film yourself, from the side', 'Where to put the phone and what to look for.', '51a36a15330dd845d7099de1712cf8d2', 3],
+      ['why-cant-i-balance-off-the-wall', 'Why can’t I balance off the wall yet?', 'What the wall is building, and why balance comes after it.', '681e59df476ca15c136c365cbd2cec72', 6]],
+  10: [['fall-out-of-a-handstand-safely', 'How to fall out of a handstand safely', 'Five bail outs, each on film, from the easiest up.', '692ed8ab7e701e52ea14fe5e88103585', 11],
+       ['the-kick-up', 'The kick up', 'Six steps from kick up bounces to the wall, then leaving it.', '045869a0384df496680feb0922bf0acb', 33]],
+};
+const tipMoreRows = (day, site) => (TIP_MORE[day] || []).map(([slug, title, sub, uid, at, go]) => ({
+  href: slug === 'app:intro' ? `${site || SITE}/lha-app.html?ref=tip${day}&go=intro` : `${site || SITE}/learn/${slug}?src=tip${day}`,
+  title, sub, img: filmStill(uid, at, 240), go }));
 export function tipEmail(day, T, first, site) {
   const L = TIP_LOOK[day] || {}, href = `${site || SITE}/lha-app.html?ref=tip${day}`;
   /* day 7 is the free form check (Elliott, 23 Nov 2026: "people should be
@@ -1059,6 +1089,7 @@ export function tipEmail(day, T, first, site) {
       { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
         btn: fc ? { label: 'Send me your clip', sub: 'Your first form check is free', href: fc }
           : L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
+      { t: 'more', kicker: 'Watch and read more', rows: tipMoreRows(day, site) },
     ],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }
