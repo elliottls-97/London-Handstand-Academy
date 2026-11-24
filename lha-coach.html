@@ -1623,6 +1623,71 @@ function memLeadsHTML(){
         <div style="color:var(--grey)">${x.stuck?esc(x.stuck):'No answer given'}${x.later?' · asked for the link '+day(x.later):''}${x.nudged?' · reminded '+day(x.nudged):''}</div></div>
       <div style="color:var(--grey2);white-space:nowrap">${day(x.at)}</div></div>`).join('')}</div>`;
 }
+/* ── the 30 day challenge (24 Nov 2026) ───────────────────────────
+   Who has joined, who paid for the extras, how many days each has logged,
+   their Sunday tests, and the two things to set: the call link and the
+   dates. Comp the extras for somebody, or take them back after a refund. */
+let chal=null, chalErr='', chalAsked=false;
+function loadChal(force){
+  if(chalAsked && !force) return; chalAsked=true;
+  fetch(API+'/challenge',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ chal=d; chalErr=''; draw(); }).catch(e=>{ chalErr=String(e); draw(); });
+}
+function chalSave(){
+  const v=id=>(document.getElementById(id)||{}).value||'';
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({cfg:{call:v('chCall'),callNote:v('chNote'),start:v('chStart'),earlyUntil:v('chEarly')?v('chEarly')+'T23:59:59':''}})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash('Saved'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+function chalPaid(email, paid){
+  if(!confirm(paid?'Give '+email+' the extras for free? It adds two video replies and the Ladder until a week after the end.':'Take the extras off '+email+'? Refund them in Stripe yourself; this does not.')) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({email, paid})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(paid?'Extras on':'Extras off'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+function challengeHTML(){
+  loadChal();
+  if(chalErr) return `<div class="card"><div class="kick">CHALLENGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load it. ${esc(chalErr)}.</div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="chalErr='';loadChal(true)">Try again</button></div>`;
+  if(!chal) return `<div class="card"><div class="kick">CHALLENGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Loading…</div></div>`;
+  const c=chal.cfg, ppl=(chal.people||[]).slice().sort((a,b)=>(b.paid-a.paid)||((b.d.match(/[smfco]/g)||[]).length-(a.d.match(/[smfco]/g)||[]).length));
+  const paidN=ppl.filter(p=>p.paid).length, money=ppl.reduce((t,p)=>t+(p.amount||0),0);
+  const day=chal.day, today=Math.max(1,Math.min(c.days,day));
+  const loggedToday=ppl.filter(p=>/[smfco]/.test(p.d[today-1]||'')).length;
+  const col={s:'var(--forest)',m:'#8fbeca',f:'#cfe6ec',c:'#1d5566',o:'#5fa8b9'};
+  const stg=['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press'];
+  const dt=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  const site=location.origin;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">30 DAY HANDSTAND CHALLENGE · ${day<1?'STARTS IN '+(1-day)+' DAY'+(1-day===1?'':'S'):day>c.days?'FINISHED':'DAY '+day+' OF '+c.days}</div>
+    <div style="font:400 30px/1.1 var(--serif);margin-top:8px">${ppl.length} joined, <em style="color:var(--forest);font-style:normal">${paidN} with the extras.</em></div>
+    <div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:8px">${money?'£'+(money/100).toFixed(2)+' taken by card. ':''}${day>=1&&day<=c.days?loggedToday+' logged today. ':''}The board opens in the app at ten.</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:10px">The link for the group: <b style="user-select:all">${esc(site)}/challenge.html</b></div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="kick">SETTINGS</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px">
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Live call link (Zoom or Meet), shown to people with the extras
+        <input id="chCall" value="${esc(c.call||'')}" placeholder="https://" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">When the call is
+        <input id="chNote" value="${esc(c.callNote||'')}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Day 1
+        <input id="chStart" type="date" value="${esc(c.start)}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Early price (£${c.early/100}) until the end of
+        <input id="chEarly" type="date" value="${esc(new Date(Date.parse(c.earlyUntil)-1).toISOString().slice(0,10))}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+    </div>
+    <button class="btn btn-sm" style="margin-top:12px" onclick="chalSave()">Save</button>
+  </div>
+  <div class="card">
+    <div class="kick">PEOPLE</div>
+    ${ppl.length?`<div style="margin-top:8px">${ppl.map(p=>{ const got=(p.d.match(/[smfco]/g)||[]).length, wk=Object.keys(p.wk||{}).sort().map(w=>'W'+w+' '+p.wk[w]).join(', ');
+      return `<div data-k="ch-${esc(p.email)}" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 0;border-top:1px solid var(--line)">
+        <div style="min-width:0"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b> <span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(p.email)}</span>
+          <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${p.st!=null?esc(stg[p.st]||'')+' · ':''}joined ${dt(p.at)}${p.src?' · from '+esc(p.src):''}${p.paid?(p.comp?' · extras given':' · paid '+dt(p.paidAt)+(p.amount?' £'+(p.amount/100).toFixed(2):'')):''}${wk?' · '+esc(wk):''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:7px">${p.d.split('').map(ch=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${col[ch]||'rgba(29,85,102,.08)'};${ch==='x'?'background:transparent;border:1.5px dashed var(--grey2)':''}"></i>`).join('')}</div></div>
+        <div style="text-align:right"><div style="font:600 18px/1 var(--sans);font-variant-numeric:tabular-nums">${got}/${c.days}</div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="chalPaid(${esc(JSON.stringify(p.email))},${p.paid?'false':'true'})">${p.paid?'Take extras off':'Give extras'}</button></div></div>`; }).join('')}</div>`
+    :`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody yet. Share the link above with the group.</div>`}
+  </div>`;
+}
 function membersHTML(){
   loadMembers(); loadPaying();
   const err=memErr||payingErr;
@@ -9157,8 +9222,8 @@ function headerHTML(){
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
                ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Bookings',0],
-               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0]]
-    .filter(([id])=>owner || !['bookings','site','news','members'].includes(id));
+               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0],['challenge','Challenge',0]]
+    .filter(([id])=>owner || !['bookings','site','news','members','challenge'].includes(id));
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -14829,6 +14894,7 @@ function drawNow(){
     : view==='bookings' ? bookingsPageHTML()
     : view==='news'     ? newsHTML()
     : view==='members'  ? membersHTML()
+    : view==='challenge'? challengeHTML()
     : view==='mu'       ? muHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`

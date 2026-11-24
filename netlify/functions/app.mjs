@@ -2379,6 +2379,37 @@ const fcFull = (used, max = FC_CLIPS) => max === 1
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
 const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
   return Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / 864e5); };
+/* ── the 30 day handstand challenge (24 Nov 2026) ─────────────────────
+   Elliott: a free one for the accountability group, paid extras on top,
+   in December. Free: the 30 days, logging, the board, the Sunday test.
+   Paid (£29 early, then £39): two video replies (day 1 and day 30), the
+   whole Ladder until a week after it ends, and the weekly live call. Each
+   person is one setting, chal:<email>, so the board is one read. The dates
+   and the call link can be changed in the dashboard (chalcfg). */
+const CH = { id: 'dec26', start: '2026-12-01', days: 30, price: 3900, early: 2900,
+  earlyUntil: '2026-11-30T00:00:00Z', boardMin: 10, replies: 2 };
+async function chCfg() {
+  const o = (await getSetting('chalcfg').catch(() => null)) || {};
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(o.start || '')) ? o.start : CH.start;
+  const earlyUntil = o.earlyUntil && !isNaN(Date.parse(o.earlyUntil)) ? o.earlyUntil : CH.earlyUntil;
+  return { start, days: CH.days, price: CH.price, early: CH.early, earlyUntil,
+    call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120) };
+}
+/* day 1 is the start date in London; 0 or less is before it */
+const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
+const chPrice = cfg => Date.now() < Date.parse(cfg.earlyUntil) ? cfg.early : cfg.price;
+/* London midnight after the last day, plus a week, for the Ladder they paid for */
+const chLadderUntil = cfg => Date.parse(cfg.start + 'T00:00:00Z') + (cfg.days + 7) * 864e5;
+const CH_KINDS = ['s', 'm', 'f', 'c', 'o'];
+const CH_FLAGS = ['ill', 'injured', 'away', 'other'];
+/* what the app may show of somebody else: a first name or initials, and their dots */
+const chPublic = (v, cfg) => {
+  const nm = String(v.n || '').trim(), first = nm.split(/\s+/)[0] || 'Someone';
+  const ini = nm.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join('').slice(0, 3) || '?';
+  let d = '';
+  for (let i = 1; i <= cfg.days; i++) { const x = (v.d || {})[i]; d += x ? x.k : ((v.fl || {})[i] ? 'x' : '.'); }
+  return { n: v.show === 'initials' ? ini : first, d, st: Number.isInteger(v.st) ? v.st : null };
+};
 /* Form checks through Apple (31 Oct 2026): a second subscription in the
    Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
    works out the difference. It opens the Ladder too, as the £35 does. */
@@ -4612,6 +4643,28 @@ const handle = async (request) => {
        is recorded and answered here and never touches plus. The payer may
        have no account yet; one is made for them, and the app is opened for
        the days the workshop grants. */
+    /* ── the challenge's extras, paid by card (24 Nov 2026) ──────────
+       Marks them paid, adds the two video replies as form check credits
+       and opens the Ladder until a week after the end. Filed once per
+       checkout, so Stripe sending it twice does not give four replies. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.challenge) {
+      if (!csPaid(obj) || !e) return json({ ok: true, note: 'challenge payment pending' });
+      const cfg = await chCfg();
+      let fresh = false;
+      await changeSetting(`chal:${e}`, cur => {
+        const v = Object.assign({ at: Date.now(), n: String(obj.metadata.name || '').slice(0, 60), show: 'name', d: {}, fl: {}, wk: {} }, cur || {});
+        if (v.cs === obj.id) { fresh = false; return undefined; }
+        fresh = true;
+        return Object.assign(v, { paid: true, paidAt: Date.now(), cs: obj.id, amount: Number(obj.amount_total) || 0 });
+      });
+      if (fresh) {
+        await changeSetting(`fccredits:${e}`, cur => Object.assign({}, cur || {}, { n: (Number((cur || {}).n) || 0) + CH.replies, chal: obj.id })).catch(() => {});
+        const until = chLadderUntil(cfg), was = await getSetting(`plusuntil:${e}`).catch(() => null);
+        if (!was || ms(was) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
+        await coachAlert(null, 'business', { title: 'Challenge extras: ' + (obj.metadata.name || e), body: '£' + ((Number(obj.amount_total) || 0) / 100).toFixed(2), tag: 'chal:' + e }).catch(() => {});
+      }
+      return json({ ok: true, challenge: e });
+    }
     if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.workshop) {
       /* one session, or several joined with commas (the booking route takes
          up to seven): one payment, a place on each, and each one's share of
@@ -12548,6 +12601,133 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      WORKSHOP26 on a screen at the end of a workshop. The comp button in the
      dashboard does this per account by hand; this is the same thing a
      person types themselves. Codes carry a number of days and a limit. */
+  /* ── the 30 day challenge (24 Nov 2026) ─────────────────────────── */
+  if (path === '/challenge' && request.method === 'GET') {
+    const who = await me(), cfg = await chCfg(), day = chDay(cfg);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || [])
+      .filter(r => r.value && typeof r.value === 'object');
+    const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
+    const pub = rows.map(r => Object.assign(chPublic(r.value, cfg), { me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length }));
+    /* the board shows once there are enough on it: six names looks worse than none */
+    const board = pub.length >= CH.boardMin ? pub.sort((a, b) => (b.me - a.me) || (b.logged - a.logged)).map(({ logged, ...x }) => x) : null;
+    /* the Sunday test, among people on the same stage: improvement on their first result */
+    const myStage = mine && Number.isInteger(mine.st) ? mine.st : null;
+    const week = myStage == null ? [] : rows.filter(r => r.value.st === myStage && Object.keys(r.value.wk || {}).length)
+      .map(r => { const wk = r.value.wk || {}, ks = Object.keys(wk).map(Number).sort((a, b) => a - b);
+        const first = Number(wk[ks[0]]), last = Number(wk[ks[ks.length - 1]]);
+        return { n: chPublic(r.value, cfg).n, me: r.key === `chal:${who}`, first, last, up: last - first, weeks: ks.length }; })
+      .sort((a, b) => (b.up - a.up) || (b.last - a.last)).slice(0, 50);
+    const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote },
+      day, count: rows.length, board, week, me: null };
+    if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
+      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}) };
+    return json(out);
+  }
+  if (path === '/challenge/join' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Make an account first, so your days are kept' }, 401);
+    const n = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const show = body.show === 'initials' ? 'initials' : 'name';
+    const stg = Number(body.stage);
+    const v = await changeSetting(`chal:${who}`, cur => Object.assign({ at: Date.now(), d: {}, fl: {}, wk: {} }, cur || {},
+      { n: n || (cur && cur.n) || who.split('@')[0], show }, Number.isInteger(stg) && stg >= 0 && stg <= 9 ? { st: stg } : {},
+      body.src ? { src: String(body.src).slice(0, 20) } : {}));
+    return json({ ok: true, me: v });
+  }
+  if (path === '/challenge/log' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), today = chDay(cfg), day = Number(body.day);
+    if (!Number.isInteger(day) || day < 1 || day > cfg.days) return json({ error: 'That is not a challenge day' }, 400);
+    if (day > today) return json({ error: 'That day has not come yet' }, 400);
+    /* today and the two days before it: forgetting to log is not missing a day */
+    if (day < today - 2) return json({ error: 'Days more than two back cannot be changed' }, 400);
+    const k = String(body.k || ''), flag = String(body.flag || '');
+    const v = await changeSetting(`chal:${who}`, cur => {
+      if (!cur) return undefined;
+      const x = Object.assign({}, cur, { d: Object.assign({}, cur.d || {}), fl: Object.assign({}, cur.fl || {}) });
+      if (body.undo) { delete x.d[day]; delete x.fl[day]; }
+      else if (CH_FLAGS.includes(flag)) { x.fl[day] = flag; delete x.d[day]; }
+      else if (CH_KINDS.includes(k)) {
+        const m = Math.max(0, Math.min(240, Math.round(Number(body.m) || 0)));
+        x.d[day] = { k, m, at: Date.now(), ...(body.auto ? { auto: 1 } : {}) }; delete x.fl[day];
+      } else return undefined;
+      const stg = Number(body.stage); if (Number.isInteger(stg) && stg >= 0 && stg <= 9) x.st = stg;
+      return x;
+    });
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, me: { d: v.d, fl: v.fl } });
+  }
+  if (path === '/challenge/week' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), wk = Math.ceil(Math.max(1, chDay(cfg)) / 7), w = Number(body.w), val = Number(body.v);
+    if (!Number.isInteger(w) || w < 1 || w > Math.min(wk, 5)) return json({ error: 'That week has not come yet' }, 400);
+    if (!Number.isFinite(val) || val < 0 || val > 999) return json({ error: 'That number does not look right' }, 400);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { wk: Object.assign({}, cur.wk || {}, { [w]: Math.round(val * 10) / 10 }) }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, wk: v.wk });
+  }
+  if (path === '/challenge/checkout' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Make an account first' }, 401);
+    if (!stripeKey()) return json({ error: 'Payments are not set up' }, 503);
+    const cfg = await chCfg(), mine = await getSetting(`chal:${who}`).catch(() => null);
+    if (mine && mine.paid) return json({ error: 'You have the extras already' }, 409);
+    if (chDay(cfg) > cfg.days) return json({ error: 'The challenge has finished' }, 410);
+    const amount = chPrice(cfg), nm = String(body.name || (mine && mine.n) || '').slice(0, 60);
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(amount),
+        'line_items[0][price_data][product_data][name]': '30 Day Handstand Challenge: the extras',
+        'line_items[0][price_data][product_data][description]': 'My video reply on day 1 and day 30, the weekly live call, and the whole Ladder until a week after the end.',
+        'line_items[0][quantity]': '1',
+        'payment_method_types[0]': 'card',
+        'metadata[challenge]': CH.id, 'metadata[name]': nm,
+        client_reference_id: who, customer_email: who,
+        expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
+        success_url: `${url.origin}/lha-app.html?chal=paid&bs={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${url.origin}/lha-app.html?chal=open`,
+      });
+      return json({ url: sess.url });
+    } catch (err) { return json({ error: String(err.message || err) }, 502); }
+  }
+  /* the dashboard: everyone in it, with their email, and the settings */
+  if (path === '/coach/challenge' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg),
+      { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
+        comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '' })) });
+  }
+  if (path === '/coach/challenge' && request.method === 'POST') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
+    if (body.cfg && typeof body.cfg === 'object') {
+      const c = body.cfg;
+      await changeSetting('chalcfg', cur => {
+        const x = Object.assign({}, cur || {});
+        if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
+        if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
+        if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
+        if (typeof c.earlyUntil === 'string' && !isNaN(Date.parse(c.earlyUntil))) x.earlyUntil = new Date(c.earlyUntil).toISOString();
+        return x;
+      });
+    }
+    /* given the extras by hand: a comp for somebody, or taken back after a refund */
+    if (body.email && typeof body.paid === 'boolean') {
+      const e = norm(body.email), cfg = await chCfg();
+      let was = false;
+      await changeSetting(`chal:${e}`, cur => { if (!cur) return undefined; was = !!cur.paid; return Object.assign({}, cur, { paid: body.paid, comp: body.paid ? !cur.cs : false }); });
+      if (body.paid && !was) {
+        await changeSetting(`fccredits:${e}`, cur => Object.assign({}, cur || {}, { n: (Number((cur || {}).n) || 0) + CH.replies })).catch(() => {});
+        const until = chLadderUntil(cfg), u = await getSetting(`plusuntil:${e}`).catch(() => null);
+        if (!u || ms(u) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
+      }
+    }
+    return json({ ok: true, cfg: await chCfg() });
+  }
   if (path === '/redeem' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
