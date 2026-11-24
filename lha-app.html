@@ -8443,6 +8443,27 @@ function pressDown(k){
 }
 /* one part's workout: fifteen minutes on the level they are on in it */
 let pressOnly='';
+function pressWorkout(k){
+  const W=PRESS_WORKOUTS.find(x=>x.k===k); if(!W) return;
+  pressOnly='w:'+k; const was=st.time; st.time=W.mins;
+  try{ closeOv(); buildFreeSession(false, true); } finally { pressOnly=''; st.time=was; }
+  st.pressWkDone=st.pressWkDone||{};
+}
+/* the seven, on Train: what each is, how long, and which ones this week has had */
+function pressWorkoutsHTML(){
+  if(coachedView() || isMU() || curStage()!==5 || typeof PRESS_WORKOUTS==='undefined') return '';
+  const lim=st.pressQuiz ? pressCorners().limiter : '';
+  const corner={takeoff:'patterning', midpoint:'patterning', unroll:'patterning', strength:'strength', back:'strength', flex:'mobility'};
+  return `<div class="card" style="padding:18px 16px 8px;margin:10px 0 4px">
+    <div class="kick2" style="color:var(--forest)">PRESS WORKOUTS</div>
+    <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Seven sessions, <em style="color:var(--forest);font-style:normal">built to your levels.</em></div>
+    <div style="margin-top:8px">${PRESS_WORKOUTS.map((W,i)=>{ const hot=lim && corner[W.k]===lim;
+      return `<button onclick="pressWorkout(${jsq(W.k)})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;background:none;border:0;padding:12px 0;${i?'border-top:1px solid rgba(29,85,102,.08)':''}">
+        <span style="flex:none;width:28px;height:28px;border-radius:50%;background:${hot?'#e8962f':'rgba(29,85,102,.08)'};color:${hot?'#111':'var(--deep)'};font:700 12.5px/28px var(--sans);text-align:center">${i+1}</span>
+        <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.25 var(--sans);color:var(--ink)">${esc(W.n)}</b>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc(W.sub)}${hot?' · <b style="color:#8a5a12;font-weight:600">your limiting factor</b>':''}</span></span>
+        <span style="flex:none;font:600 12.5px/1 var(--sans);color:var(--forest)">${W.mins} min ›</span></button>`; }).join('')}</div></div>`;
+}
 function pressPartSession(k){
   pressOnly=k; const was=st.time; st.time=15;
   try{ closeOv(); buildFreeSession(false, true); } finally { pressOnly=''; st.time=was; }
@@ -23513,10 +23534,10 @@ function screenHome(){
   const reroll = (!coachedView() && !isMU() && !(typeof tasting==='function' && tasting()))
     ? `<button class="rrl" onclick="rerollHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>I want a different workout</button>` : '';
-  const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressQuizPromptHTML()+(cpDayCardHTML(true) || '<span hidden></span>'))
+  const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressQuizPromptHTML()+(cpDayCardHTML(true) || '<span hidden></span>')+pressWorkoutsHTML())
     : (()=>{ const cap=pressQuizPromptHTML()+capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W), k=cap.indexOf('<div class="hcps');
         /* straight under Start session, above the check points when they are open */
-        return (k>-1 ? cap.slice(0,k)+reroll+cap.slice(k) : cap+reroll)+cpDayCardHTML(true); })();
+        return (k>-1 ? cap.slice(0,k)+reroll+cap.slice(k) : cap+reroll)+cpDayCardHTML(true)+pressWorkoutsHTML(); })();
   const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
       <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
       <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>${reroll}` : '';
@@ -26546,7 +26567,17 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     /* a workout for one part (Elliott, 23 Nov 2026: "even a workout for that
        section as well as all rounder workouts"): every drill of the level
        they are on in it, after one from the level below to work in on */
-    const only=pressOnly && PRESS_LADDERS.find(x=>x.k===pressOnly); let onlyDone=false;
+    /* one of the seven named workouts: its parts at their level, then its own drills; a drill with no film stays in as a placeholder */
+    const wk=(typeof PRESS_WORKOUTS!=='undefined' && /^w:/.test(pressOnly)) ? PRESS_WORKOUTS.find(x=>'w:'+x.k===pressOnly) : null;
+    let onlyDone=false;
+    if(wk){
+      const list=[]; const put=v=>{ if(drillById(v) && list.indexOf(v)<0) list.push(v); };
+      const whole=wk.parts.length>3;
+      wk.parts.forEach(pk=>{ const P=PRESS_LADDERS.find(x=>x.k===pk); if(!P) return; const ds=(P.levels[pressLvlOf(pk)].drills||[]); (whole ? ds.slice(0,1) : ds).forEach(put); });
+      (wk.extra||[]).forEach(put);
+      if(list.length){ list.forEach((v,j)=>{ pressOrd[v]=j; }); ids=list; onlyDone=true; if(!dryBuild) qLabel=wk.n; }
+    }
+    const only=!wk && pressOnly && PRESS_LADDERS.find(x=>x.k===pressOnly);
     if(only){
       const i=pressLvlOf(only.k), ok=v=>{ const d=drillById(v); return d && d.url; };
       const cur=(only.levels[i].drills||[]).filter(ok), below=i>0 ? (only.levels[i-1].drills||[]).filter(ok).slice(0,1) : [];

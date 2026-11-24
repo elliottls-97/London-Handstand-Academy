@@ -618,7 +618,17 @@ const drillAlias=v=>DRILL_ALIAS[v]||v;
    merged into Wall Scapula Shrugs on 30 Sept, but that one is the beginner
    Foundations drill and this is the Wall Work one, on its own film. Kept
    here so it is found whatever library the app has loaded. */
-const DRILL_EXTRA=[{v:'scapula-shrugs', n:'Scapula Shrugs', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4',
+const DRILL_EXTRA=[
+  /* the press guide's drills that are not in the library yet (24 Nov 2026): placeholders
+     until each is filmed, so the Press workouts can name them. Only the straddle wall lean has a film. */
+  {v:'wall-straddle-shoulder-leans', n:'Straddle Wall Shoulder Leans', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/5373a1268dfa34176059365371dd84ea/downloads/default.mp4', desc:'Straddle on the wall and lean the shoulders forward over the hands.'},
+  {v:'downdog-plank-leans', n:'Downward Dog to Plank Leans', desc:'Push back into downward dog, then lean forward into plank. The first way in if the lean is new.'},
+  {v:'feet-on-box-press-leans', n:'Feet on Box Press Leans', desc:'Feet on a box, hips high, weight into the palms, not the fingertips. Hold time, not distance.'},
+  {v:'standing-pancake', n:'Standing Pancake', desc:'Legs wide, fold forward and bring the hands towards the floor.'},
+  {v:'pancake-on-blocks', n:'Pancake on Blocks', desc:'The pancake with the hands on blocks, closer to the floor.'},
+  {v:'pm-jefferson-curls', n:'Jefferson Curls', desc:'Loaded flexibility for the fold.'},
+  {v:'straddle-piked-balance', n:'Straddle Piked Balance', desc:'Time in the piked straddle, so you do not fall straight away.'},
+{v:'scapula-shrugs', n:'Scapula Shrugs', url:'https://customer-pns1oongdltmkjwa.cloudflarestream.com/9b4fb78a3767e853f1d9834e7ce86485/downloads/default.mp4',
   nt:'Push the floor away at the top.', cues:['Keep elbows straight.','Move only through the shoulders.','Push tall at the top.','Lower with control.'],
   desc:'Strengthen upward rotation and elevation through the scapula for a more stable overhead shape.'},
   /* the top of the pushing assessment (4 Nov 2026), not filmed yet */
@@ -1100,3 +1110,19 @@ PHASE_KEYS[5]={film:'1bd85467c3e68e762cb133c37b57488e', key:[
   ['Lower back engagement',622,[['p-bench-zombies'],['p-back-to-wall']]],
   ['The unrolling',754,[['straddle-entries'],['straddle-to-straight'],['straddle-to-diamond'],['p-solo-press-circles']]]
 ]};
+
+/* ── seven Press workouts (Elliott, 24 Nov 2026: "build 7 different workouts
+   you can leave placeholder drills as needed") ─────────────────────────
+   Each names the parts it trains: it is filled with the drills of the level
+   the person is on in each of those parts, then its own extra drills. A
+   drill with no film yet is a placeholder and says so. mins is the length
+   it is built to. */
+const PRESS_WORKOUTS=[
+  {k:'takeoff', n:'The takeoff', sub:'The lean, then the feet floating off', mins:30, parts:['lean','float'], extra:['downdog-plank-leans','feet-on-box-press-leans','press-walks']},
+  {k:'midpoint', n:'The tuck midpoint', sub:'Slides, knees on box and the tuck', mins:30, parts:['tuck'], extra:['press-scapula-shrugs','single-leg-tuck-slides','knees-on-box']},
+  {k:'unroll', n:'Balance and the unroll', sub:'Straddle, shape changes, control at the top', mins:30, parts:['unroll'], extra:['straddle-piked-balance','straddle-entries','straddle-to-straight']},
+  {k:'strength', n:'Strength for the press', sub:'Not collapsing, and the stacked hold', mins:30, parts:['push','stack'], extra:['p-pike-pushup-negs']},
+  {k:'back', n:'Lower back and hip flexors', sub:'What drives the legs over', mins:30, parts:['back'], extra:['p-bench-zombies','pancake-leg-lifts','p-dd-toe-taps','chest-to-wall-toe-taps']},
+  {k:'flex', n:'Flexibility for the press', sub:'Pancake work, so the lean gets smaller', mins:20, parts:['flex'], extra:['standing-pancake','pancake-on-blocks','pm-jefferson-curls','pancake-leg-lifts']},
+  {k:'whole', n:'The whole press', sub:'Every part at your level, then press attempts', mins:45, parts:['flex','unroll','tuck','float','lean','back','push','stack'], extra:['press-eccentrics','p-back-to-wall']}
+];
