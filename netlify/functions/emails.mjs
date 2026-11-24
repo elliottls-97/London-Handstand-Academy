@@ -134,8 +134,8 @@ export const EMAILS = {
     "subject": "Fingers first",
     "title": "Your wrists carry the whole thing.",
     "paras": [
-      "Most handstand pain in the first month is wrists, and most of it is skipped warm-ups. Circles, then flexion and extension with the other hand helping, then weight shifts on all fours. Two minutes. The app puts these at the top of every session for a reason.",
-      "On a day the rest of you is not up to it, there is a mobility day in the app: wrists and shoulders, ten minutes, no stage work. It still counts, and it is the day that keeps a habit alive."
+      "Your wrists are about to hold your whole body weight at ninety degrees, which they do not do at any other point in your day. Most handstand pain in the first month is wrists, and most of that is skipped warm ups.",
+      "Two minutes fixes it. Circles both ways, then palm lifts and fingertip lifts in table top, slowly, because that is the range a handstand lives in. Then weight shifts: lean over one hand, tap the other, and back. The app puts these at the top of every session for that reason."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -148,8 +148,8 @@ export const EMAILS = {
     "subject": "Chair, wall walks, then the wall",
     "title": "Get used to upside down first.",
     "paras": [
-      "Before chest to wall, get used to being upside down. The chair assisted handstand first, then wall walks, then learning to fall out safely, and only then all the way in to the chest to wall handstand.",
-      "Underneath every one of them is the same cue: push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints. Every film in the app has captions, so the phone can sit on the floor with the sound off."
+      "Going straight at the chest to wall handstand is how people frighten themselves off handstands. Four steps instead, in an order where each one makes the next one safe: the chair assisted handstand, wall walks, learning to fall, then all the way in.",
+      "What you are looking for is stacked: hips over shoulders, shoulders over hands. Think about standing. You can stand for hours because everything sits in a line. A handstand is the same, and when the effort goes down, that is your alignment telling you it is there."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -159,11 +159,11 @@ export const EMAILS = {
     "vars": [
       "name"
     ],
-    "subject": "Twice a week is the number",
-    "title": "Two sessions a week moves a handstand. One keeps it.",
+    "subject": "Two or three sessions a week",
+    "title": "Two or three sessions a week moves a handstand. One keeps it.",
     "paras": [
-      "Nobody needs an hour. A fifteen minute session in the app is six drills at one set each, and two of those a week beats one heroic Sunday every time.",
-      "Say how long you have and it builds one. It starts further down your stage each time, so Tuesday and Thursday are different workouts, not the same one again."
+      "A handstand is learned by repeating the movement, so how often matters more than how long. One session a week holds what you have. Two or three, of about half an hour each, is where things move, because the next one lands while the last is still in your body.",
+      "Make the handstand the main part of the session, not an extra at the end, and stop before the form goes. An hour every day tires you out and the progress stalls. Say how long you have and the app builds a session to fit."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -176,9 +176,9 @@ export const EMAILS = {
     "subject": "Film yourself, and I will check it free",
     "title": "You cannot feel a bent hip. You can see one.",
     "paras": [
-      "Phone on the floor, side on, whole body in frame. What feels straight almost never is, and thirty seconds of footage teaches more than a month of guessing.",
-      "Then send it to me. Your first form check is free: one clip of up to two minutes, and I reply on video with what I see and the one thing to change next. Most people are surprised by what the film shows.",
-      "Send it from the app, from the Form check tab or the Ask Elliott button, or from the page below. It comes back within a week."
+      "What feels straight almost never is. A bent hip, an arched back, shoulders that have not opened: you cannot feel any of them from inside the handstand, and you can see all of them in a thirty second clip.",
+      "Phone on the floor, side on, hands to toes in frame. Look for one line from wrists to toes. The usual breaks are the shoulders, the ribs and the hips.",
+      "Then send it to me. Your first form check is free: one clip of up to two minutes, and I reply on video with the one thing to change. Send it from the app, from the Form check tab or the Ask Elliott button, or from the page below. It comes back within a week."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -191,8 +191,8 @@ export const EMAILS = {
     "subject": "Falling is a skill",
     "title": "Conquer your fear of falling.",
     "paras": [
-      "The fear of falling is what keeps people leaning on the wall for a year. So before you work on staying up, learn to come down, three ways:",
-      "Practise them until falling out is automatic and you stop thinking about it, so your head and your body both know it is safe. That is when you can really start learning to balance."
+      "Most of what stops people balancing is not strength. It is fear. You build the kick up into a huge deal, so you never commit far enough to learn anything. So before you work on staying up, make falling light, three ways:",
+      "The lighter the fall, the easier every drill gets, because your brain learns it is not a big deal. Practise them until falling out is automatic. That is when you can really start learning to balance."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -1051,7 +1051,7 @@ const TIP_LOOK = {
                { img: filmStill(BAILOUT, 7, 300), title: 'Learn to fall', text: 'Chest to wall bailouts, until coming down is something you do on purpose.' },
                { img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5, 300), title: 'Chest to wall handstand', text: 'All the way in. Push the floor away and hold.' }] },
   4: { kicker: 'Day 4 · How often', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall',
-       points: [['2&times;', 'Twice<br>a week'], ['15', 'Fifteen minutes<br>is enough'], ['6', 'Six drills,<br>one set each'], ['&#8635;&#65038;', 'A different<br>session each time']] },
+       points: [['2 to 3', 'Sessions<br>a week'], ['30', 'About half<br>an hour each'], ['&#10003;&#65038;', 'The handstand<br>is the session'], ['&#8635;&#65038;', 'A different<br>session each time']] },
   7: { kicker: 'Day 7 · Film it', img: filmStill('51a36a15330dd845d7099de1712cf8d2', 3), alt: 'A kick up to the wall, filmed side on',
        points: [['&#9654;&#65038;', 'Side on, phone<br>on the floor'], ['&#9634;&#65038;', 'Your whole body<br>in frame'], ['30s', 'Thirty seconds<br>of film'], ['&#10003;&#65038;', 'Log it as<br>a check point']] },
   10: { kicker: 'Day 10 · Falling', img: filmStill(BAILOUT, 2), alt: 'Walking up the wall for a bailout',
@@ -1068,7 +1068,7 @@ const TIP_MORE = {
   2: [['chair-wall-walks-then-the-wall', 'Chair, wall walks, then the wall', 'The four steps on film, in the order to learn them.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
       ['how-a-handstand-should-feel', 'How should a handstand feel?', 'Stacked, and relaxed. Two coaches on what to feel for.', 'f84f53ba8026f8bd0348cb6836a46aad', 6],
       ['where-to-look-in-a-handstand', 'Where should I look?', 'Between your hands. Exactly where, and why.', 'e1ff0eb98d4c9721ede040f7db994acf', 5]],
-  4: [['twice-a-week', 'Twice a week is the number', 'Fifteen minutes, twice a week, beats one long Sunday.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
+  4: [['twice-a-week', 'How often to train', 'Why little and often beats one long Sunday.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
       ['how-long-to-learn-a-handstand', 'How long does it take?', 'An honest answer, and what it depends on.', 'd692864081a3d4976dbafaaaff314213', 6]],
   7: [['film-yourself', 'Film yourself, from the side', 'Where to put the phone and what to look for.', '51a36a15330dd845d7099de1712cf8d2', 3],
       ['why-cant-i-balance-off-the-wall', 'Why can’t I balance off the wall yet?', 'What the wall is building, and why balance comes after it.', '681e59df476ca15c136c365cbd2cec72', 6]],
