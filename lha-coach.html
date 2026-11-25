@@ -914,7 +914,7 @@ function mailAlertHTML(all){
     background:rgba(200,122,86,.14);border:1.5px solid var(--terra);border-radius:14px;padding:11px 14px">
     <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--terra)">EMAIL</span>
     <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:#23281f">${esc(bad)}</span>
-    ${all?'':`<button class="btn btn-secondary btn-sm" onclick="go('settings')">Settings</button>`}
+    ${all?'':`<button class="btn btn-secondary btn-sm" onclick="go('problems')">Problems</button>`}
   </div>`;
 }
 function mailguardHTML(){
@@ -1201,7 +1201,7 @@ function gaHTML(){
     <button class="btn btn-sm btn-secondary" onclick="ga.d=null;draw()">Refresh</button>
     <a href="https://analytics.google.com/analytics/web/#/p${esc(d.property||'561726601')}/reports/intelligenthome" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Open Analytics</a></div>`;
   if(!d.on) return `<div class="card">${head}<p style="font:400 13.5px/1.6 var(--sans);margin:10px 0 0">${esc(d.why||'Not available.')}</p>
-    ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="setTab='calls';go('settings')">Go to Calls to connect Google</button>`:''}</div>`;
+    ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="clsGo('calls')">Go to Calls to connect Google</button>`:''}</div>`;
   const T=d.totals||{}, P=d.prev||{};
   const pc=v=>Math.round(100*(v||0))+'%', mmss=v=>{ const x=Math.round(v||0); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); };
   const chg=(v,p,down)=>{ if(!p) return ''; const x=Math.round(100*(v-p)/p); if(!x) return '<span style="font:600 11px/1 var(--sans);color:var(--grey2)">same</span>';
@@ -1363,14 +1363,8 @@ function journeyHTML(){
     ${(()=>{ const sa=((jr.sources||{}).accounts||[]), se=((jr.sources||{}).events||[]), m=Math.max(1,...sa.map(x=>x.n));
       return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
         + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.filter(x=>x.open||x.first1||x.signup||x.subscribed).map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
-    <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}${ET.hidden?` <span class="muted" style="font-weight:400;letter-spacing:0;text-transform:none">· ${ET.hidden} row${ET.hidden===1?'':'s'} hidden: Instagram's in-app browser and lost signal</span>`:''}</div>
-    ${errs.length?(errGroups=errs, errs.map((t,ti)=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div style="font:400 13.5px/1.5 var(--sans);cursor:pointer" onclick="errOpen(${ti})">${errLine(t)} <span class="ghostlink">Details</span></div>
-        ${t.rows.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;margin-top:4px"><b style="font:600 12.5px/1.4 var(--sans);flex:1;min-width:0;color:var(--grey)">${esc(e.m)}</b>
-          <span style="flex:none;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--grey)">${e.n}×</span></div>
-        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join(''))
-      :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
-    ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(filmKeyWords(x.key))+' '+x.n).join(' · ')}</div>`:''}
+    <div class="kick" style="margin-top:20px">WHAT BROKE</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:6px">${errs.length?errs.length+' thing'+(errs.length===1?'':'s')+' in this time. ':'Nothing in this time. '}<button class="ghostlink" style="border:0;background:none;padding:0;cursor:pointer;font:inherit" onclick="go('problems')">Problems has them all</button></div>
     <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
     ${st_.error?`<div class="muted" style="font-size:13px">${esc(st_.error)}</div>`:`
       <h5 style="margin:12px 0 2px">Signed up, never trained</h5>${ppl(st_.never,'Everyone who signed up has trained.')}
@@ -1550,7 +1544,7 @@ function grant(email, on){
   fetch(API+'/grant',{method:'POST',headers:hdr(),
     body:JSON.stringify({email, plus:!!on})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
-    .then(()=>{ grantBusy=''; loadLeads(true); })
+    .then(()=>{ grantBusy=''; loadLeads(true); loadMembers(true); })
     .catch(e=>{ grantBusy=''; draw(); alert(String(e)); });
 }
 /* ── who pays, and for what (Elliott, 29 Oct 2026) ─────────────────
@@ -2767,7 +2761,12 @@ function acctDetails(email){
             <input id="adPauseNote" placeholder="What their app says (optional)" style="${inp}">
             <button onclick="adPause(true)" style="${bGhost};margin-top:9px;width:100%;border-color:rgba(164,80,60,.5);color:var(--terra)">Pause coaching</button>`}`; })()}
 
-      <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
+      ${(()=>{ /* one place to book a 1-2-1 (25 Nov 2026): their 1-2-1s tab,
+           with the price from Money. Somebody with no client page keeps the form. */
+        if(clients.some(x=>x.email===email)) return `<div class="kick" style="margin-top:18px">1-2-1S</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">Booked, offered and paid for in their 1-2-1s tab, paid another way included.</div>
+        <button onclick="acct=null;openClient(${jsq(email)},'121')" style="${bGhost};margin-top:9px;width:100%">Open their 1-2-1s</button>`;
+        return `      <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
         For a session paid another way: a payment link, cash, a bank transfer. They get the confirmation
         by email and in the chat, with a link to add it to their calendar, and it shows on their app.</div>
@@ -2776,11 +2775,21 @@ function acctDetails(email){
           <option value="60">60 min</option><option value="90">90 min</option></select>
         <input id="abDate" type="date" style="flex:1;min-width:130px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
         <input id="abTime" type="time" value="10:00" style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
-        <input id="abPaid" type="number" min="0" placeholder="Paid £" style="flex:none;width:90px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
+        <input id="abPaid" type="number" min="0" placeholder="Paid £" value="${sessPrice('60')}" style="flex:none;width:90px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
       </div>
       <input id="abPlace" value="OverGravity, Shadwell" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
       <input id="abNote" placeholder="A note for them (optional)" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
       <button onclick="adBook()" style="${bGhost};margin-top:9px;width:100%">Book it and tell them</button>
+`; })()}
+      ${(()=>{ /* the Ladder for nothing, here rather than in a second accounts list */
+        if(!owner) return '';
+        loadMembers(); loadLeads();
+        const mp=((members&&members.people)||[]).find(p=>p.email===email)||(leads||[]).find(a=>a.email===email);
+        if(!mp) return '';
+        const busy=grantBusy===email;
+        return `<div class="kick" style="margin-top:18px">THE LADDER</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${mp.plus?'They have every stage.':'Free stages only.'}</div>
+        <button onclick="grant(${jsq(email)},${mp.plus?'false':'true'})" ${busy?'disabled':''} style="${bGhost};margin-top:9px;width:100%">${busy?'…':mp.plus?'Take it back':'Give them the whole Ladder free'}</button>`; })()}
 
       <div class="kick" style="margin-top:22px;color:var(--terra)">DELETE</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
@@ -9321,9 +9330,9 @@ function headerHTML(){
      with a gear, so it is always at the end of the bar and easy to find
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
-               ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Bookings',0],
-               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0],['challenge','Challenge',0]]
-    .filter(([id])=>owner || !['bookings','site','news','members','challenge'].includes(id));
+               ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Classes',0],
+               ['|'],['problems','Problems',probCount()],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0],['challenge','Challenge',0]]
+    .filter(([id])=>owner || !['bookings','problems','site','news','members','challenge'].includes(id));
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -10004,7 +10013,7 @@ function sessionsStripHTML(){
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
     ${up.length?line('THIS WEEK',up.map(x=>x.call
-      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${CC_KIND_TXT[x.kind]||'call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
+      ? `<button onclick="clsGo('calls')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${CC_KIND_TXT[x.kind]||'call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
       : chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
     ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
@@ -10290,10 +10299,9 @@ function digestHTML(){
   if(sk.length) L.push(line('»',`Most skipped: ${sk.map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n+'×').join(', ')}.`,"setTab='journey';go('settings')"));
   if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
-  errGroups=errs;
-  errs.slice(0,3).forEach((t,i)=>L.push(line('⚠',errLine(t),'errOpen('+i+')')));
-  if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
-  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="${esc(errs.map(t=>t.m).join(' · '))}">${errSummary(errs)}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
+  if(errs.length) L.push(line('⚠',`${esc(errSummary(errs))} this week. On Problems.`,"go('problems')"));
+  if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"clsGo('dates')")); }
+  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${asks.length?` · ${asks.length} asked`:''}`;
   return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <button onclick="dgOpen=!dgOpen;draw()" style="display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
       <span class="kick" style="flex:none">THIS WEEK</span>
@@ -10312,17 +10320,24 @@ function healthLoad(){
   fetch(API+'/health',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ healthLast=d; draw(); } }).catch(()=>{});
   errsLoad();
 }
-function healthHTML(){
-  healthLoad();
+/* what Problems counts: things that broke on people's phones in the last
+   day, and films the morning check did not like (25 Nov 2026) */
+function probParts(){
   const since=Date.now()-24*3600e3, tests=/example\.com|lha-test|paytest|livecheck|claude|elliott/i;
   const recent=(errsList||[]).filter(e=>e && e.last>=since && (e.k==='film'||e.k==='save'||(e.first||0)>=since)
     && ((e.who||[]).some(w=>!tests.test(w)) || ['site','api','server'].includes(e.k)));
   const films=((healthLast&&healthLast.films&&healthLast.films.problems)||[]);
+  return {recent, films};
+}
+function probCount(){ if(!owner) return 0; healthLoad(); const p=probParts(); return p.recent.length+p.films.length; }
+function healthHTML(){
+  healthLoad();
+  const {recent, films}=probParts();
   if(!recent.length && !films.length) return '';
   const bits=[recent.length?recent.length+' thing'+(recent.length===1?'':'s')+' broke on people’s phones in the last day':'',
     films.length?films.length+' film'+(films.length===1?'':'s')+' need'+(films.length===1?'s':'')+' a look':''].filter(Boolean);
   const first=recent[0] ? recent[0].m : films[0].name+': '+films[0].what;
-  return `<button onclick="setTab='app';go('settings')" style="display:flex;gap:12px;align-items:center;width:100%;margin:0 0 16px;padding:12px 14px;
+  return `<button onclick="go('problems')" style="display:flex;gap:12px;align-items:center;width:100%;margin:0 0 16px;padding:12px 14px;
     border-radius:14px;border:1px solid rgba(164,80,60,.35);background:rgba(164,80,60,.07);cursor:pointer;text-align:left;color:var(--ink)">
     <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font:700 13px/1 var(--sans)">${recent.length+films.length}</span>
     <span style="flex:1;min-width:0"><b style="display:block;font:600 13.5px/1.35 var(--sans)">${esc(bits.join(' · '))}</b>
@@ -10736,8 +10751,11 @@ function oneMoveSave(id){
   if(!d) return alert('Pick the date first.');
   oneMove=''; sessSet(id,{when:londonISO(d,t), place, status:'arranged'});
 }
+/* what a 1-2-1 costs, from Settings, Money; 80 and 100 until it has loaded */
+function sessPrice(kind){ pricesLoad(); const k=String(kind)==='90'?'90':'60', p=prices&&prices['session'+k], a=p&&Number(p.amount);
+  return a>0 ? String(Math.round(a)/100) : (k==='90'?'100':'80'); }
 function oneAsk(id,kind){
-  const a=prompt('How much should they pay, in pounds?', kind==='90'?'100':'80'); if(a===null) return;
+  const a=prompt('How much should they pay, in pounds?', sessPrice(kind)); if(a===null) return;
   const n=Number(a); if(!(n>0)) return alert('A number of pounds, like 80.');
   if(n<0.3) return alert('Stripe cannot take less than 30p. Ask for at least £0.30.');
   sessSet(id,{ask:Math.round(n*100)});
@@ -10878,14 +10896,14 @@ function oneOnePaneHTML(){
     <div class="kick">BOOK A 1-2-1</div>
     <div class="muted" style="font-size:12.5px;margin-top:5px">They get the confirmation by email and in the chat, with a calendar link, and it shows in their app.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <select id="obKind" onchange="const p=document.getElementById('obPaid'); if(p && (!p.value||p.value==='80'||p.value==='100')) p.value=this.value==='90'?'100':'80'" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
+      <select id="obKind" onchange="const p=document.getElementById('obPaid'); if(p && (!p.value||[sessPrice('60'),sessPrice('90'),'80','100'].includes(p.value))) p.value=sessPrice(this.value)" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
       <input id="obDate" type="date" style="${inp};flex:1;min-width:130px">
       <input id="obTime" type="time" value="10:00" style="${inp};flex:none">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
       <select id="obHow" style="${inp};flex:none"><option value="ask">Ask them to pay</option><option value="paid">Already paid</option></select>
       <span style="font:600 14px/1 var(--sans)">£</span>
-      <input id="obPaid" type="number" min="0" value="80" style="${inp};flex:none;width:90px">
+      <input id="obPaid" type="number" min="0" value="${sessPrice('60')}" style="${inp};flex:none;width:90px">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <input id="obPlace" value="OverGravity, Shadwell" style="${inp};flex:1;min-width:180px">
@@ -13607,7 +13625,7 @@ function ofrHTML(w){
   const mine=ofr.slug===w.slug;
   return `<div style="margin-top:14px;padding:16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <div style="font:600 14px/1.3 var(--sans)">Email them an offer</div>
-    <div class="muted" style="font-size:12px;margin-top:4px">Make a class code under Settings first, for this date. It goes once to each person here who has not booked since.</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">Make a class code in Settings, Money, first, for this date. It goes once to each person here who has not booked since.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <input class="input" id="ofrCode" placeholder="The code, e.g. SATURDAY25" value="${esc(mine?ofr.code:'')}" oninput="ofr.code=this.value.trim().toUpperCase()" style="flex:1;min-width:160px;min-height:40px">
       <button class="btn btn-secondary btn-sm" onclick="ofrGo(${jsq(w.slug)},true)" ${ofr.busy?'disabled':''}>Preview</button>
@@ -14296,7 +14314,7 @@ function bookingsPageHTML(){
       <span style="flex:1"></span>
       <input class="input" placeholder="Find someone, any date" value="${esc(bkQ)}" oninput="bkQ=this.value;draw()" style="max-width:240px">
       <button class="btn btn-secondary btn-sm" onclick="wshops=null;wsErr='';draw()">Refresh</button>
-      <button class="btn btn-secondary btn-sm" onclick="setTab='workshops';go('settings');wsNew()">New date</button>
+      <button class="btn btn-secondary btn-sm" onclick="clsGo('dates');wsNew()">New date</button>
     </div>`;
   if(!wshops || (!wshops.length && !all.length)) return head+`<p class="muted" style="margin-top:18px">${wshops?'No workshops yet. New date makes one.':wsErr?esc(wsErr):'Loading…'}</p></section>`;
   if(q) return head+`<h5 style="margin-top:22px">${found.length} found</h5>
@@ -14324,7 +14342,7 @@ function bookingsPageHTML(){
         ${vDue.length?`<span class="tag ${vSent===vDue.length?'tag-neutral':'tag-trained'}" title="One short video each, with the coaching line under it">Videos: ${vSent} of ${vDue.length} sent</span>`:''}
         <button class="btn btn-ghost btn-sm" onclick="bkCsv(${jsq(w.slug)})">Download list</button>
         <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy emails</button>
-        <button class="btn btn-ghost btn-sm" onclick="setTab='workshops';go('settings');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
+        <button class="btn btn-ghost btn-sm" onclick="clsGo('dates');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
       <div class="bk-sums">
         <div><b>${live.length}${w.places?' of '+w.places:''}</b><span>booked</span></div>
         ${isPast||came||missed?`<div><b>${came}</b><span>arrived${missed?', '+missed+' no show':''}</span></div>`:''}
@@ -14479,8 +14497,8 @@ function workshopsHTML(){
     </div>`; }
   const list=(wshops||[]);
   return `<div class="card">
-    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">WORKSHOPS</div><span style="flex:1"></span>
-      <button class="btn btn-primary btn-sm" onclick="wsNew()">New workshop</button></div>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">CLASS DATES</div><span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="wsNew()">New date</button></div>
     <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">Live ones appear on the site and take bookings through Stripe with no login.${
       owner?'':' You can write a workshop and read its bookings. What it costs and whether it goes on sale are Elliott\'s.'}</p>
     ${caHTML()}
@@ -14506,7 +14524,6 @@ function workshopsHTML(){
       <a class="btn btn-ghost btn-sm" href="/workshop.html?slug=${esc(w.slug)}" target="_blank" rel="noopener">Page</a>
       <button class="btn btn-secondary btn-sm" onclick="wsEdit(${jsq(w.slug)})">Edit</button></div>`; }).join('')
       ||(wshops?'<p class="muted" style="margin-top:12px">No workshops yet.</p>':'')}
-    ${owner?wsCodesHTML():''}
   </div>`;
 }
 /* ── discount codes for workshops: pounds or percent off ── */
@@ -14536,7 +14553,7 @@ function wsCodesHTML(forS){
   const mine=(wsCodes||[]).filter(c=>forS ? c.for==='session' : c.for!=='session');
   if(forS) return `<div class="card" style="margin-top:14px">
     <div class="kick">1-2-1 DISCOUNT CODES</div>
-    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the 1-2-1 booking page. A percentage comes off the whole booking, a pack of five or ten included; pounds come off once. A code cannot make a session free: for a free one, book it for them on Today.</p>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the 1-2-1 booking page. A percentage comes off the whole booking, a pack of five or ten included; pounds come off once. A code cannot make a session free: for a free one, book it in their 1-2-1s tab with nothing to pay.</p>
     ${mine.map(c=>wsCodeRow(c,true)).join('')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
       <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="FIRST10" oninput="wsCodeNew.code=this.value"></div>
@@ -14562,6 +14579,64 @@ function wsCodesHTML(forS){
 }
 
 /* ── Settings ─────────────────────────────────────────────────────── */
+/* ── Classes: everything about a class or a 1-2-1 in one place (25 Nov 2026)
+   Bookings were a tab, the dates under Settings, the 1-2-1 times and calls
+   two more Settings groups, and the codes a fourth. Elliott: "everything is
+   in multiple different places". One tab, five parts, the same panels. */
+let clsTab='bookings';
+const CLS_TABS=[['bookings','Bookings'],['dates','Class dates'],['times','1-2-1 times'],['calls','Calls'],['policy','Cancel policy']];
+function clsGo(t){ clsTab=t; if(view==='bookings') draw(); else go('bookings'); }
+function cancelPolicyHTML(){
+  const row=(when,what)=>`<div style="display:flex;gap:14px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)">
+    <b style="flex:none;width:150px;font:600 13.5px/1.4 var(--sans)">${when}</b>
+    <span style="flex:1;min-width:0;font:400 13.5px/1.5 var(--sans);color:var(--grey)">${what}</span></div>`;
+  return `<div class="card"><div class="kick">CLASSES</div>
+    <div style="margin-top:8px">
+      ${row('More than 48 hours','Cancel for a full refund, or move to another date.')}
+      ${row('24 to 48 hours','Cancel for a credit, good for 3 months on any class. Moving still works.')}
+      ${row('Inside 24 hours','No refund, no credit and no moves.')}
+    </div>
+    <div class="kick" style="margin-top:20px">1-2-1S</div>
+    <div style="margin-top:8px">
+      ${row('Any cancel','Comes to you on Today: a full, part or no refund, or a new date. You hire the room, so it is your call.')}
+      ${row('More than 24 hours','They move it themselves from the link in their confirmation, while the room is not hired yet. Once it is, a move comes to you.')}
+      ${row('Inside 24 hours','Any move comes to you, and they are told it may be charged in full.')}
+    </div>
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:14px;max-width:62ch">The booking pages, emails and terms all say this. It lives in the code, so ask Claude to change it.</div></div>`;
+}
+function classesHTML(){
+  if(!CLS_TABS.some(t=>t[0]===clsTab)) clsTab='bookings';
+  const tabs=`<div style="display:flex;gap:4px;flex-wrap:wrap;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;align-self:flex-start;max-width:100%">
+    ${CLS_TABS.map(([k,l])=>`<button onclick="clsGo('${k}')" style="cursor:pointer;border:0;border-radius:10px;padding:9px 14px;
+      font:600 13px/1 var(--sans);background:${clsTab===k?'#fff':'transparent'};color:${clsTab===k?'var(--deep)':'var(--grey)'};
+      box-shadow:${clsTab===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}</div>`;
+  /* the tab names the page, so each panel carries its own heading and nothing more */
+  const wrap=body=>`<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;flex-direction:column;gap:var(--space-5)">${body}</section>`;
+  const body = clsTab==='dates' ? wrap(workshopsHTML())
+    : clsTab==='times' ? wrap(sessSlotsHTML())
+    : clsTab==='calls' ? wrap(callsSettingsHTML())
+    : clsTab==='policy' ? wrap(cancelPolicyHTML())
+    : bookingsPageHTML();
+  return `<div style="display:flex;flex-direction:column;gap:14px">${tabs}${body}</div>`;
+}
+/* ── Problems: what broke, in one place (25 Nov 2026) ──────────────
+   Errors were under Settings, The app; the film check beside them; emails
+   that did not send under Admin; the Stripe check under Money; and the same
+   errors again on Today and in the Journey. One page now, with one line on
+   Today pointing at it. */
+function problemsHTML(){
+  return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;flex-direction:column;gap:var(--space-5)">
+    <div>
+      ${mailAlertHTML(true)}
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Problems</div>
+      <h1 style="margin:8px 0 0">What <em style="color:var(--forest);font-style:normal">broke.</em></h1></div>
+    ${healthCardHTML()}${errsHTML()}${stripeHTML()}${mailguardHTML()}${maillogHTML()}${dbHTML()}
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
+      The database check and the copy are one-time setup. The copy reads the old Blobs store,
+      so running it now would push stale data over live records. Leave it alone unless
+      something has gone wrong.</div>
+  </section>`;
+}
 /* ── settings, in groups ───────────────────────────────────────────
    Seventeen panels stacked down one page, from the funnel to the database
    check, so the thing you came for was somewhere in a mile of scrolling
@@ -14572,12 +14647,8 @@ const SET_GROUPS=[
   ['alerts','Notifications','What reaches this phone or computer the moment a client sends it.'],
   ['journey','Journey','Where people get to in the app and on the site, where they stop, and what broke.'],
   ['people','Who is here','The funnel, everyone who has signed up, and the people who run this.'],
-  ['money','Money','What things cost, the discount codes and the Stripe connection.'],
+  ['money','Money','What things cost, and every discount code: the app, classes and 1-2-1s.'],
   ['app','The app','What the ladder gives people, what is locked, and the words it sends.'],
-  ['workshops','Workshops','Dates, places and who has booked.'],
-  ['sessions','1-2-1 times','When people can book a 1-2-1, read from Arch 2\'s calendar at OverGravity.'],
-  ['calls','Calls','The free intro call and the welcome call, booked here instead of Calendly.'],
-  ['admin','Admin','The email switch and the one-time database jobs. Rarely.'],
 ];
 function setGo(k){ setTab=k; draw(); if(k==='alerts') cpushLoad(); }
 /* ══ notifications on the coach's own devices ══════════════════════
@@ -14706,11 +14777,12 @@ function routeHash(h){
   const p=new URLSearchParams(h);
   const c=p.get('c'), t=p.get('t')||'thread';
   if(p.get('google')){ const m=CC_GOOGLE_BACK[p.get('google')]||'Google sent you back.'; history.replaceState(null,'',location.pathname);
-    setTab='calls'; go('settings'); cc.d=null; cc.msg=''; flash(m); return true; }
+    clsGo('calls'); cc.d=null; cc.msg=''; flash(m); return true; }
   if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme','121'].includes(t)?t:'thread'); return true; }
   /* a booking, a cancel or a refund in the coach's email opens here */
   if(h==='bookings'){ go('bookings'); return true; }
-  if(h==='settings-app' || h==='settings'){ setTab='app'; go('settings'); return true; }
+  if(h==='settings-app' || h==='problems'){ go('problems'); return true; }
+  if(h==='settings'){ go('settings'); return true; }
   if(h==='today' || c){ go('today'); freshen(true); return true; }
   return false;
 }
@@ -14758,10 +14830,9 @@ function settingsHTML(){
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
     setTab==='journey' ? (owner ? gaHTML()+journeyHTML()+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
-  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}${leadsHTML()}</div>
+  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
-  : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
-      ${owner?stripeHTML():''}
+  : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML()+wsCodesHTML()+wsCodesHTML(true):''}
       ${owner?'':`<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch;
         padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
         <b style="display:block;font:600 13px/1.4 var(--sans);color:var(--ink)">Prices and discounts are Elliott's</b>
@@ -14769,20 +14840,13 @@ function settingsHTML(){
         someone a tier for nothing are all set by the account that owns the business.
         Everything else here is yours. Ask him and he can change any of it in a moment.</div>`}`
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
-      ${owner?healthCardHTML():''}${owner?errsHTML():''}${owner?emailsHTML():''}`
-  : setTab==='workshops' ? workshopsHTML()
-  : setTab==='calls' ? (owner ? callsSettingsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">Calls are set by Elliott.</div>`)
-  : setTab==='sessions' ? (owner ? sessSlotsHTML()+wsCodesHTML(true) : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
+      ${owner?emailsHTML():''}`
   : setTab==='alerts' ? cpushHTML()
-  : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
-      <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
-        The database check and the copy are one-time setup. The copy reads the old Blobs store,
-        so running it now would push stale data over live records. Leave it alone unless
-        something has gone wrong.</div>`;
+  : '';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;
     flex-direction:column;gap:var(--space-5)">
     <div>
-      ${mailAlertHTML(true)}
+      ${mailAlertHTML()}
       <h1 style="margin:0">Settings</h1>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:62ch">${
@@ -15135,7 +15199,8 @@ function drawNow(){
     : view==='library'  ? libraryHTML()
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
-    : view==='bookings' ? bookingsPageHTML()
+    : view==='bookings' ? classesHTML()
+    : view==='problems' ? problemsHTML()
     : view==='news'     ? newsHTML()
     : view==='members'  ? membersHTML()
     : view==='challenge'? challengeHTML()
