@@ -12765,6 +12765,35 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     return json({ ok: true, day, sent, skipped });
   }
+  /* the morning door 1 opens (Elliott, 25 Nov: "one Door 1 is open email on 1
+     December to everyone who joined"): an email to everyone, and a
+     notification to anyone who turned them on. Once each, on day 1 only. */
+  if (path === '/challenge/door1/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg);
+    if (day !== 1 && !body.anyway) return json({ ok: true, day, mailed: 0, note: 'only on day 1' });
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let mailed = 0, pushed = 0, skipped = 0;
+    for (const r of rows) {
+      const v = r.value || {}, e = r.key.slice(5);
+      if (!v.at || !(await supa.insertIfAbsent('nudges', { key: `chaldoor1:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { skipped++; continue; }
+      const first = String(v.n || '').trim().split(/\s+/)[0] || '';
+      const res = await pushSend(e, { title: 'Door 1 is open', body: 'Your handstand advent starts today. Practise, then open door 1.',
+        url: '/lha-app.html?chal=open', tag: 'chal:1' }).catch(() => ({ sent: 0 }));
+      if (res && res.sent) pushed++;
+      if (mayEmail(e)) {
+        await email(e, 'Door 1 is open', mail({ title: 'Door 1 is open.', greeting: first,
+          paras: ['Your Handstand Advent Challenge starts today. Practise however you like, then open door 1 in the app. Any practice counts, five minutes included.',
+            'Film your first clip too: anything you like, 30 seconds at most. It is how you will see how far you come, and how the most improved is picked.',
+            'One door a day until Christmas Eve. Miss one? Tap it later and log it.'],
+          cta: { href: `${SITE}/lha-app.html?chal=open`, label: 'Open door 1' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }), 'chal').catch(() => {});
+        mailed++;
+      }
+    }
+    return json({ ok: true, day, mailed, pushed, skipped });
+  }
   if (path === '/challenge/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Make an account first' }, 401);
