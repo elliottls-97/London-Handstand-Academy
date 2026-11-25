@@ -719,8 +719,12 @@ const ebTok = () => process.env.EVENTBRITE_TOKEN || '';
 async function ebApi(path, body, method) {
   const u = /^https:\/\//.test(path) ? path : EB_API + path;
   if (!u.startsWith(EB_API + '/')) throw new Error('not an Eventbrite address');
+  /* JSON is said only when JSON is sent: a lookup labelled as JSON with
+     nothing in it had Eventbrite read its arguments from that empty body,
+     so the photo upload's ?type= went unseen ("type - This field is
+     required", 25 Nov 2026) */
   const r = await fetch(u, { method: method || (body ? 'POST' : 'GET'),
-    headers: { Authorization: 'Bearer ' + ebTok(), 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    headers: { Authorization: 'Bearer ' + ebTok(), ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch {}
   if (!r.ok) {
     const err = new Error(String((d && (d.error_description || d.error)) || ('Eventbrite said ' + r.status)).slice(0, 300));
