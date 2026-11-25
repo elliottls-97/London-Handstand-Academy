@@ -31129,7 +31129,7 @@ function chBuy(){
 function chLog(day, k, m){
   chPost('/log',{day, k, m: Number(m) || (k==='m' ? 5 : 0), stage:chLevel()})
     .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; st.chAsk=0; st.chJust=day; track('challog', chLevel());
-      if(!CH_D.me.film1 && chStartOpen()) st.chFirst=1;
+      if(!CH_D.me.film1 && chStartOpen()) st.chFirst=2;
       toast((day===CH_D.day ? 'Door '+day+' open' : 'Day '+day+' logged')+(m?', '+chMinsTxt(m):'')+'.'); render(); chLoad(true); })
     .catch(e=>toast(e.message));
 }
@@ -31493,12 +31493,16 @@ function chCalHTML(){
     const label='Door '+i+', '+chDate(i).toLocaleDateString('en-GB',{day:'numeric',month:'long',timeZone:'UTC'})+(x?', open':f?', flagged':today?', today, tap to open':missed?', missed, tap to log it':', opens '+chDayName(i));
     return `<button class="${cls}" aria-label="${label}" onclick="chDoorTap(${i})">${inner}</button>`; }).join('');
   if(st.chJust) setTimeout(()=>{ st.chJust=0; save(); }, 1600);
-  /* the first clip, asked for over the calendar as soon as a door is opened */
+  /* the first clip, asked for over the calendar: on the first visit to the page
+     each day from door 1 until it is in (Elliott, 25 Nov: "this is prompted when
+     people go onto the page"), and again straight after a door is opened.
+     Later hides it for the day; nothing is asked before 1 December. */
+  if(!me.film1 && chStartOpen() && st.chFirstDay!==n){ st.chFirst=1; st.chFirstDay=n; setTimeout(save,0); }
   if(st.chFirst && (me.film1 || !chStartOpen())) st.chFirst=0;
   const first = (st.chFirst && !st.chAsk) ? `<div class="chask" role="dialog" aria-label="Your first clip">
       <div class="chaskin">
         <button onclick="st.chFirst=0;save();render()" aria-label="Later" class="chaskx">&times;</button>
-        <div class="kick2" style="color:var(--forest)">DOOR OPEN · NOW YOUR FIRST CLIP</div>
+        <div class="kick2" style="color:var(--forest)">${st.chFirst===2?'DOOR OPEN · NOW YOUR FIRST CLIP':'DAY '+n+' · YOUR FIRST CLIP'}</div>
         <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Film where you ${chEm('start.')}</div>
         <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your best handstand, or what you are working on. Your whole body in the frame, 30 seconds at most. Only Elliott sees it, and it is how the most improved is picked.</div>
         <button class="btn" style="margin-top:14px" onclick="chFilmUp(1)">Upload your first clip</button>
