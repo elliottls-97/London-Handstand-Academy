@@ -12683,17 +12683,22 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!v) return json({ error: 'Join the challenge first' }, 400);
     return json({ ok: true, me: { d: v.d, fl: v.fl } });
   }
-  /* a day 1 or last day film, for the most improved: uploaded through /upload
-     like any clip, then recorded here. Day 1 can go in up to day 7 (people
-     join late); the last day's from two days before it to three days after. */
+  /* the start and end films, for the most improved: uploaded through /upload
+     like any clip, then recorded here. The start film goes in when they
+     start (Elliott, 25 Nov): from joining, even before day 1, up to day 7,
+     or within three days of joining late. The end film from two days before
+     the last day to three days after. which is 1 (start) or the last day. */
   if (path === '/challenge/film' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const cfg = await chCfg(), day = chDay(cfg), which = Number(body.which), uid = String(body.uid || '');
     if (![1, cfg.days].includes(which)) return json({ error: 'Day 1 or day ' + cfg.days }, 400);
     if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That clip did not upload' }, 400);
-    if (which === 1 && (day < 1 || day > 7)) return json({ error: day < 1 ? 'Your day 1 film goes in on day 1' : 'Day 1 films closed on day 7' }, 400);
-    if (which === cfg.days && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your day ' + cfg.days + ' film goes in from day ' + (cfg.days - 2) }, 400);
+    const mine0 = await getSetting(`chal:${who}`).catch(() => null);
+    if (!mine0) return json({ error: 'Join the challenge first' }, 400);
+    const lateJoin = Date.now() - (Number(mine0.at) || 0) < 3 * 864e5;
+    if (which === 1 && !(day <= cfg.days - 3 && (day <= 7 || lateJoin))) return json({ error: 'Start films closed on day 7, or three days after joining' }, 400);
+    if (which === cfg.days && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your end film goes in from day ' + (cfg.days - 2) }, 400);
     const slot = which === 1 ? 'film1' : 'filmEnd';
     const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { [slot]: { uid, at: Date.now() } }) : undefined);
     if (!v) return json({ error: 'Join the challenge first' }, 400);

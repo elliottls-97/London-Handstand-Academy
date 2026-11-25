@@ -18242,6 +18242,8 @@ function reportProgress(extra){
      401 on /progress. Nothing is sent from a preview. */
   if(st.preview) return Promise.resolve(false);
   if(extra && extra.session && extra.session.done) tasteKeptDone();
+  /* the advent challenge: an app session opens today's door (Elliott, 25 Nov) */
+  if(extra && extra.session && (extra.session.done || Number(extra.session.got)>0)) try{ chSessionDone(extra.session); }catch(e){}
   /* ── no account yet ───────────────────────────────────────────────
      A session done before there is an account went nowhere at all: the
      summary said "Logged. It is on your Progress screen" and the screen
@@ -30985,16 +30987,26 @@ function chPost(path, body){
     .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||('The server said '+r.status)); return j; }));
 }
 /* a session finished today logs the day by itself */
+/* a session finished: remembered for today, and today's door opened as soon
+   as the challenge is loaded (it may not be yet, straight after a session) */
+function chSessionDone(sess){
+  if(!st.token) return;
+  st.chSessAt=Date.now(); st.chSessMins=Math.max(Number(st.chSessMins)||0, Number(sess && sess.mins)||0); save();
+  if(CH_D) chAuto(); else chLoad(true);
+}
+let chAutoBusy=false;
 function chAuto(){
-  if(!chJoined() || st.preview) return;
+  if(!chJoined() || st.preview || chAutoBusy) return;
   const n=CH_D.day; if(n<1 || n>CH_D.cfg.days) return;
   const me=CH_D.me; if(me.d[n] || me.fl[n] || st.chAutoDay===n) return;
-  const k=new Date().toISOString().slice(0,10);
-  const s=((st.prog&&st.prog.sessions)||[]).filter(x=>x && new Date(x.at).toISOString().slice(0,10)===k && (x.done || (x.mins|0)>=5));
-  if(!s.length) return;
-  st.chAutoDay=n; save();
-  const mins=Math.max(5, Math.round(s.reduce((t,x)=>t+(Number(x.mins)||0),0)) || 15);
-  chPost('/log',{day:n,k:'s',m:mins,auto:1,stage:chLevel()}).then(j=>{ me.d=j.me.d; me.fl=j.me.fl; chAt=0; chLoad(true); }).catch(()=>{});
+  const k=new Date().toISOString().slice(0,10), today=x=>x && new Date(x).toISOString().slice(0,10)===k;
+  const s=((st.prog&&st.prog.sessions)||[]).filter(x=>x && today(x.at) && (x.done || Number(x.got)>0 || (x.mins|0)>=5));
+  if(!s.length && !today(st.chSessAt)) return;
+  chAutoBusy=true;
+  const mins=Math.max(5, Math.round(s.reduce((t,x)=>t+(Number(x.mins)||0),0)) || (today(st.chSessAt) && Number(st.chSessMins)) || 15);
+  chPost('/log',{day:n,k:'s',m:mins,auto:1,stage:chLevel()})
+    .then(j=>{ chAutoBusy=false; st.chAutoDay=n; save(); me.d=j.me.d; me.fl=j.me.fl; toast('Door '+n+' of your advent calendar is open.'); chAt=0; chLoad(true); })
+    .catch(()=>{ chAutoBusy=false; });
 }
 function chOpen(){ st.tab='chal'; save(); chLoad(true); render(); const s=$('#app .scroll'); if(s) s.scrollTop=0; }
 function chJoin(){
@@ -31090,7 +31102,7 @@ function chTryHTML(){
 /* ── the card on Train ─────────────────────────────────────────────── */
 function chalCardHTML(){
   if(coachedView() || st.preview) return '';
-  chLoad();
+  chLoad(); setTimeout(chAuto, 0);
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
   if(!me && st.chalHide) return '';
@@ -31146,7 +31158,7 @@ function screenChallenge(){
 const chSteps = () => `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${[
     ['Practise every day', 'Any practice counts: your own, a class, or the app. Ill, injured or away? Flag the day.'],
     ['Log it, open a door', 'Each day you log opens a door on your advent calendar. Post yours to the group.'],
-    ['Film day 1 and day '+(CH_D?CH_D.cfg.days:24), 'Your level\'s test, so you can see how far you came. Sundays, do it again.']
+    ['Film your start and your end', 'Your level\'s test, when you join and on the last days, so you can see how far you came.']
   ].map(([t,d],i)=>`<div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--forest);color:var(--on-primary);font:700 12px/26px var(--sans);text-align:center">${i+1}</span>
     <span><b style="display:block;font:600 15px/1.3 var(--sans)">${t}</b><span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">${d}</span></span></div>`).join('')}</div>`;
 function chJoinHTML(){
@@ -31169,11 +31181,11 @@ function chTodayHTML(){
   if(n<1) return `<div class="card" style="margin-top:14px">
       <div class="kick2" style="color:var(--forest)">YOU ARE IN</div>
       <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Day 1 is ${chEm(esc(chDayName(1))+'.')}</div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Practise as normal until then. On day 1 you film your test: ${esc(chTest().n.toLowerCase())}.</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">First, film where you start. Then practise as normal until door 1.</div>
       ${chSteps()}
       <button class="btn" style="margin-top:16px" onclick="chShare('in')">Tell the group you are in</button>
       ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
-    </div>${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
+    </div>${chStartOpen()?chFilmHTML(1):''}${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
   const did=n<=days?me.d[n]:null, fl=n<=days?me.fl[n]:null;
   const log = n>days ? `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">HOW IT WENT</div>
       <div style="font:400 26px/1.1 var(--serif);margin-top:6px">${chGot()} of ${days} ${chEm('days.')}</div>
@@ -31187,7 +31199,7 @@ function chTodayHTML(){
       ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
       <button onclick="chUndo(${n})" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change it</button></div>`
     : `<div class="card" style="margin-top:14px">${chLogHTML(n)}</div>`;
-  const film = (n<=3 || (n<=7 && !me.film1)) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
+  const film = chStartOpen() && (!me.film1 || n<=3) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
   const sunday = (n>=1 && n<=days && chDate(n).getUTCDay()===0) ? `<button class="card" onclick="st.chTab='week';save();render()" style="display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:16px 18px;cursor:pointer;text-align:left;border:1px solid rgba(29,85,102,.10)">
       <span style="flex:1;min-width:0"><span class="kick2" style="color:var(--forest);display:block">IT IS SUNDAY</span><span style="display:block;font:400 19px/1.2 var(--serif);margin-top:5px">Do your test: ${esc(chTest().n.toLowerCase())}</span></span>
       <span style="font:600 18px/1 var(--sans);color:var(--forest)">&rsaquo;</span></button>` : '';
@@ -31235,17 +31247,20 @@ function chCalHTML(){
     <div class="chdoors" style="margin-top:12px">${doors}</div>
     <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:10px;text-align:center">Each day you log opens its door. A dashed door is a flagged day.</div></div>`;
 }
+/* the start film goes in when they start: from joining, up to day 7, or
+   within three days of joining for anybody who joins later */
+const chStartOpen = () => !!(CH_D && CH_D.me) && CH_D.day <= CH_D.cfg.days-3 && (CH_D.day <= 7 || Date.now()-(CH_D.me.at||0) < 3*864e5);
 function chFilmHTML(which){
   const T=chTest(), paid=chPaid(), me=CH_D.me, inn=!!(which===1 ? me.film1 : me.filmEnd);
   return `<div class="card" style="margin-top:12px">
-    <div class="kick2" style="color:var(--forest)">FILM DAY · DAY ${which}</div>
+    <div class="kick2" style="color:var(--forest)">${which===1?'YOUR START FILM':'YOUR END FILM'}</div>
     <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${which===1?'Film where you':'Film where you have'} ${chEm(which===1?'start.':'got to.')}</div>
     <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your test: <b style="color:var(--ink);font-weight:600">${esc(T.n.toLowerCase())}.</b> ${esc(T.how)} Film side on, phone at hip height, your whole body in the frame, a minute at most.</div>
     ${inn ? `<div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(35,127,149,.08)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
-        <span style="flex:1;font:600 14px/1.3 var(--sans)">Your day ${which} film is in.</span>
+        <span style="flex:1;font:600 14px/1.3 var(--sans)">Your ${which===1?'start':'end'} film is in.</span>
         <button onclick="chFilmUp(${which})" style="border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:44px">Replace</button></div>`
-      : `<button class="btn" style="margin-top:14px" onclick="chFilmUp(${which})">Upload your day ${which} film</button>
+      : `<button class="btn" style="margin-top:14px" onclick="chFilmUp(${which})">Upload your ${which===1?'start':'end'} film</button>
         <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Only Elliott sees it. It enters you for the parallettes.</div>`}
     <div id="chfu-${which}" role="status" style="font:600 13px/1.4 var(--sans);color:var(--forest);margin-top:8px;text-align:center"></div>
     <button onclick="chFilm()" style="display:block;margin:4px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1.4 var(--sans);cursor:pointer;min-height:40px">${paid?'Want my feedback on it? Send it for a video reply':'Want my feedback on it? Your first form check is free'}</button></div>`;
@@ -31260,7 +31275,7 @@ function chFilmUp(which){
     const say=m=>{ const el=document.getElementById('chfu-'+which); if(el) el.textContent=m; };
     clipSecs(f).then(secs=>{ if(secs>61) throw 'That clip runs '+Math.round(secs)+' seconds. A minute at most, so trim it and try again.'; return uploadClip(f, say); })
       .then(uid=>chPost('/film',{which, uid}))
-      .then(j=>{ chUpBusy=0; CH_D.me.film1=j.film1; CH_D.me.filmEnd=j.filmEnd; track('chalfilm', which); toast('Day '+which+' film in. Good luck.'); render(); })
+      .then(j=>{ chUpBusy=0; CH_D.me.film1=j.film1; CH_D.me.filmEnd=j.filmEnd; track('chalfilm', which); toast(which===1?'Start film in. Good luck.':'End film in. Thank you.'); render(); })
       .catch(e=>{ chUpBusy=0; say(String((e&&e.message)||e||'It did not upload. Try again.')); });
   };
   inp.click();
@@ -31277,7 +31292,7 @@ function chHelpHTML(big){
       <div style="display:flex;align-items:baseline;gap:10px"><div class="kick2" style="color:var(--forest)">HELP FROM ME</div>
         <div style="margin-left:auto;font:700 20px/1 var(--sans);color:var(--deep)">${chPounds(c.now)}</div></div>
       ${early?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:right;margin-top:4px">until ${esc(until)}, then ${chPounds(c.price)}</div>`:''}
-      <ul class="chlist"><li>The app's sessions for your level, every stage, through advent and a week after</li><li>My video feedback on your first and last day films</li><li>A live call every week, ${esc(c.callNote)}</li></ul>
+      <ul class="chlist"><li>The app's sessions for your level, every stage, through advent and a week after</li><li>My video feedback on your start and end films</li><li>A live call every week, ${esc(c.callNote)}</li></ul>
       <button class="btn2" style="width:100%;margin-top:12px" onclick="chBuy()">Get help · ${chPounds(c.now)}</button>
       <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Optional. The challenge is free either way.</div></div>`;
 }
@@ -31296,14 +31311,14 @@ function chPrizesHTML(){
   return `<div class="card" style="margin-top:12px">
     <div class="kick2" style="color:var(--forest)">PRIZES</div>
     <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Win a set of ${chEm('parallettes.')}</div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">For the most improved, from your day 1 and day ${days} films, whatever level you start at. And log ${need} days to go in the draw for three months of the app.</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">For the most improved, from your start and end films, whatever level you start at. And log ${need} days to go in the draw for three months of the app.</div>
     ${me?`<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>Days for the draw</span><span style="color:var(--deep);font-variant-numeric:tabular-nums">${got} of ${need}</span></div>
       <div style="height:8px;border-radius:99px;background:rgba(29,85,102,.10);margin-top:8px;overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--forest);border-radius:99px"></i></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${[1,days].map(w=>`<span class="chwk">Day ${w} film: <b>${(w===1?me.film1:me.filmEnd)?'in':'not yet'}</b></span>`).join('')}</div></div>`:''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${[1,days].map(w=>`<span class="chwk">${w===1?'Start':'End'} film: <b>${(w===1?me.film1:me.filmEnd)?'in':'not yet'}</b></span>`).join('')}</div></div>`:''}
     <details style="margin-top:12px"><summary style="cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);min-height:32px">The rules</summary>
       <ul class="chlist" style="font-size:13px;color:var(--grey)">
         <li>Joining is your entry. It is free, and paying for help does not change anybody's chances.</li>
-        <li>Most improved: Elliott picks from your day 1 and day ${days} films. Day 1 films by day 7, day ${days} films by ${esc(closes)}. His pick is final.</li>
+        <li>Most improved: Elliott picks from your start and end films. The start film goes in when you join, by day 7 (or within three days of joining late). The end film goes in from day ${days-2} to ${esc(closes)}. His pick is final.</li>
         <li>The draw: log ${CH_D.cfg.need||20} of the ${days} days. Flag a day as ill, injured or away and you need one fewer, down to ${CH_D.cfg.floor||12}. Three winners, picked at random.</li>
         <li>Winners shown here on ${esc(told)} and told by email. One prize each. Parallettes go to a UK address. No cash instead.</li>
       </ul></details></div>`;
