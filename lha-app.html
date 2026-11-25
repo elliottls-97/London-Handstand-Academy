@@ -1614,7 +1614,7 @@ button{color:var(--ink)}
 .chgo small{font:500 11.5px/1.1 var(--sans);color:var(--grey)}
 .chgo.on{border:0;background:linear-gradient(180deg,#2f93a9,#237f95);color:var(--on-primary);box-shadow:0 8px 20px rgba(35,127,149,.25),inset 0 1px 0 rgba(255,255,255,.35)}
 .chgo.on small{color:rgba(255,255,255,.85)}
-.chopt{min-height:44px;padding:0 14px;border-radius:999px;cursor:pointer;border:1px solid rgba(29,85,102,.18);background:#fff;color:var(--deep);font:600 13.5px/1 var(--sans)}
+.chopt{min-height:44px;padding:0 8px;white-space:nowrap;border-radius:999px;cursor:pointer;border:1px solid rgba(29,85,102,.18);background:#fff;color:var(--deep);font:600 13.5px/1 var(--sans)}
 .chopt.on{border-color:var(--forest);background:rgba(35,127,149,.10);color:var(--forest);box-shadow:inset 0 0 0 1px var(--forest)}
 .chstep{width:44px;height:44px;border-radius:50%;border:1px solid rgba(29,85,102,.18);background:#fff;color:var(--deep);font:600 18px/1 var(--sans);cursor:pointer}
 .chflag{flex:1;min-width:0;min-height:44px;border-radius:999px;border:1px dashed rgba(29,85,102,.4);background:#fff;color:var(--deep);font:600 12.5px/1 var(--sans);cursor:pointer}
@@ -31120,12 +31120,14 @@ function chalCardHTML(){
   if(n>days) return wrap(kick('ADVENT IS DONE') + head(chGot()+' of '+days+' '+chEm('doors open.'))
     + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">See how it went</button>`);
   const did=me.d[n], fl=me.fl[n];
+  const bd=CH_D.board||[], kt=bd.filter(r=>/[smfco]/.test(r.d[n-1]||'')).length;
+  const who = bd.length>1 ? `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">${kt} of ${bd.length} have opened door ${n} today.</div>` : '';
   if(did || fl) return wrap(kick('DOOR '+n+' OF '+days) + head(did ? 'Door '+n+' is '+chEm('open.') : 'Today is '+chEm('flagged.'))
-    + chDotsHTML(me, 9)
+    + who + chDotsHTML(me, 9)
     + `<div style="display:flex;gap:8px;margin-top:12px">${did?`<button class="btn" style="flex:1;padding:14px" onclick="chShare()">Share my day</button>`:''}
        <button class="btn2" style="flex:1" onclick="chOpen()">The challenge</button></div>`);
   return wrap(kick('DOOR '+n+' OF '+days) + head('Did you practise '+chEm('today?'))
-    + `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Logging it opens door ${n}.</div>`
+    + `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Logging it opens door ${n}.${bd.length>1?' '+kt+' of '+bd.length+' have opened theirs today.':''}</div>`
     + `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" style="flex:1.3;padding:14px" onclick="chLog(${n},'o')">Yes, open door ${n}</button>
        <button class="btn2" style="flex:1" onclick="chOpen()">Other options</button></div>`);
 }
@@ -31184,8 +31186,7 @@ function chTodayHTML(){
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">First, film where you start. Then practise as normal until door 1.</div>
       ${chSteps()}
       <button class="btn" style="margin-top:16px" onclick="chShare('in')">Tell the group you are in</button>
-      ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
-    </div>${chStartOpen()?chFilmHTML(1):''}${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
+    </div>${chStartOpen()?chFilmHTML(1):''}${chEveryoneHTML()}${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
   const did=n<=days?me.d[n]:null, fl=n<=days?me.fl[n]:null;
   const log = n>days ? `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">HOW IT WENT</div>
       <div style="font:400 26px/1.1 var(--serif);margin-top:6px">${chGot()} of ${days} ${chEm('days.')}</div>
@@ -31196,7 +31197,6 @@ function chTodayHTML(){
         <span style="flex:1;min-width:0"><span style="display:block;font:400 24px/1.1 var(--serif)">${did?'Door '+n+' is '+chEm('open.'):'Day '+n+' '+chEm('flagged.')}</span>
         <span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${did?esc(CH_KIND[did.k]||'')+(did.auto?', from the session you finished':''):esc(CH_FLAG[fl])+'. It does not count against you.'}</span></span></div>
       ${did?`<button class="btn" style="margin-top:14px" onclick="chShare()">Share to the group</button>`:''}
-      ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
       <button onclick="chUndo(${n})" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change it</button></div>`
     : `<div class="card" style="margin-top:14px">${chLogHTML(n)}</div>`;
   const film = chStartOpen() && (!me.film1 || n<=3) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
@@ -31210,7 +31210,29 @@ function chTodayHTML(){
   const call = (chPaid() && n<=days) ? `<div class="card" style="margin-top:12px;padding:16px 18px;display:flex;align-items:center;gap:12px">
       <div style="flex:1;min-width:0"><div class="kick2" style="color:var(--forest)">LIVE CALL</div><div style="font:400 18px/1.2 var(--serif);margin-top:5px">${esc(CH_D.cfg.callNote)}</div></div>
       ${me.call?`<a class="btn2" style="flex:none;text-decoration:none;display:grid;place-items:center;min-height:44px;padding:0 16px" href="${esc(me.call)}" target="_blank" rel="noopener">Join</a>`:`<span style="font:400 12.5px/1.3 var(--sans);color:var(--grey2);max-width:120px;text-align:right">The link is here on the day</span>`}</div>` : '';
-  return log+film+sunday+lateH+chTryHTML()+chCalHTML()+call+chPrizesHTML()+chHelpHTML();
+  return log+chEveryoneHTML()+film+sunday+lateH+chTryHTML()+chCalHTML()+call+chPrizesHTML()+chHelpHTML();
+}
+/* everyone, today: who has opened today's door, and the group chat. It sits
+   on Today because that is where they are; the full board is a tap away. */
+function chEveryoneHTML(){
+  const b=CH_D.board||[], n=CH_D.day, days=CH_D.cfg.days, others=b.filter(r=>!r.me);
+  const chat=chGroupBtn('btn2');
+  if(!others.length && !chat) return '';
+  const done=r=>n>=1 && n<=days && /[smfco]/.test(r.d[n-1]||'');
+  const ini=r=>{ const w=String(r.n||'?').trim(); return (w.length<=3 && w===w.toUpperCase()) ? w : w.slice(0,1).toUpperCase(); };
+  const faces=b.slice(0,16).map(r=>`<span title="${esc(r.n)}${r.me?' (you)':''}" style="flex:none;width:34px;height:34px;border-radius:50%;box-sizing:border-box;display:grid;place-items:center;font:600 12.5px/1 var(--sans);
+      ${done(r)?'background:var(--forest);color:var(--on-primary)':'background:#fff;color:var(--deep);border:1.5px solid rgba(29,85,102,.18)'}${r.me?';box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--amber)':''}">${esc(ini(r))}</span>`).join('');
+  const k=b.filter(done).length;
+  const line = n<1 ? `${b.length} ${b.length===1?'person is':'people are'} in`
+    : n>days ? `${b.length} took part` : `${k} of ${b.length} have opened door ${n}`;
+  return `<div class="card" style="margin-top:12px;padding:16px 18px">
+    <div style="display:flex;align-items:baseline;gap:8px"><div class="kick2" style="color:var(--forest)">EVERYONE</div>
+      ${others.length?`<button onclick="st.chTab='board';save();render()" style="margin-left:auto;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:32px">See everyone &rsaquo;</button>`:''}</div>
+    ${others.length?`<div style="font:400 19px/1.2 var(--serif);margin-top:6px">${esc(line)}.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${faces}${b.length>16?`<span style="align-self:center;font:600 12.5px/1 var(--sans);color:var(--grey)">+${b.length-16}</span>`:''}</div>`
+      :`<div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:6px">Nobody else has joined yet. Talk to everyone in the group chat.</div>`}
+    ${chat?`<div style="margin-top:12px">${chat}</div>`:''}
+    ${!others.length?`<button class="btn2" style="width:100%;margin-top:8px" onclick="chShare('in')">Invite someone</button>`:''}</div>`;
 }
 /* the log: one tap on what they did. late: a day before today */
 function chLogHTML(n, late){
@@ -31324,12 +31346,13 @@ function chPrizesHTML(){
       </ul></details></div>`;
 }
 function chBoardHTML(){
-  const b=CH_D.board;
+  const b=CH_D.board, chat=chGroupBtn('btn');
   if(!b) return `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">EVERYONE</div>
-    <div style="font:400 22px/1.2 var(--serif);margin-top:6px">It opens at ${chEm('ten.')}</div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${CH_D.count} ${CH_D.count===1?'person has':'people have'} joined so far. Everyone's advent calendars show here once ten are in.</div>
-    <button class="btn2" style="width:100%;margin-top:12px" onclick="chShare('in')">Invite someone</button></div>`;
-  return `<div class="card" style="margin-top:14px;padding:6px 16px">${b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
+    <div style="font:400 22px/1.2 var(--serif);margin-top:6px">Just ${chEm('you')} so far.</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Everyone's advent calendars show here as people join.</div>
+    ${chat?`<div style="margin-top:12px">${chat}</div>`:''}
+    <button class="btn2" style="width:100%;margin-top:8px" onclick="chShare('in')">Invite someone</button></div>`;
+  return `${chat?`<div style="margin-top:14px">${chat}</div>`:''}<div class="card" style="margin-top:${chat?10:14}px;padding:6px 16px">${b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
     return `<div style="padding:12px 0;border-bottom:1px solid rgba(29,85,102,.08)">
       <div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' <span style="color:var(--forest);font-weight:600">(you)</span>':''}</b>
         <span style="margin-left:auto;font:600 12.5px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${got}/${CH_D.cfg.days}</span></div>

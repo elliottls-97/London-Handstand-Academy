@@ -2387,7 +2387,7 @@ const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = 
    person is one setting, chal:<email>, so the board is one read. The dates
    and the call link can be changed in the dashboard (chalcfg). */
 const CH = { id: 'dec26', start: '2026-12-01', days: 24, price: 3900, early: 2900,
-  earlyUntil: '2026-11-30T00:00:00Z', boardMin: 10, replies: 2 };
+  earlyUntil: '2026-11-30T00:00:00Z', boardMin: 2, replies: 2 };
 async function chCfg() {
   const o = (await getSetting('chalcfg').catch(() => null)) || {};
   const start = /^\d{4}-\d{2}-\d{2}$/.test(String(o.start || '')) ? o.start : CH.start;
@@ -12624,7 +12624,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       .filter(r => r.value && typeof r.value === 'object');
     const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
     const pub = rows.map(r => Object.assign(chPublic(r.value, cfg), { me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length }));
-    /* the board shows once there are enough on it: six names looks worse than none */
+    /* the board shows once somebody else is on it (Elliott, 25 Nov: "wheres the chat, or
+       way to see other peoples progress"): a small group sees each other from day one */
     const board = pub.length >= CH.boardMin ? pub.sort((a, b) => (b.me - a.me) || (b.logged - a.logged)).map(({ logged, ...x }) => x) : null;
     /* the Sunday test, among people on the same stage: improvement on their first result */
     const myStage = mine && Number.isInteger(mine.st) ? mine.st : null;
