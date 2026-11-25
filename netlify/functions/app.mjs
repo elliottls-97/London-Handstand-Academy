@@ -2400,6 +2400,21 @@ const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(c
 const chPrice = cfg => Date.now() < Date.parse(cfg.earlyUntil) ? cfg.early : cfg.price;
 /* London midnight after the last day, plus a week, for the Ladder they paid for */
 const chLadderUntil = cfg => Date.parse(cfg.start + 'T00:00:00Z') + (cfg.days + 7) * 864e5;
+/* the prizes (25 Nov 2026): a set of parallettes for the most improved,
+   picked by Elliott from the day 1 and day 30 films, and three months of the
+   Ladder for three people drawn from everyone who logs 25 of the 30 days.
+   Each flagged day takes one off the 25, down to 15. Free entry: the extras
+   do not change anybody's chances. */
+const CH_PRIZE = { need: 25, floor: 15, drawN: 3, months: 3 };
+const chLogged = v => Object.keys((v && v.d) || {}).filter(k => +k >= 1 && +k <= CH.days).length;
+const chNeed = v => Math.max(CH_PRIZE.floor, CH_PRIZE.need - Object.keys((v && v.fl) || {}).filter(k => +k >= 1 && +k <= CH.days).length);
+const chEligible = v => chLogged(v) >= chNeed(v);
+/* the months given on top of whatever Ladder they already have */
+async function chGiveDays(e, days) {
+  const u = await getSetting(`plusuntil:${e}`).catch(() => null);
+  const from = Math.max(Date.now(), u ? ms(u) : 0);
+  await setSetting(`plusuntil:${e}`, iso(from + days * 864e5));
+}
 const CH_KINDS = ['s', 'm', 'f', 'c', 'o'];
 const CH_FLAGS = ['ill', 'injured', 'away', 'other'];
 /* what the app may show of somebody else: a first name or initials, and their dots */
@@ -12620,7 +12635,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote },
       day, count: rows.length, board, week, me: null };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
-      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}) };
+      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
+      film1: !!(mine.film1 && mine.film1.uid), film30: !!(mine.film30 && mine.film30.uid), need: chNeed(mine) };
+    /* the winners, once Elliott has said to show them: first names only */
+    const pz = (await getSetting('chalprize').catch(() => null)) || {};
+    if (pz.announced) {
+      const nameOf = e => { const r = rows.find(x => x.key === `chal:${e}`); return r ? chPublic(r.value, cfg).n : ''; };
+      out.winners = { most: pz.most ? nameOf(pz.most) : '', draw: (pz.draw && pz.draw.winners || []).map(nameOf).filter(Boolean),
+        mine: !!who && (pz.most === who || ((pz.draw && pz.draw.winners) || []).includes(who)) };
+    }
     return json(out);
   }
   if (path === '/challenge/join' && request.method === 'POST') {
@@ -12657,6 +12680,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     });
     if (!v) return json({ error: 'Join the challenge first' }, 400);
     return json({ ok: true, me: { d: v.d, fl: v.fl } });
+  }
+  /* a day 1 or day 30 film, for the most improved: uploaded through /upload
+     like any clip, then recorded here. Day 1 can go in up to day 7 (people
+     join late); day 30 from day 28 to three days after the end. */
+  if (path === '/challenge/film' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg), which = Number(body.which), uid = String(body.uid || '');
+    if (![1, 30].includes(which)) return json({ error: 'Day 1 or day 30' }, 400);
+    if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That clip did not upload' }, 400);
+    if (which === 1 && (day < 1 || day > 7)) return json({ error: day < 1 ? 'Your day 1 film goes in on day 1' : 'Day 1 films closed on day 7' }, 400);
+    if (which === 30 && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your day 30 film goes in from day ' + (cfg.days - 2) }, 400);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { ['film' + which]: { uid, at: Date.now() } }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, film1: !!v.film1, film30: !!v.film30 });
   }
   if (path === '/challenge/week' && request.method === 'POST') {
     const who = await me();
@@ -12700,7 +12738,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const cfg = await chCfg(), rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
     return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg),
       { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
-        comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '' })) });
+        comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
+        film1: (r.value.film1 && r.value.film1.uid) || '', film30: (r.value.film30 && r.value.film30.uid) || '',
+        logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
+        given: r.value.prize3m || 0, month: r.value.month || 0 })),
+      prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE });
   }
   if (path === '/coach/challenge' && request.method === 'POST') {
     if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
@@ -12715,6 +12757,36 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         return x;
       });
     }
+    /* the prizes: draw three from everyone who reached it, pick the most
+       improved, give the months, and show the winners in the app */
+    if (body.draw === true) {
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      const pool = rows.filter(r => r.value && chEligible(r.value)).map(r => r.key.slice(5));
+      const pick = [];
+      while (pool.length && pick.length < CH_PRIZE.drawN) {
+        const i = crypto.getRandomValues(new Uint32Array(1))[0] % pool.length;
+        pick.push(pool.splice(i, 1)[0]);
+      }
+      await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { draw: { at: Date.now(), winners: pick, from: pick.length + pool.length } }));
+    }
+    if (typeof body.most === 'string') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { most: norm(body.most) }));
+    if (typeof body.announced === 'boolean') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { announced: body.announced }));
+    if (body.give) {
+      const e = norm(body.give); let fresh = false;
+      await changeSetting(`chal:${e}`, cur => { if (!cur || cur.prize3m) return undefined; fresh = true; return Object.assign({}, cur, { prize3m: Date.now() }); });
+      if (fresh) await chGiveDays(e, CH_PRIZE.months * 30);
+    }
+    /* a free month for everyone who reached it, once each */
+    let monthN = 0;
+    if (body.monthAll === true) {
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      for (const r of rows) {
+        if (!r.value || !chEligible(r.value) || r.value.month) continue;
+        const e = r.key.slice(5); let fresh = false;
+        await changeSetting(r.key, cur => { if (!cur || cur.month) return undefined; fresh = true; return Object.assign({}, cur, { month: Date.now() }); });
+        if (fresh) { await chGiveDays(e, 30); monthN++; }
+      }
+    }
     /* given the extras by hand: a comp for somebody, or taken back after a refund */
     if (body.email && typeof body.paid === 'boolean') {
       const e = norm(body.email), cfg = await chCfg();
@@ -12726,7 +12798,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!u || ms(u) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
       }
     }
-    return json({ ok: true, cfg: await chCfg() });
+    return json({ ok: true, cfg: await chCfg(), prize: (await getSetting('chalprize').catch(() => null)) || {}, monthN });
   }
   if (path === '/redeem' && request.method === 'POST') {
     const who = await me();

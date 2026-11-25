@@ -31011,7 +31011,7 @@ function chalCardHTML(){
   if(!me){
     kick = n<1 ? 'STARTS '+chDayName(1).toUpperCase() : 'DAY '+n+' OF '+days+' · JOIN ANY TIME';
     head = `30 Day Handstand <em style="color:var(--forest);font-style:normal">Challenge.</em>`;
-    sub = `Free. 15 minutes a day at your stage, or 5 when life is busy. ${CH_D.count>=5?CH_D.count+' have joined.':''}`;
+    sub = `Free, with a set of parallettes for the most improved. 15 minutes a day, or 5 when life is busy. ${CH_D.count>=5?CH_D.count+' have joined.':''}`;
     btn = 'See the challenge';
   } else if(n<1){
     kick='YOU ARE IN'; head=`Day 1 is <em style="color:var(--forest);font-style:normal">${esc(chDate(1).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'}))}.</em>`;
@@ -31073,6 +31073,7 @@ function chJoinHTML(){
       <label style="display:flex;align-items:center;gap:10px;min-height:44px;margin-top:6px;font:400 14px/1.3 var(--sans)"><input id="chIni" type="checkbox" style="width:20px;height:20px;accent-color:var(--forest);margin:0">Show my initials instead</label>`:''}
       <button class="btn" style="margin-top:12px" ${chBusy?'disabled':''} onclick="chJoin()">${st.token?'Join free':'Make an account and join, free'}</button>
     </div>
+    ${chPrizesHTML()}
     <div class="card" style="margin-top:12px">
       <div style="display:flex;align-items:baseline;gap:10px"><div class="kick2" style="color:var(--forest)">THE EXTRAS</div>
         <div style="margin-left:auto;font:700 20px/1 var(--sans);color:var(--deep)">${chPounds(CH_D.cfg.now)}</div></div>
@@ -31097,9 +31098,9 @@ function chTodayHTML(){
   if(n<1) return cal+`<div class="card" style="margin-top:12px"><div class="kick2" style="color:var(--forest)">BEFORE DAY 1</div>
       <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Your test: <em style="color:var(--forest);font-style:normal">${esc(T.n)}.</em></div>
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(T.how)} You film it on day 1 and again on day 30.</div>
-      <button class="btn" style="margin-top:14px" onclick="startDay(-1,'full')">Train today anyway</button></div>`+chExtrasHTML();
+      <button class="btn" style="margin-top:14px" onclick="startDay(-1,'full')">Train today anyway</button></div>`+chPrizesHTML()+chExtrasHTML();
   const P=n<=days?chPlanFor(n):null, did=me.d[n], fl=me.fl[n];
-  const film = (n<=3 || (n>=days-2 && n<=days+3)) ? chFilmHTML(n<=3?1:30) : '';
+  const film = (n<=3 || (n<=7 && !me.film1)) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(30) : '';
   const call = (chPaid() && n<=days) ? `<div class="card" style="margin-top:12px;padding:16px 18px;display:flex;align-items:center;gap:12px">
       <div style="flex:1;min-width:0"><div class="kick2" style="color:var(--forest)">LIVE CALL</div><div style="font:400 18px/1.2 var(--serif);margin-top:5px">${esc(CH_D.cfg.callNote)}</div></div>
       ${me.call?`<a class="btn2" style="flex:none;text-decoration:none;display:grid;place-items:center;min-height:44px;padding:0 16px" href="${esc(me.call)}" target="_blank" rel="noopener">Join</a>`:`<span style="font:400 12.5px/1.3 var(--sans);color:var(--grey2);max-width:120px;text-align:right">The link is here on the day</span>`}</div>` : '';
@@ -31110,9 +31111,9 @@ function chTodayHTML(){
       <div class="kick2" style="color:var(--forest)">TODAY · ${esc(P.t.toUpperCase())}</div>
       <div style="font:400 15px/1.45 var(--sans);color:var(--grey);margin-top:6px">${esc(P.s)}</div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px">
-        <button class="chgo on" onclick="startDay(-1,'full')"><b>Session</b><small>${st.time||15} min</small></button>
+        <button class="chgo${P.k==='f'||P.k==='c'?'':' on'}" onclick="startDay(-1,'full')"><b>Session</b><small>${st.time||15} min</small></button>
         <button class="chgo" onclick="chMinOpen()"><b>Minimum</b><small>5 min</small></button>
-        <button class="chgo" onclick="startDay(-1,'wrist')"><b>Mobility</b><small>Wrists</small></button>
+        <button class="chgo${P.k==='f'||P.k==='c'?' on':''}" onclick="startDay(-1,'wrist')"><b>Mobility</b><small>Wrists</small></button>
       </div>
       ${st.chMin?`<div style="margin-top:12px;padding:14px;border-radius:16px;background:rgba(35,127,149,.06);font:400 14px/1.5 var(--sans)">
         <b style="font-weight:600">The minimum, 5 minutes.</b> A minute of wrist circles, then three goes at your test, ${esc(T.n.toLowerCase())}. Then log it below.</div>`:''}
@@ -31129,7 +31130,7 @@ function chTodayHTML(){
   const lateH = late.length && n<=days+2 ? `<div class="card" style="margin-top:12px;padding:16px 18px"><div class="kick2" style="color:var(--forest)">FORGOT TO LOG?</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${late.map(i=>`<button class="btn2" style="flex:1;min-width:140px" onclick="st.chLate=${i};save();render()">Day ${i}, ${esc(chDate(i).toLocaleDateString('en-GB',{weekday:'short',timeZone:'UTC'}))}</button>`).join('')}</div>
       ${st.chLate && late.includes(st.chLate) ? `<div style="margin-top:12px">${chLogHTML(st.chLate)}</div>` : ''}</div>` : '';
-  return cal+film+today+lateH+call+(chPaid()?'':chExtrasHTML());
+  return cal+film+today+lateH+call+chPrizesHTML()+(chPaid()?'':chExtrasHTML());
 }
 function chMinOpen(){ st.chMin=!st.chMin; save(); render(); }
 function chLogHTML(n){
@@ -31162,13 +31163,62 @@ function chCalHTML(){
     <div style="display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;margin-top:10px;font:400 11.5px/1 var(--sans);color:var(--grey)">${['s','m','f','c','o'].map(k=>`<span style="display:flex;align-items:center;gap:4px"><i style="width:9px;height:9px;border-radius:50%;background:${CH_COL[k]};display:block"></i>${CH_KIND[k]}</span>`).join('')}</div></div>`;
 }
 function chFilmHTML(which){
-  const T=chTest(), paid=chPaid();
-  const left = paid ? 'I reply on video.' : 'Keep it on your phone, and put day 30 beside it. Your one free form check gets my video reply on it.';
+  const T=chTest(), paid=chPaid(), me=CH_D.me, inn=!!me['film'+which];
   return `<div class="card" style="margin-top:12px">
     <div class="kick2" style="color:var(--forest)">FILM DAY · DAY ${which}</div>
     <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${which===1?'Film where you':'Film where you have'} <em style="color:var(--forest);font-style:normal">${which===1?'start.':'got to.'}</em></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px"><b style="color:var(--ink);font-weight:600">${esc(T.n)}.</b> ${esc(T.how)} Side on, phone at hip height, hands to feet in the frame. ${esc(left)}</div>
-    <button class="btn" style="margin-top:14px" onclick="chFilm()">${paid?'Send it to Elliott':'Send it for my free form check'}</button></div>`;
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px"><b style="color:var(--ink);font-weight:600">${esc(T.n)}.</b> ${esc(T.how)} Side on, phone at hip height, hands to feet in the frame, a minute at most.</div>
+    ${inn ? `<div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(35,127,149,.08)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+        <span style="flex:1;font:600 14px/1.3 var(--sans)">Your day ${which} film is in the competition.</span>
+        <button onclick="chFilmUp(${which})" style="border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:44px">Replace</button></div>`
+      : `<button class="btn" style="margin-top:14px" onclick="chFilmUp(${which})">Upload your day ${which} film</button>
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">It enters you for the parallettes. Only Elliott sees it.</div>`}
+    <div id="chfu-${which}" role="status" style="font:600 13px/1.4 var(--sans);color:var(--forest);margin-top:8px;text-align:center"></div>
+    <button class="btn2" style="width:100%;margin-top:10px" onclick="chFilm()">${paid?'Send it to Elliott for a video reply':'Use your free form check for my reply'}</button></div>`;
+}
+let chUpBusy=0;
+function chFilmUp(which){
+  if(chUpBusy) return;
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='video/*'; inp.style.display='none';
+  document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; inp.remove(); if(!f) return;
+    chUpBusy=which;
+    const say=m=>{ const el=document.getElementById('chfu-'+which); if(el) el.textContent=m; };
+    clipSecs(f).then(secs=>{ if(secs>61) throw 'That clip runs '+Math.round(secs)+' seconds. A minute at most, so trim it and try again.'; return uploadClip(f, say); })
+      .then(uid=>chPost('/film',{which, uid}))
+      .then(j=>{ chUpBusy=0; CH_D.me.film1=j.film1; CH_D.me.film30=j.film30; track('chalfilm', which); toast('Day '+which+' film in. Good luck.'); render(); })
+      .catch(e=>{ chUpBusy=0; say(String((e&&e.message)||e||'It did not upload. Try again.')); });
+  };
+  inp.click();
+}
+/* the prizes, and how close you are to the draw */
+function chPrizesHTML(){
+  const me=CH_D.me, days=CH_D.cfg.days, n=CH_D.day;
+  const closes=chDate(days+3).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  const told=chDate(days+4).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  const W=CH_D.winners;
+  if(W) return `<div class="card" style="margin-top:12px">
+    <div class="kick2" style="color:var(--forest)">THE WINNERS</div>
+    ${W.mine?`<div style="font:400 24px/1.1 var(--serif);margin-top:6px">You <em style="color:var(--forest);font-style:normal">won.</em></div><div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:4px">Elliott is in touch by email.</div>`:''}
+    ${W.most?`<div style="font:400 15px/1.5 var(--sans);margin-top:10px"><b style="font-weight:600">Most improved, the parallettes:</b> ${esc(W.most)}</div>`:''}
+    ${W.draw.length?`<div style="font:400 15px/1.5 var(--sans);margin-top:6px"><b style="font-weight:600">Three months of the Ladder:</b> ${W.draw.map(esc).join(', ')}</div>`:''}</div>`;
+  const got=me?Object.keys(me.d).filter(k=>+k>=1&&+k<=days).length:0, need=me?(me.need||25):25, pct=Math.min(100,Math.round(got/need*100));
+  return `<div class="card" style="margin-top:12px">
+    <div class="kick2" style="color:var(--forest)">PRIZES</div>
+    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Win a set of <em style="color:var(--forest);font-style:normal">parallettes.</em></div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">For the most improved, picked by me from your day 1 and day 30 films. And three people drawn from everyone who logs ${need===25?'25':need} of the ${days} days win three months of the Ladder.</div>
+    ${me?`<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>The draw</span><span style="color:var(--deep);font-variant-numeric:tabular-nums">${got} of ${need} days</span></div>
+      <div style="height:8px;border-radius:99px;background:rgba(29,85,102,.10);margin-top:8px;overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--forest);border-radius:99px"></i></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${[1,30].map(w=>`<span class="chwk">Day ${w} film: <b>${me['film'+w]?'in':'not yet'}</b></span>`).join('')}</div></div>`:''}
+    <details style="margin-top:12px"><summary style="cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);min-height:32px">The rules</summary>
+      <ul class="chlist" style="font-size:13px;color:var(--grey)">
+        <li>Joining the challenge is your entry. It is free, and the extras do not change anybody's chances.</li>
+        <li>Most improved: picked by Elliott from your day 1 and day 30 films of your stage's test. Day 1 films go in by day 7, day 30 films by ${esc(closes)}. His pick is final.</li>
+        <li>The draw: log 25 of the ${days} days. Each day you flag takes one off the 25, down to 15. Three winners, drawn at random, each get three months of the Ladder.</li>
+        <li>Winners shown here on ${esc(told)} and told by email. One prize each. The parallettes go to a UK address. No cash instead.</li>
+      </ul></details></div>`;
 }
 function chExtrasHTML(){
   if(!CH_D || CH_D.day>CH_D.cfg.days) return '';

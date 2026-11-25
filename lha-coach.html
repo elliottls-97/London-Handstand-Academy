@@ -1643,6 +1643,49 @@ function chalPaid(email, paid){
   fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({email, paid})})
     .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(paid?'Extras on':'Extras off'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
 }
+function chalAct(body, done, ask){
+  if(ask && !confirm(ask)) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(typeof done==='function'?done(j):done); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+/* the prizes (25 Nov 2026): films side by side for the most improved, the
+   draw for three months of the Ladder, and when to show the winners */
+function chalPrizeHTML(ppl){
+  const pz=chal.prize||{}, R=chal.rules||{need:25,floor:15,drawN:3,months:3};
+  const films=ppl.filter(p=>p.film1||p.film30).sort((a,b)=>(!!(b.film1&&b.film30))-(!!(a.film1&&a.film30)));
+  const elig=ppl.filter(p=>p.eligible), winners=(pz.draw&&pz.draw.winners)||[];
+  const byE=Object.fromEntries(ppl.map(p=>[p.email,p]));
+  const nm=e=>{ const p=byE[e]; return p?(p.name||e):e; };
+  const monthLeft=elig.filter(p=>!p.month).length;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">PRIZES</div>
+    <div style="font:400 26px/1.1 var(--serif);margin-top:8px">Most improved: <em style="color:var(--forest);font-style:normal">${pz.most?esc(nm(pz.most)):'not picked yet'}.</em></div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${films.length} sent a film, ${films.filter(p=>p.film1&&p.film30).length} sent both. Day 1 on the left, day 30 on the right.</div>
+    ${films.length?`<div style="display:flex;flex-direction:column;gap:16px;margin-top:14px">${films.map(p=>`<div data-k="chf-${esc(p.email)}" style="border-top:1px solid var(--line);padding-top:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b>
+        <span style="font:400 12.5px var(--sans);color:var(--grey2)">${p.st!=null?esc(['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press'][p.st]||''):''}</span>
+        ${pz.most===p.email?`<span style="margin-left:auto;font:700 12px/1 var(--sans);color:var(--forest)">PARALLETTES</span>`
+          :`<button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="chalAct({most:${esc(JSON.stringify(p.email))}},'Picked for the parallettes')">Pick for the parallettes</button>`}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px">
+        <div>${p.film1?clipPoster(p.film1,'4/5','320px'):'<div style="aspect-ratio:4/5;max-height:320px;border-radius:12px;background:rgba(29,85,102,.06);display:grid;place-items:center;font:400 13px var(--sans);color:var(--grey2)">No day 1 film</div>'}</div>
+        <div>${p.film30?clipPoster(p.film30,'4/5','320px'):'<div style="aspect-ratio:4/5;max-height:320px;border-radius:12px;background:rgba(29,85,102,.06);display:grid;place-items:center;font:400 13px var(--sans);color:var(--grey2)">No day 30 film yet</div>'}</div>
+      </div></div>`).join('')}</div>`:''}
+    <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:16px">
+      <div style="font:400 22px/1.2 var(--serif)">The draw: <em style="color:var(--forest);font-style:normal">${elig.length} reached it.</em></div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${R.need} logged days, one fewer for each flagged day, down to ${R.floor}. ${R.drawN} winners get ${R.months} months of the Ladder.</div>
+      ${winners.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${winners.map(e=>{ const p=byE[e]||{};
+        return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px var(--sans)">${esc(nm(e))}</b><span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(e)}</span>
+          ${p.given?`<span style="margin-left:auto;font:600 12.5px var(--sans);color:var(--forest)">${R.months} months given</span>`
+            :`<button class="btn btn-sm" style="margin-left:auto" onclick="chalAct({give:${esc(JSON.stringify(e))}},'${R.months} months given')">Give ${R.months} months</button>`}</div>`; }).join('')}
+        <div style="font:400 12px var(--sans);color:var(--grey2)">Drawn ${new Date(pz.draw.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} from ${pz.draw.from}.</div></div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-sm" ${elig.length?'':'disabled'} onclick="chalAct({draw:true},'Drawn',${winners.length?"'Draw again? The winners above are replaced.'":"'Draw "+R.drawN+" winners now, at random, from the "+elig.length+" who reached it?'"})">${winners.length?'Draw again':'Draw '+R.drawN+' winners'}</button>
+        <button class="btn btn-secondary btn-sm" ${monthLeft?'':'disabled'} onclick="chalAct({monthAll:true},j=>'A free month for '+j.monthN,'Give a free month of the Ladder to the ${monthLeft} who reached it and have not had one?')">Free month for everyone who reached it (${monthLeft})</button>
+        <button class="btn btn-secondary btn-sm" onclick="chalAct({announced:${pz.announced?'false':'true'}},'${pz.announced?'Winners hidden':'Winners showing in the app'}')">${pz.announced?'Hide the winners in the app':'Show the winners in the app'}</button>
+      </div>
+    </div>
+  </div>`;
+}
 function challengeHTML(){
   loadChal();
   if(chalErr) return `<div class="card"><div class="kick">CHALLENGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load it. ${esc(chalErr)}.</div>
@@ -1676,12 +1719,13 @@ function challengeHTML(){
     </div>
     <button class="btn btn-sm" style="margin-top:12px" onclick="chalSave()">Save</button>
   </div>
+  ${chalPrizeHTML(ppl)}
   <div class="card">
     <div class="kick">PEOPLE</div>
     ${ppl.length?`<div style="margin-top:8px">${ppl.map(p=>{ const got=(p.d.match(/[smfco]/g)||[]).length, wk=Object.keys(p.wk||{}).sort().map(w=>'W'+w+' '+p.wk[w]).join(', ');
       return `<div data-k="ch-${esc(p.email)}" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 0;border-top:1px solid var(--line)">
         <div style="min-width:0"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b> <span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(p.email)}</span>
-          <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${p.st!=null?esc(stg[p.st]||'')+' · ':''}joined ${dt(p.at)}${p.src?' · from '+esc(p.src):''}${p.paid?(p.comp?' · extras given':' · paid '+dt(p.paidAt)+(p.amount?' £'+(p.amount/100).toFixed(2):'')):''}${wk?' · '+esc(wk):''}</div>
+          <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${p.st!=null?esc(stg[p.st]||'')+' · ':''}joined ${dt(p.at)}${p.src?' · from '+esc(p.src):''}${p.eligible?' · in the draw':''}${p.film1?' · day 1 film':''}${p.film30?' · day 30 film':''}${p.paid?(p.comp?' · extras given':' · paid '+dt(p.paidAt)+(p.amount?' £'+(p.amount/100).toFixed(2):'')):''}${wk?' · '+esc(wk):''}</div>
           <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:7px">${p.d.split('').map(ch=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${col[ch]||'rgba(29,85,102,.08)'};${ch==='x'?'background:transparent;border:1.5px dashed var(--grey2)':''}"></i>`).join('')}</div></div>
         <div style="text-align:right"><div style="font:600 18px/1 var(--sans);font-variant-numeric:tabular-nums">${got}/${c.days}</div>
           <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="chalPaid(${esc(JSON.stringify(p.email))},${p.paid?'false':'true'})">${p.paid?'Take extras off':'Give extras'}</button></div></div>`; }).join('')}</div>`
