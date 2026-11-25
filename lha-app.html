@@ -31588,6 +31588,7 @@ function chMoreHTML(){
     + `<button class="card" onclick="chSeePrizes()" style="display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:16px 18px;cursor:pointer;text-align:left;border:1px solid rgba(29,85,102,.10)">
         <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${CH_D.winners?'The winners':'Prizes'}</span><span style="display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">${CH_D.winners?'Most improved and the draw':'Parallettes, a 1-2-1, the app and January classes'}</span></span>
         <span aria-hidden="true" style="font:600 22px/1 var(--sans);color:var(--forest)">&rsaquo;</span></button>`
+    + row('rules', 'The rules', 'How the winners are picked', `<div style="padding:0 2px 8px">${chRulesHTML()}</div>`)
     + (!chPaid() && n<=days && !(typeof IOS_APP!=='undefined' && IOS_APP) ? row('help', 'Want my help?', 'Sessions for your level, my feedback and a weekly call', chHelpHTML(true)) : '');
 }
 /* the log: one tap on what they did. late: a day before today */
@@ -31810,6 +31811,23 @@ function chHelpHTML(big){
       <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Optional. The challenge is free either way.</div></div>`;
 }
 /* the prizes, and how close you are to the draw */
+/* the rules (Elliott, 25 Nov: "lets have a rules section, ultimately its on me to
+   judge the people who win. It can be improvements on how long they can hold chest
+   to wall or it can be freestanding balance, or progress through the app"), and the
+   door count that stops a weak start film being worth faking */
+function chRulesHTML(){
+  const days=CH_D.cfg.days, need=CH_D.cfg.need||20, floor=CH_D.cfg.floor||12;
+  const closes=chDate(days+3).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  const told=chDate(days+4).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  return `<ul class="chlist" style="font-size:13.5px;line-height:1.5;color:var(--grey)">
+    <li>Joining is your entry. It is free, and paying for help does not change anybody's chances.</li>
+    <li>Any practice counts. Open a door for each day you practise; a rest day is never held against you.</li>
+    <li>To win anything, open at least ${need} of the ${days} doors. Each day marked as a rest day takes one off that, down to ${floor}.</li>
+    <li>Most improved, the parallettes and a 1-2-1: film your honest best on day 1, and again from day ${days-2} to ${esc(closes)}. Elliott judges the improvement: a longer chest-to-wall hold, better freestanding balance, or how far you climb through the app. A start film that is not a real attempt can be left out. His pick is final.</li>
+    <li>The draw: four winners, picked at random from everyone who opened enough doors. The first gets three months of the app, the other three a free class in January at OverGravity, Shadwell (a form check from Elliott if you cannot get to London).</li>
+    <li>One prize each. Winners shown here on ${esc(told)} and told by email. Parallettes go to a UK address. The 1-2-1 is in London or on a video call. No cash instead.</li>
+  </ul>`;
+}
 function chPrizesHTML(sheet){
   const me=CH_D.me, days=CH_D.cfg.days;
   const closes=chDate(days+3).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
@@ -31836,20 +31854,15 @@ function chPrizesHTML(sheet){
     <div class="kick2" style="color:var(--forest)">PRIZES</div>
     <div style="font:400 28px/1.1 var(--serif);margin-top:6px">What you can ${chEm('win.')}</div>
     <div style="margin-top:12px">
-      ${pz('bars','MOST IMPROVED','A set of parallettes and a 1-2-1 with Elliott','Picked from your start and end films, at any level. The 1-2-1 is in London or on a video call.')}
-      ${pz('phone','THE DRAW','Three months of the app','One winner, drawn from everyone who logs '+need+' days.')}
+      ${pz('bars','MOST IMPROVED','A set of parallettes and a 1-2-1 with Elliott','Elliott judges it from your start and end films: a longer chest-to-wall hold, better freestanding balance, or how far you climb through the app. Open '+need+' doors to be in the running.')}
+      ${pz('phone','THE DRAW','Three months of the app','One winner, drawn from everyone who opens '+need+' doors.')}
       ${pz('ticket','THE DRAW','A free class in January, for three','Three more from the draw, at OverGravity in Shadwell. Can\'t get to London? A form check from Elliott instead.')}
     </div>
     ${me?`<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--line)"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>Days for the draw</span><span style="color:var(--deep);font-variant-numeric:tabular-nums">${got} of ${need}</span></div>
       <div style="height:8px;border-radius:99px;background:rgba(29,85,102,.10);margin-top:8px;overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--forest);border-radius:99px"></i></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${[1,days].map(w=>`<span class="chwk">${w===1?'Start':'End'} film: <b>${(w===1?me.film1:me.filmEnd)?'in':'not yet'}</b></span>`).join('')}</div></div>`:''}
     <details style="margin-top:12px"><summary style="cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);min-height:32px">The rules</summary>
-      <ul class="chlist" style="font-size:13px;color:var(--grey)">
-        <li>Joining is your entry. It is free, and paying for help does not change anybody's chances.</li>
-        <li>Most improved: Elliott picks from your start and end films. The start film goes in on day 1, by day 7 (or within three days of joining late). The end film goes in from day ${days-2} to ${esc(closes)}. His pick is final.</li>
-        <li>The draw: log ${CH_D.cfg.need||20} of the ${days} days. Flag a day as ill, injured or away and you need one fewer, down to ${CH_D.cfg.floor||12}. Four winners, picked at random: the first gets three months of the app, the other three a free class in January at OverGravity, Shadwell. Can't get to London? A form check from Elliott instead.</li>
-        <li>Winners shown here on ${esc(told)} and told by email. One prize each. Parallettes go to a UK address. The 1-2-1 is in London or on a video call. No cash instead.</li>
-      </ul></details></div>`;
+      ${chRulesHTML()}</details></div>`;
 }
 function chWeekHTML(){
   const T=chTest(), me=CH_D.me, n=CH_D.day, wk=Math.min(5, Math.ceil(Math.max(1,n)/7));

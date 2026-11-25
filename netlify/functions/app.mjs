@@ -13221,7 +13221,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/coach/challenge' && request.method === 'GET') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const cfg = await chCfg(), rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
-    return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg),
+    /* what each said they could do in the level questions, beside their films (25 Nov) */
+    const intakes = Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('intake:')}*`).catch(() => [])) || []))
+      .map(r => [r.key.slice(7), (r.value && r.value.skills) || null]));
+    return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg), { said: intakes[r.key.slice(5)] || null },
       { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
         comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
         film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
