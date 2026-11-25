@@ -1627,6 +1627,8 @@ button{color:var(--ink)}
 .chfold .card{box-shadow:none;border:0;margin-top:0!important}
 /* the doors over the picture (25 Nov 2026): no gaps, so only an opened door
    shows what is behind it */
+.chmins{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:8px}
+.chmins .chopt{padding:0 4px}
 .chdoors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;max-width:420px;margin:0 auto;border-radius:16px;overflow:hidden;
  background-color:#0b2129;background-size:100% 100%;background-repeat:no-repeat;box-shadow:0 10px 26px rgba(11,33,41,.28)}
 .chdoor{position:relative;aspect-ratio:1/1;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
@@ -1643,8 +1645,11 @@ button.chdoor.past{cursor:pointer;color:#f3c77a;box-shadow:inset 0 0 0 2px rgba(
 .chdoor.flag{background:rgba(11,33,41,.62)!important;color:rgba(255,255,255,.75);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
 .chdoor.pick{box-shadow:inset 0 0 0 3px #fff}
 button.chdoor{cursor:pointer;-webkit-tap-highlight-color:transparent}
-.chdoor.missed{color:#f3c77a;box-shadow:inset 0 0 0 2px rgba(243,199,122,.8)}
-.chdoor.missed small{color:#f3c77a}
+/* a day gone by and not logged: white, so it stands out from the doors to
+   come (Elliott, 25 Nov: "more contrasty to have white background of
+   unopened ones that have passed") */
+.chdoor.missed,.chdoor.missed:nth-child(odd){background:#fbfaf6;color:var(--deep);box-shadow:inset 0 0 0 1px rgba(11,33,41,.35)}
+.chdoor.missed small{color:var(--forest)}
 .chdoor.today small{font-size:8.5px;letter-spacing:.04em}
 .chask{position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;padding:12px;border-radius:16px;background:rgba(11,33,41,.55);
  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fade .2s both}
@@ -30996,7 +31001,7 @@ function appIntroStop(){ if(appIntroH){ try{ appIntroH.stop(); }catch(e){} appIn
    24 December, the calendar is advent doors that open when the day is
    logged, and the tip is what is behind today's door, a new one each day. */
 let CH_D=null, chBusy=false, chErr='', chAt=0, chWkVal='', chUpBusy=0;
-const CH_KIND={o:'Practised',s:'App session',m:'5 minutes',c:'A class',f:'Mobility'};
+const CH_KIND={o:'Practised',s:'App session',m:'Practised',c:'A class',f:'Mobility'};
 const CH_COL={o:'var(--forest)',s:'var(--forest)',m:'var(--forest)',c:'var(--forest)',f:'var(--forest)'};
 const CH_FLAG={ill:'Ill',injured:'Injured',away:'Away',other:'Something else'};
 /* the Sunday test and the film on the first and last day: one of each stage's own
@@ -31084,10 +31089,10 @@ function chBuy(){
     .then(j=>{ if(j.url) location.href=j.url; }).catch(e=>toast(e.message));
 }
 /* one tap: what they did is the whole log */
-function chLog(day, k){
-  chPost('/log',{day, k, m: k==='m' ? 5 : 0, stage:chLevel()})
+function chLog(day, k, m){
+  chPost('/log',{day, k, m: Number(m) || (k==='m' ? 5 : 0), stage:chLevel()})
     .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; st.chAsk=0; st.chJust=day; track('challog', chLevel());
-      toast(day===CH_D.day ? 'Day '+day+' done.' : 'Day '+day+' logged.'); render(); chLoad(true); })
+      toast((day===CH_D.day ? 'Door '+day+' open' : 'Day '+day+' logged')+(m?', '+chMinsTxt(m):'')+'.'); render(); chLoad(true); })
     .catch(e=>toast(e.message));
 }
 function chFlag(day, f){
@@ -31186,7 +31191,7 @@ function chalCardHTML(){
        <button class="btn2" style="flex:1" onclick="chOpen()">The challenge</button></div>`);
   return wrap(kick('DOOR '+n+' OF '+days) + head('Did you practise '+chEm('today?'))
     + `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Logging it opens door ${n}.${bd.length>1?' '+kt+' of '+bd.length+' have opened theirs today.':''}</div>`
-    + `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" style="flex:1.3;padding:14px" onclick="chLog(${n},'o')">Yes, open door ${n}</button>
+    + `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" style="flex:1.3;padding:14px" onclick="st.chAsk=${n};st.chKind='o';save();chOpen()">Yes, open door ${n}</button>
        <button class="btn2" style="flex:1" onclick="chOpen()">Other options</button></div>`);
 }
 /* a small dot a day */
@@ -31290,12 +31295,19 @@ function chMoreHTML(){
     + (!chPaid() && n<=days ? row('help', 'Want my help?', 'Sessions for your level, my feedback and a weekly call', chHelpHTML(true)) : '');
 }
 /* the log: one tap on what they did. late: a day before today */
+/* the log asks how long (Elliott, 25 Nov: "log a session should ask how
+   long they trained. App session auto does it"): what it was, then the
+   minutes, and the minutes are the tap that logs it */
+const CH_MINS=[5,10,15,20,30,45,60,90];
+const chMinsTxt = m => m>=60 ? (m%60 ? Math.floor(m/60)+' h '+(m%60)+' min' : (m/60)+(m===60?' hour':' hours')) : m+' min';
 function chLogHTML(n, late){
-  const fo=st.chFlagOpen===n;
+  const fo=st.chFlagOpen===n, kind=['o','s','c'].includes(st.chKind)?st.chKind:'o';
   return `<div style="font:400 22px/1.15 var(--serif);margin-top:6px">Did you practise ${chEm(late?'that day?':'today?')}</div>
     <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">Any practice counts. It opens door ${n}.</div>
-    <button class="btn" style="margin-top:12px" onclick="chLog(${n},'o')">Yes, I practised</button>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${['s','m','c'].map(k=>`<button class="chopt" style="flex:1;min-width:0" onclick="chLog(${n},'${k}')">${esc(CH_KIND[k])}</button>`).join('')}</div>
+    <div class="seg" style="margin-top:12px" role="radiogroup" aria-label="What it was">${[['o','My own'],['s','App session'],['c','A class']].map(([k,l])=>
+      `<button role="radio" aria-checked="${kind===k}" class="${kind===k?'on':''}" onclick="st.chKind='${k}';save();render()">${l}</button>`).join('')}</div>
+    <div style="font:600 13px/1.3 var(--sans);color:var(--ink);margin-top:14px">How long did you train?</div>
+    <div class="chmins">${CH_MINS.map(m=>`<button class="chopt" onclick="chLog(${n},'${kind}',${m})">${m===90?'90+':m} min</button>`).join('')}</div>
     ${fo ? `<div style="font:600 12.5px/1.3 var(--sans);color:var(--grey);margin-top:14px">Flagged days do not count against you.</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${Object.keys(CH_FLAG).map(f=>`<button class="chflag" onclick="chFlag(${n},'${f}')">${CH_FLAG[f]}</button>`).join('')}</div>`
       : `<button onclick="st.chFlagOpen=${n};save();render()" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Can't ${late?'that day':'today'}? Flag it</button>`}`;
@@ -31322,7 +31334,7 @@ const CH_HAT='<svg width="22" height="18" viewBox="0 0 44 36" aria-hidden="true"
 function chDoorTap(i){
   const n=CH_D.day, me=CH_D.me, x=me.d[i];
   if(i>n){ toast('Door '+i+' opens on '+chDayName(i)+'.'); return; }
-  if(x){ toast('Door '+i+': '+(CH_KIND[x.k]||'practised').toLowerCase()+(x.auto?', from your session':'')+'.'); return; }
+  if(x){ toast('Door '+i+': '+(CH_KIND[x.k]||'practised').toLowerCase()+(x.m?', '+chMinsTxt(x.m):'')+(x.auto?', from your session':'')+'.'); return; }
   st.chAsk=i; st.chFlagOpen=0; save(); render();
 }
 function chCalHTML(){
@@ -31351,7 +31363,7 @@ function chCalHTML(){
       <span style="flex:1;min-width:160px;font:400 14px/1.4 var(--sans);color:var(--grey)">Practised today? <b style="color:var(--ink);font-weight:600">Tap door ${n}</b> to open it.</span>
       <button class="btn" style="width:auto;padding:12px 18px" onclick="chDoorTap(${n})">Open door ${n}</button></div>`;
   else if(did||fl) log=`<div class="chlogin" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="flex:1;min-width:150px;font:400 14px/1.4 var(--sans);color:var(--grey)">${did?'<b style="color:var(--ink);font-weight:600">Door '+n+' is open.</b> '+esc(CH_KIND[did.k]||'')+(did.auto?', from your session':''):esc(CH_FLAG[fl])+'. Not counted against you.'}</span>
+      <span style="flex:1;min-width:150px;font:400 14px/1.4 var(--sans);color:var(--grey)">${did?'<b style="color:var(--ink);font-weight:600">Door '+n+' is open.</b> '+esc(CH_KIND[did.k]||'')+(did.m?', '+chMinsTxt(did.m):'')+(did.auto?', from your session':''):esc(CH_FLAG[fl])+'. Not counted against you.'}</span>
       ${did?`<button class="btn" style="width:auto;padding:12px 18px" onclick="chShare()">Share my day</button>`:''}
       <button onclick="chUndo(${n})" style="border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change</button></div>`;
   const got=chGot(), missedN=Array.from({length:Math.max(0,Math.min(n-1,days))},(_,i)=>i+1).filter(i=>!me.d[i]&&!me.fl[i]).length;
