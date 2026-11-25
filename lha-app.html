@@ -1623,6 +1623,9 @@ button{color:var(--ink)}
 .chc{width:30px;height:30px;border-radius:50%;box-sizing:border-box;display:grid;place-items:center;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums}
 .chwk{font:400 12.5px/1 var(--sans);color:var(--grey);background:rgba(29,85,102,.06);border-radius:999px;padding:8px 11px}
 .chwk b{color:var(--deep)}
+.chlogin{margin-top:14px;padding-top:14px;border-top:1px solid rgba(29,85,102,.08)}
+.chdoor.pick{box-shadow:0 0 0 3px var(--forest)}
+.chfold .card{box-shadow:none;border:0;margin-top:0!important}
 .chdoors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @media (min-width:560px){.chdoors{grid-template-columns:repeat(6,minmax(0,1fr))}}
 .chdoor{aspect-ratio:1/1;border-radius:14px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
@@ -1683,6 +1686,30 @@ button.chdoor.past small{color:var(--forest)}
    that is always on screen */
 .tab span{font:600 12.5px/1 var(--sans);color:var(--grey)}
 .tab.on span{font-weight:700;color:var(--deep)}
+/* ── like the YouTube app (Elliott, 25 Nov 2026) ───────────────────────
+   "the menu bar is moved down a little to the bottom of the phone. and the
+   tabs for coaching, classes are swipeable". On a phone the bar sits flush
+   on the bottom edge, full width, a hairline above it, the tab you are on
+   in teal with a mark over it. The laptop rail is untouched. */
+@media (max-width:1079px){
+  .tabbar{left:0;right:0;bottom:0;gap:0;border-radius:0;border:0;border-top:1px solid rgba(29,85,102,.10);
+    padding:4px 8px calc(env(safe-area-inset-bottom,0px) + 4px);box-shadow:0 -6px 20px rgba(29,85,102,.05)}
+  .tab{min-height:50px;padding:10px 4px;border-radius:12px}
+  .tab.on{background:transparent;box-shadow:none}
+  .tab.on span{color:var(--forest)}
+  .tab.on::before{content:'';position:absolute;top:3px;left:50%;width:22px;height:3px;margin-left:-11px;border-radius:2px;background:var(--forest)}
+  .askpill{bottom:calc(env(safe-area-inset-bottom,0px) + 70px)}
+}
+/* the sections as a row of words you can swipe, as YouTube's Home, Music, Live */
+.secchips{display:flex;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity;padding:3px 2px;min-width:0;flex:1;
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}
+.secchips::-webkit-scrollbar{display:none}
+.secchips button{flex:none;position:relative;height:38px;padding:0 14px;border-radius:12px;border:0;cursor:pointer;white-space:nowrap;scroll-snap-align:start;
+  background:rgba(29,85,102,.06);color:var(--ink);font:600 14px/1 var(--sans);transition:background .2s,color .2s}
+.secchips button.on{background:rgba(35,127,149,.16);color:var(--deep)}
+.secchips button b{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--amber)}
+.secchips button:last-child{margin-right:14px}
 .ov{position:fixed;inset:0;z-index:60;display:none;background:rgba(0,25,30,.45);
  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
  align-items:flex-end;justify-content:center}
@@ -21204,6 +21231,7 @@ function secFollowTab(){
   if(want==='hs' && st.viewChosen==='inperson') st.viewChosen='ladder';
 }
 function topSwitchHTML(){
+  if(!wide()) return secChipsHTML();
   const fig=(f)=>`<svg viewBox="0 0 100 130" width="22" height="29" aria-hidden="true">${f.p.map(([d,o])=>`<path d="${d}" fill="currentColor" opacity="${o}"/>`).join('')}<path d="${f.d}" fill="currentColor"/></svg>`;
   const sec=section();
   /* something waiting in Coaching while you are elsewhere: a dot on it */
@@ -21217,6 +21245,26 @@ function topSwitchHTML(){
   return `<div class="lglass g3" style="--i:${i}" role="radiogroup" aria-label="Handstand, classes or coaching">
     <i class="lglass-th" aria-hidden="true"></i>
     ${opts.map(([k,lab,word,ico],n)=>`<button role="radio" class="${n===i?'on':''}" aria-checked="${n===i}" aria-label="${lab}" title="${lab}" onclick="topGo(this,'${k}',${n})">${ico}<span>${word}</span></button>`).join('')}</div>`;
+}
+/* on a phone: the sections as words in a row that swipes (25 Nov 2026) */
+function secChipsHTML(){
+  const sec=section(), dot = sec!=='co' && (msgsNew()>0 || answerNew()>0);
+  try{ if(!coachedView()) chLoad(); }catch(e){}
+  const adv = (()=>{ try{ return !coachedView() && chLive(); }catch(e){ return false; } })();
+  const opts=[['hs','Handstand']]
+    .concat(adv ? [['adv','Advent']] : [])
+    .concat(MU_ON ? [['mu','Muscle up']] : [])
+    .concat([['classes','Classes'],['co',coWord()]]);
+  const cur = st.tab==='chal' ? 'adv' : sec==='classes' ? 'classes' : sec==='co' ? 'co' : isMU() ? 'mu' : 'hs';
+  setTimeout(()=>{ const e=document.querySelector('.secchips .on'), r=e&&e.parentNode;
+    if(e && r && (e.offsetLeft < r.scrollLeft || e.offsetLeft+e.offsetWidth > r.scrollLeft+r.clientWidth)) r.scrollLeft=e.offsetLeft-8; }, 0);
+  return `<div class="secchips" role="tablist" aria-label="Sections">${opts.map(([k,w])=>
+    `<button role="tab" class="${k===cur?'on':''}" aria-selected="${k===cur}" onclick="secChip('${k}')">${esc(w)}${k==='co'&&dot?'<b aria-label="something new"></b>':''}</button>`).join('')}</div>`;
+}
+function secChip(k){
+  if(k==='adv'){ chOpen(); return; }
+  if(k==='hs' && st.tab==='chal'){ go('home'); return; }
+  goSection(k);
 }
 /* the glass slides first, then the screen changes under it */
 function topGo(el, to, n){
@@ -31019,7 +31067,7 @@ function chJoin(){
 function chJoinAs(nm, show){
   chBusy=true; render();
   chPost('/join',{name:nm, show, stage:chLevel(), src:st.ref||''})
-    .then(()=>{ chBusy=false; track('chaljoin', chLevel()); st.chTab='today'; save();
+    .then(()=>{ chBusy=false; track('chaljoin', chLevel()); save();
       toast(CH_D && CH_D.day>=1 ? 'You are in. Day '+CH_D.day+' is today.' : 'You are in. Day 1 is '+chWeekday(1)+'.'); chLoad(true); })
     .catch(e=>{ chBusy=false; toast(e.message); render(); });
 }
@@ -31140,22 +31188,19 @@ function chDotsHTML(me, sz){
 }
 /* ── the Challenge screen ──────────────────────────────────────────── */
 function screenChallenge(){
-  chLoad();
+  chLoad(); setTimeout(chAuto, 0);
   const W='<div class="scroll s"><div class="chpg">';
   const back=`<button onclick="go('home')" style="background:none;border:0;padding:0;cursor:pointer;font:500 13px/1.4 var(--sans);color:var(--forest);min-height:32px">&larr; Train</button>`;
   if(!CH_D) return W+back+`<div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:24px">${chErr?esc(chErr)+` <button class="btn2" style="margin-top:12px" onclick="chLoad(true)">Try again</button>`:'Loading the challenge…'}</div></div></div>`;
   const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me;
-  const tab = me ? (st.chTab||'today') : 'join';
+  const bd=CH_D.board||[], kt=bd.filter(r=>n>=1 && /[smfco]/.test(r.d[n-1]||'')).length;
   const head=`<div class="kick2" style="color:var(--forest);margin-top:16px">HANDSTAND ADVENT CHALLENGE</div>
     <h1 style="margin:8px 0 0;font:400 40px/1 var(--serif);letter-spacing:-.015em">${
       n<1 ? 'Starts '+esc(chWeekday(1))+' '+chEm(chDate(1).getUTCDate()+' '+esc(chDate(1).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}))+'.')
       : n>days ? (chGot()>=days ? 'All '+days+' doors '+chEm('open.') : 'Advent, '+chEm('done.'))
       : 'Door '+n+' of '+chEm(days+'.')}</h1>
-    ${me && n>=1 ? `<div style="font:400 14px/1.4 var(--sans);color:var(--grey);margin-top:6px">${chGot()} door${chGot()===1?'':'s'} open.</div>` : ''}`;
-  const seg = me ? `<div class="seg" style="margin-top:16px">${[['today','Today'],['board','Everyone'],['week','Sunday test']].map(([k,l])=>
-    `<button class="${tab===k?'on':''}" onclick="st.chTab='${k}';save();render()">${l}</button>`).join('')}</div>` : '';
-  const body = tab==='join' ? chJoinHTML() : tab==='board' ? chBoardHTML() : tab==='week' ? chWeekHTML() : chTodayHTML();
-  return W+back+head+seg+body+'</div></div>';
+    ${me && n>=1 ? `<div style="font:400 14px/1.4 var(--sans);color:var(--grey);margin-top:6px">${chGot()} door${chGot()===1?'':'s'} open${bd.length>1 && n<=days?' · '+kt+' of '+bd.length+' opened theirs today':''}.</div>` : ''}`;
+  return W+back+head+(me ? chPageHTML() : chJoinHTML())+'</div></div>';
 }
 const chSteps = () => `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${[
     ['Practise every day', 'Any practice counts: your own, a class, or the app. Ill, injured or away? Flag the day.'],
@@ -31177,70 +31222,68 @@ function chJoinHTML(){
     ${chPrizesHTML()}
     ${chHelpHTML(true)}`;
 }
-function chTodayHTML(){
+/* the page, in order (Elliott, 25 Nov: "the advent calendar is the main
+   thing and everyone's progress below it not on 3 tabs"): the calendar with
+   today's log in it, the start or end film when it is due, everyone, what is
+   behind today's door, and the rest folded into one line each */
+function chPageHTML(){
   const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me;
-  /* before day 1: what happens, and something to try */
-  if(n<1) return `<div class="card" style="margin-top:14px">
+  const intro = n<1 ? `<div class="card" style="margin-top:14px">
       <div class="kick2" style="color:var(--forest)">YOU ARE IN</div>
-      <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Day 1 is ${chEm(esc(chDayName(1))+'.')}</div>
+      <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Door 1 opens ${chEm(esc(chDayName(1))+'.')}</div>
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">First, film where you start. Then practise as normal until door 1.</div>
-      ${chSteps()}
-      <button class="btn" style="margin-top:16px" onclick="chShare('in')">Tell the group you are in</button>
-    </div>${chStartOpen()?chFilmHTML(1):''}${chEveryoneHTML()}${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
-  const did=n<=days?me.d[n]:null, fl=n<=days?me.fl[n]:null;
-  const log = n>days ? `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">HOW IT WENT</div>
-      <div style="font:400 26px/1.1 var(--serif);margin-top:6px">${chGot()} of ${days} ${chEm('days.')}</div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${Object.keys(me.fl).length?Object.keys(me.fl).length+' flagged, not counted against you. ':''}Keep going: the Ladder carries on from your stage.</div></div>`
-    : (did||fl) ? `<div class="card" style="margin-top:14px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="flex:none;width:44px;height:44px;border-radius:50%;background:${did?'var(--forest)':'rgba(29,85,102,.08)'};display:grid;place-items:center">${did?`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>`:''}</span>
-        <span style="flex:1;min-width:0"><span style="display:block;font:400 24px/1.1 var(--serif)">${did?'Door '+n+' is '+chEm('open.'):'Day '+n+' '+chEm('flagged.')}</span>
-        <span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${did?esc(CH_KIND[did.k]||'')+(did.auto?', from the session you finished':''):esc(CH_FLAG[fl])+'. It does not count against you.'}</span></span></div>
-      ${did?`<button class="btn" style="margin-top:14px" onclick="chShare()">Share to the group</button>`:''}
-      <button onclick="chUndo(${n})" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change it</button></div>`
-    : `<div class="card" style="margin-top:14px">${chLogHTML(n)}</div>`;
-  const film = chStartOpen() && (!me.film1 || n<=3) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
-  const sunday = (n>=1 && n<=days && chDate(n).getUTCDay()===0) ? `<button class="card" onclick="st.chTab='week';save();render()" style="display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:16px 18px;cursor:pointer;text-align:left;border:1px solid rgba(29,85,102,.10)">
-      <span style="flex:1;min-width:0"><span class="kick2" style="color:var(--forest);display:block">IT IS SUNDAY</span><span style="display:block;font:400 19px/1.2 var(--serif);margin-top:5px">Do your test: ${esc(chTest().n.toLowerCase())}</span></span>
-      <span style="font:600 18px/1 var(--sans);color:var(--forest)">&rsaquo;</span></button>` : '';
-  const late=[n-1,n-2].filter(i=>i>=1 && i<=days && !me.d[i] && !me.fl[i]);
-  const lateH = late.length && n<=days+2 ? `<div class="card" style="margin-top:12px;padding:16px 18px"><div class="kick2" style="color:var(--forest)">FORGOT TO LOG?</div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${late.map(i=>`<button class="btn2${st.chLate===i?' on':''}" style="flex:1;min-width:130px${st.chLate===i?';border-color:var(--forest)':''}" onclick="st.chLate=${st.chLate===i?0:i};save();render()">Day ${i}, ${esc(chDate(i).toLocaleDateString('en-GB',{weekday:'short',timeZone:'UTC'}))}</button>`).join('')}</div>
-      ${st.chLate && late.includes(st.chLate) ? `<div style="margin-top:14px">${chLogHTML(st.chLate, true)}</div>` : ''}</div>` : '';
-  const call = (chPaid() && n<=days) ? `<div class="card" style="margin-top:12px;padding:16px 18px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1;min-width:0"><div class="kick2" style="color:var(--forest)">LIVE CALL</div><div style="font:400 18px/1.2 var(--serif);margin-top:5px">${esc(CH_D.cfg.callNote)}</div></div>
-      ${me.call?`<a class="btn2" style="flex:none;text-decoration:none;display:grid;place-items:center;min-height:44px;padding:0 16px" href="${esc(me.call)}" target="_blank" rel="noopener">Join</a>`:`<span style="font:400 12.5px/1.3 var(--sans);color:var(--grey2);max-width:120px;text-align:right">The link is here on the day</span>`}</div>` : '';
-  return log+chEveryoneHTML()+film+sunday+lateH+chTryHTML()+chCalHTML()+call+chPrizesHTML()+chHelpHTML();
+      <button class="btn" style="margin-top:14px" onclick="chShare('in')">Tell the group you are in</button></div>` : '';
+  const film = (chStartOpen() && (!me.film1 || n<=3)) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
+  /* the film goes above the calendar before day 1, below it after */
+  return n<1 ? intro+film+chCalHTML()+chEveryoneHTML()+chTryHTML()+chMoreHTML()
+             : chCalHTML()+film+chEveryoneHTML()+chTryHTML()+chMoreHTML();
 }
-/* everyone, today: who has opened today's door, and the group chat. It sits
-   on Today because that is where they are; the full board is a tap away. */
+/* everyone's progress, under the calendar: the group chat, how many have
+   opened today's door, and each person's 24 doors as a row */
 function chEveryoneHTML(){
   const b=CH_D.board||[], n=CH_D.day, days=CH_D.cfg.days, others=b.filter(r=>!r.me);
   const chat=chGroupBtn('btn2');
-  if(!others.length && !chat) return '';
-  const done=r=>n>=1 && n<=days && /[smfco]/.test(r.d[n-1]||'');
-  const ini=r=>{ const w=String(r.n||'?').trim(); return (w.length<=3 && w===w.toUpperCase()) ? w : w.slice(0,1).toUpperCase(); };
-  const faces=b.slice(0,16).map(r=>`<span title="${esc(r.n)}${r.me?' (you)':''}" style="flex:none;width:34px;height:34px;border-radius:50%;box-sizing:border-box;display:grid;place-items:center;font:600 12.5px/1 var(--sans);
-      ${done(r)?'background:var(--forest);color:var(--on-primary)':'background:#fff;color:var(--deep);border:1.5px solid rgba(29,85,102,.18)'}${r.me?';box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--amber)':''}">${esc(ini(r))}</span>`).join('');
-  const k=b.filter(done).length;
-  const line = n<1 ? `${b.length} ${b.length===1?'person is':'people are'} in`
-    : n>days ? `${b.length} took part` : `${k} of ${b.length} have opened door ${n}`;
-  return `<div class="card" style="margin-top:12px;padding:16px 18px">
-    <div style="display:flex;align-items:baseline;gap:8px"><div class="kick2" style="color:var(--forest)">EVERYONE</div>
-      ${others.length?`<button onclick="st.chTab='board';save();render()" style="margin-left:auto;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:32px">See everyone &rsaquo;</button>`:''}</div>
-    ${others.length?`<div style="font:400 19px/1.2 var(--serif);margin-top:6px">${esc(line)}.</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">${faces}${b.length>16?`<span style="align-self:center;font:600 12.5px/1 var(--sans);color:var(--grey)">+${b.length-16}</span>`:''}</div>`
-      :`<div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:6px">Nobody else has joined yet. Talk to everyone in the group chat.</div>`}
+  const kt=b.filter(r=>n>=1 && n<=days && /[smfco]/.test(r.d[n-1]||'')).length;
+  const line = !others.length ? 'Just '+chEm('you')+' so far.'
+    : n<1 ? b.length+' '+chEm(b.length===1?'person is in.':'people are in.')
+    : n>days ? b.length+' '+chEm('took part.')
+    : kt+' of '+b.length+' '+chEm('opened door '+n+'.');
+  const rows = others.length ? b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
+    return `<div style="padding:11px 0;border-top:1px solid rgba(29,85,102,.08)">
+      <div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
+        <span style="margin-left:auto;font:600 12.5px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${got}/${days}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px">${r.d.split('').map((c,i)=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.08)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'box-shadow:0 0 0 1.5px var(--amber);':''}"></i>`).join('')}</div></div>`; }).join('') : '';
+  return `<div class="card" id="chEveryone" style="margin-top:12px;padding:16px 18px 8px">
+    <div class="kick2" style="color:var(--forest)">EVERYONE</div>
+    <div style="font:400 22px/1.15 var(--serif);margin-top:6px">${line}</div>
     ${chat?`<div style="margin-top:12px">${chat}</div>`:''}
-    ${!others.length?`<button class="btn2" style="width:100%;margin-top:8px" onclick="chShare('in')">Invite someone</button>`:''}</div>`;
+    ${others.length?`<div style="margin-top:12px">${rows}</div>`
+      :`<button class="btn2" style="width:100%;margin:12px 0 10px" onclick="chShare('in')">Invite someone</button>`}
+  </div>`;
+}
+/* the smaller things, one line each, opened in place */
+function chMoreHTML(){
+  const n=CH_D.day, days=CH_D.cfg.days, sun=n>=1 && n<=days && chDate(n).getUTCDay()===0, open=st.chMore!=null?st.chMore:(sun?'week':CH_D.winners?'prize':'');
+  const row=(k, title, sub, body, hi)=>`<div class="card" style="margin-top:12px;padding:0;overflow:hidden${hi?';border-color:rgba(243,169,73,.6)':''}">
+    <button onclick="st.chMore=${open===k?"''":"'"+k+"'"};save();render()" aria-expanded="${open===k}" style="display:flex;align-items:center;gap:12px;width:100%;padding:16px 18px;border:0;background:none;cursor:pointer;text-align:left">
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${title}</span><span style="display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">${sub}</span></span>
+      <span style="font:600 18px/1 var(--sans);color:var(--forest)">${open===k?'&minus;':'+'}</span></button>
+    ${open===k?`<div class="chfold" style="padding:0 6px 6px">${body}</div>`:''}</div>`;
+  const call = (chPaid() && n<=days) ? `<div class="card" style="margin-top:12px;padding:16px 18px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1;min-width:0"><div style="font:600 15px/1.3 var(--sans)">Live call</div><div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc(CH_D.cfg.callNote)}</div></div>
+      ${CH_D.me.call?`<a class="btn2" style="flex:none;text-decoration:none;display:grid;place-items:center;min-height:44px;padding:0 16px" href="${esc(CH_D.me.call)}" target="_blank" rel="noopener">Join</a>`:`<span style="font:400 12.5px/1.3 var(--sans);color:var(--grey2);max-width:120px;text-align:right">The link is here on the day</span>`}</div>` : '';
+  const T=chTest();
+  return call
+    + row('week', sun?'It is Sunday: your test':'Sunday test', esc(T.n)+', ranked by how much you improve', chWeekHTML(), sun)
+    + row('prize', CH_D.winners?'The winners':'Prizes', CH_D.winners?'Most improved and the draw':'Parallettes for the most improved, and a draw', chPrizesHTML())
+    + (!chPaid() && n<=days ? row('help', 'Want my help?', 'Sessions for your level, my feedback and a weekly call', chHelpHTML(true)) : '');
 }
 /* the log: one tap on what they did. late: a day before today */
 function chLogHTML(n, late){
   const fo=st.chFlagOpen===n;
-  return `${late?'':`<div class="kick2" style="color:var(--forest)">DAY ${n}</div>
-    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Did you practise ${chEm('today?')}</div>
-    <div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Tap what you did.</div>`}
-    <button class="btn" style="margin-top:14px" onclick="chLog(${n},'o')">Yes, I practised</button>
+  return `${late?'':`<div style="font:400 20px/1.15 var(--serif)">Did you practise ${chEm('today?')}</div>
+    <div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">Any practice counts. It opens door ${n}.</div>`}
+    <button class="btn" style="margin-top:12px" onclick="chLog(${n},'o')">Yes, I practised</button>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${['s','m','c'].map(k=>`<button class="chopt" style="flex:1;min-width:0" onclick="chLog(${n},'${k}')">${esc(CH_KIND[k])}</button>`).join('')}</div>
     ${fo ? `<div style="font:600 12.5px/1.3 var(--sans);color:var(--grey);margin-top:14px">Flagged days do not count against you.</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${Object.keys(CH_FLAG).map(f=>`<button class="chflag" onclick="chFlag(${n},'${f}')">${CH_FLAG[f]}</button>`).join('')}</div>`
@@ -31255,19 +31298,28 @@ function chCalHTML(){
   const days=CH_D.cfg.days, n=CH_D.day, me=CH_D.me||{d:{},fl:{}};
   const order = days===CH_DOORS.length ? CH_DOORS : Array.from({length:days},(_,i)=>i+1);
   const doors=order.map(i=>{
-    const x=me.d[i], f=me.fl[i], today=i===n, past=i<n, late=past && i>=n-2 && !x && !f;
-    const date=chDate(i).getUTCDate();
-    const cls='chdoor'+(x?' open':f?' flag':today?' today':past?' past':' shut');
+    const x=me.d[i], f=me.fl[i], today=i===n, past=i<n, late=past && i>=n-2 && !x && !f && n<=days+2;
+    const cls='chdoor'+(x?' open':f?' flag':today?' today':past?' past':' shut')+(st.chLate===i?' pick':'');
     const inner = x ? `${CH_STAR}<small>${i}</small>` : `<b>${i}</b>${today?'<small>Today</small>':late?'<small>Open</small>':''}`;
-    const label='Door '+i+', '+date+' December'+(x?', open':f?', flagged':today?', today':'');
-    return (today && !x && !f) ? `<button class="${cls}" aria-label="${label}" onclick="const s=$('#app .scroll'); if(s) s.scrollTo({top:0,behavior:'smooth'})">${inner}</button>`
-      : late ? `<button class="${cls}" aria-label="${label}, log it" onclick="st.chLate=${i};save();render()">${inner}</button>`
+    const label='Door '+i+', '+chDate(i).getUTCDate()+' December'+(x?', open':f?', flagged':today?', today':'');
+    return late ? `<button class="${cls}" aria-label="${label}, log it" onclick="st.chLate=${st.chLate===i?0:i};save();render()">${inner}</button>`
       : `<span class="${cls}" aria-label="${label}">${inner}</span>`; }).join('');
-  return `<div class="card" style="margin-top:12px;padding:16px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font:400 20px/1 var(--serif)">Your advent ${chEm('calendar.')}</b>
-      <span style="font:400 12.5px/1 var(--sans);color:var(--grey)">${chGot()} open${Object.keys(me.fl).length?' · '+Object.keys(me.fl).length+' flagged':''}</span></div>
+  /* today's log, in the calendar: the door is what it opens */
+  const did=n>=1&&n<=days?me.d[n]:null, fl=n>=1&&n<=days?me.fl[n]:null;
+  let log='';
+  if(st.chLate && me.d && !me.d[st.chLate] && !me.fl[st.chLate] && st.chLate<n && st.chLate>=n-2)
+    log=`<div class="chlogin"><div style="font:600 13px/1.3 var(--sans);color:var(--deep)">Door ${st.chLate}, ${esc(chDate(st.chLate).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'}))}. Did you practise?</div>${chLogHTML(st.chLate, true)}</div>`;
+  else if(n>=1 && n<=days && !did && !fl) log=`<div class="chlogin">${chLogHTML(n)}</div>`;
+  else if(did||fl) log=`<div class="chlogin" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="flex:1;min-width:150px;font:400 14px/1.4 var(--sans);color:var(--grey)">${did?'<b style="color:var(--ink);font-weight:600">Door '+n+' is open.</b> '+esc(CH_KIND[did.k]||'')+(did.auto?', from your session':''):esc(CH_FLAG[fl])+'. Not counted against you.'}</span>
+      ${did?`<button class="btn" style="width:auto;padding:12px 18px" onclick="chShare()">Share my day</button>`:''}
+      <button onclick="chUndo(${n})" style="border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change</button></div>`;
+  return `<div class="card" style="margin-top:14px;padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font:400 22px/1 var(--serif)">Your advent ${chEm('calendar.')}</b>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey)">${Object.keys(me.fl).length?Object.keys(me.fl).length+' flagged':''}</span></div>
     <div class="chdoors" style="margin-top:12px">${doors}</div>
-    <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:10px;text-align:center">Each day you log opens its door. A dashed door is a flagged day.</div></div>`;
+    ${log}
+  </div>`;
 }
 /* the start film goes in when they start: from joining, up to day 7, or
    within three days of joining for anybody who joins later */
@@ -31344,20 +31396,6 @@ function chPrizesHTML(){
         <li>The draw: log ${CH_D.cfg.need||20} of the ${days} days. Flag a day as ill, injured or away and you need one fewer, down to ${CH_D.cfg.floor||12}. Three winners, picked at random.</li>
         <li>Winners shown here on ${esc(told)} and told by email. One prize each. Parallettes go to a UK address. No cash instead.</li>
       </ul></details></div>`;
-}
-function chBoardHTML(){
-  const b=CH_D.board, chat=chGroupBtn('btn');
-  if(!b) return `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">EVERYONE</div>
-    <div style="font:400 22px/1.2 var(--serif);margin-top:6px">Just ${chEm('you')} so far.</div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Everyone's advent calendars show here as people join.</div>
-    ${chat?`<div style="margin-top:12px">${chat}</div>`:''}
-    <button class="btn2" style="width:100%;margin-top:8px" onclick="chShare('in')">Invite someone</button></div>`;
-  return `${chat?`<div style="margin-top:14px">${chat}</div>`:''}<div class="card" style="margin-top:${chat?10:14}px;padding:6px 16px">${b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
-    return `<div style="padding:12px 0;border-bottom:1px solid rgba(29,85,102,.08)">
-      <div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' <span style="color:var(--forest);font-weight:600">(you)</span>':''}</b>
-        <span style="margin-left:auto;font:600 12.5px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${got}/${CH_D.cfg.days}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${r.d.split('').map((c,i)=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.08)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===CH_D.day?'box-shadow:0 0 0 1.5px var(--amber);':''}"></i>`).join('')}</div></div>`; }).join('')}</div>
-    <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:10px;text-align:center">First names only. A dashed ring is a flagged day.</div>`;
 }
 function chWeekHTML(){
   const T=chTest(), me=CH_D.me, n=CH_D.day, wk=Math.min(5, Math.ceil(Math.max(1,n)/7));
