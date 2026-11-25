@@ -30,6 +30,7 @@ import * as supa from './supa.mjs';
 import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail, fcLinkEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
+import { EB_API, EB_ACTIONS, ebVenueKey, ebVenueBody, ebEventBody, ebDescHTML, ebHash, ebTicketPlan, ebOrderPlace, ebHookTarget } from './eventbrite.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { X509Certificate, verify as nodeVerify } from 'node:crypto';
 import vm from 'node:vm';
@@ -119,6 +120,33 @@ const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort'
    the workshop list and finishing a payment both threw before doing their
    job. Out here it cannot happen again. */
 const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved');
+/* ── three shops, one room (25 Nov 2026) ───────────────────────────────
+   A class is sold here, on Eventbrite and on ClassBento. Eventbrite's
+   orders come back into the bookings by webhook (source 'eventbrite');
+   ClassBento takes its own bookings and payment, and Elliott adds each
+   one here by hand marked ClassBento (source 'classbento'). cbHold places
+   are kept back for ClassBento until they fill or the release time comes,
+   so this site and Eventbrite only ever sell the rest. Every "is it full"
+   asks wsSale, never places alone, or the held places are sold twice. */
+const wsExtSrc = { eventbrite: 'Eventbrite', classbento: 'ClassBento' };
+const wsExt = b => !!(b && wsExtSrc[b.source]);
+/* what somebody who bought elsewhere is told when they try to change it here */
+const wsExtWords = b => (b && b.source === 'eventbrite')
+  ? 'You booked this place on Eventbrite, so a cancel or refund is done there, from your Eventbrite order. To move to another date instead, reply to your reminder email and we will move it for you.'
+  : `You booked this place on ${wsExtSrc[b && b.source] || 'another site'}, so a cancel or refund is done there. To move to another date instead, reply to your reminder email and we will move it for you.`;
+const wsCbHold = w => {
+  const p = Math.max(0, Number(w && w.places) || 0), h = Math.max(0, Math.round(Number(w && w.cbHold) || 0));
+  if (!h || !p) return 0;
+  const rel = Number(w.cbRelease) || 0;
+  if (rel > 0 && w.when && ms(w.when) - Date.now() <= rel * 3600e3) return 0;
+  return Math.min(h, p);
+};
+const wsSale = (w, list) => {
+  const p = Math.max(0, Number(w && w.places) || 0), live = wsLive(list), h = wsCbHold(w);
+  const used = Math.min(h, live.filter(b => b.source === 'classbento').length);
+  const places = Math.max(0, p - h), booked = live.length - used;
+  return { places, booked, left: p ? Math.max(0, places - booked) : null, full: p > 0 && booked >= places, held: h - used };
+};
 /* A place that comes free goes to the first person waiting. It was only
    done when somebody cancelled in the app, so a place freed by a refund in
    Stripe sat empty with people waiting for it. */
@@ -492,6 +520,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   const b = wsPlaces(book).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to cancel', status: 404 };
   const coach = opts.by === 'coach';
+  if (!coach && wsExt(b)) return { error: wsExtWords(b), status: 400 };
   if (!coach && w.when && ms(w.when) < Date.now()) return { error: 'That one has already happened', status: 400 };
   const hours = wsHoursTo(w), early = hours > WS_CUTOFF_H, refundable = wsRefundableAt(b, w);
   if (!coach && !early) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be cancelled or refunded. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
@@ -616,6 +645,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be moved. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to move', status: 404 };
+  if (!coach && wsExt(b)) return { error: wsExtWords(b), status: 400 };
   if (!coach && b.movedFrom && wsNewRule(b)) return { error: 'This place has moved once already. To change it again, cancel it and book the date you want.', status: 400 };
   /* moved inside the refund line: the money stays, wherever it lands */
   const creditOnly = false;   /* the refund follows the booking's own time now, so a move changes nothing */
@@ -625,7 +655,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
     const held = wsPlaces(l);
     if (held.some(x => x.email === who)) { problem = 'You already have a place on that date'; return undefined; }
-    if (!coach && Number(w2.places) > 0 && held.length >= Number(w2.places)) { problem = 'That date is full'; return undefined; }
+    if (!coach && wsSale(w2, l).full) { problem = 'That date is full'; return undefined; }
     const { status, cancelledAt, ...rest } = b;
     l.push({ ...rest, at: b.at, movedFrom: slug, movedAt: Date.now(), status: 'booked', ...(creditOnly ? { creditOnly: true } : {}),
       ...(b.pair === to ? { pair: undefined } : {}) });
@@ -654,7 +684,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
 async function wsOfferFreed(slug, w) {
   try {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
-    if (!(Number(w.places) > 0) || wsLive(book).length >= Number(w.places)) return;
+    if (!(Number(w.places) > 0) || wsSale(w, book).full) return;
     if (!w.live || (w.when && ms(w.when) < Date.now())) return;
     /* Everyone waiting hears, and the first to book has it. Only the first
        was taken off the list and told, so if they did not act, or somebody
@@ -664,7 +694,7 @@ async function wsOfferFreed(slug, w) {
     const held = new Set(wsLive(book).map(b => norm(b.email)));
     const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email && !held.has(norm(x.email))).slice(0, 40);
     if (!wait.length) return;
-    const free = Number(w.places) - wsLive(book).length;
+    const free = wsSale(w, book).left;
     const whenTxt = wsWhenTxt(w);
     const href = wsPageHref(w);
     const day = new Date().toISOString().slice(0, 10);
@@ -677,6 +707,233 @@ async function wsOfferFreed(slug, w) {
         cta: { href, label: 'Book the place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => {});
     }
   } catch (err) { console.error('waiting list', slug, String(err && err.message || err)); }
+}
+
+/* ── Eventbrite (25 Nov 2026) ──────────────────────────────────────────
+   See eventbrite.mjs for the whole idea. Here: asking Eventbrite, filing
+   its orders as bookings (source 'eventbrite', session 'eb-<order id>'),
+   and setting what it may sell after every change to a class's bookings.
+   Nothing here runs without EVENTBRITE_TOKEN, and nothing is published
+   on Eventbrite except by Elliott pressing Publish in the dashboard. */
+const ebTok = () => process.env.EVENTBRITE_TOKEN || '';
+async function ebApi(path, body, method) {
+  const u = /^https:\/\//.test(path) ? path : EB_API + path;
+  if (!u.startsWith(EB_API + '/')) throw new Error('not an Eventbrite address');
+  const r = await fetch(u, { method: method || (body ? 'POST' : 'GET'),
+    headers: { Authorization: 'Bearer ' + ebTok(), 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch {}
+  if (!r.ok) {
+    const err = new Error(String((d && (d.error_description || d.error)) || ('Eventbrite said ' + r.status)).slice(0, 300));
+    err.status = r.status; throw err;
+  }
+  return d || {};
+}
+const ebConf = async () => (await getSetting('eventbrite').catch(() => null)) || {};
+const ebHookUrl = k => `${SITE}/api/app/eventbrite/hook?k=${k}`;
+/* what the class's record says about its Eventbrite side; the dashboard
+   never sends this, the server alone writes it */
+const ebSave = (slug, patch) => changeSetting('workshops', cur => {
+  const c = cur || {}, w = c[slug]; if (!w) return undefined;
+  w.eb = Object.assign({}, w.eb || {}, patch); return c; }).catch(() => {});
+async function ebConnect() {
+  if (!ebTok()) return { error: 'EVENTBRITE_TOKEN is not set in Netlify yet, or the site has not been deployed since it was.', status: 400 };
+  const me = await ebApi('/users/me/organizations/');
+  const org = String((((me && me.organizations) || [])[0] || {}).id || '');
+  if (!org) return { error: 'That token can see no Eventbrite organisation', status: 400 };
+  const conf = await ebConf();
+  const k = (conf.hook && conf.hook.k) || (newId() + newId()).replace(/[^a-z0-9]/g, '').slice(0, 32);
+  let hook = conf.hook && conf.hook.id && conf.hook.org === org ? conf.hook : null, hookErr = '';
+  if (!hook) {
+    try { const h = await ebApi(`/organizations/${org}/webhooks/`, { endpoint_url: ebHookUrl(k), actions: EB_ACTIONS });
+      hook = { id: String(h.id || ''), k, org }; }
+    catch (err) { hookErr = String(err.message || err); hook = { id: '', k, org }; }
+  }
+  await changeSetting('eventbrite', cur => Object.assign({}, cur || {}, { org, hook, at: Date.now() }));
+  return { ok: true, org, hookOk: !!hook.id, hookErr };
+}
+async function ebVenue(w, conf) {
+  const key = ebVenueKey(w);
+  if (conf.venues && conf.venues[key]) return conf.venues[key];
+  const v = await ebApi(`/organizations/${conf.org}/venues/`, ebVenueBody(w));
+  const id = String(v.id || '');
+  await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.venues = Object.assign({}, c.venues, { [key]: id }); return c; });
+  return id;
+}
+const ebWhere = w => w && w.place && !/overgravity/i.test(w.place) ? String(w.place)
+  : `OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1 0DB`;
+async function ebDescribe(id, html) {
+  let v = 1;
+  try { const cur = await ebApi(`/events/${id}/structured_content/`); v = (Number(cur.page_version_number) || 0) + 1; } catch {}
+  await ebApi(`/events/${id}/structured_content/${v}/`, { modules: [{ type: 'text', data: { body: { type: 'text', text: html, alignment: 'left' } } }],
+    publish: true, purpose: 'listing' });
+}
+/* Set what each ticket may sell from what is left here. Reads Eventbrite's
+   own sold counts first, so an order it has taken and not yet sent us is
+   never offered again. */
+async function ebTickets(slug, w, eb) {
+  const book = (await getSetting(`wsbook:${slug}`)) || [];
+  const now = Date.now(), sale = wsSale(w, book);
+  const open = !!w.live && !eb.off && ms(w.when) > now;
+  const sold = {};
+  if (eb.tcs && (eb.tcs.std || eb.tcs.early))
+    for (const t of ((await ebApi(`/events/${eb.id}/ticket_classes/`)).ticket_classes || [])) sold[String(t.id)] = Number(t.quantity_sold) || 0;
+  const filed = {};
+  for (const b of wsLive(book)) if (b.source === 'eventbrite' && b.ebEvent === eb.id) filed[b.ebTc || ''] = (filed[b.ebTc || ''] || 0) + 1;
+  const plan = ebTicketPlan(w, { left: sale.left || 0, open, now, tcs: eb.tcs || {}, filed, sold, stdStart: eb.stdStart || 0 });
+  eb.tcs = Object.assign({}, eb.tcs);
+  for (const t of plan.tickets) {
+    if (t.id) await ebApi(`/events/${eb.id}/ticket_classes/${t.id}/`, t.body);
+    else if (t.make) {
+      const made = await ebApi(`/events/${eb.id}/ticket_classes/`, t.body);
+      eb.tcs[t.key] = String(made.id || '');
+      await ebSave(slug, { tcs: eb.tcs });
+    }
+  }
+  eb.stdStart = plan.stdStart;
+  eb.sold = Object.values(sold).reduce((a, n) => a + n, 0);
+  eb.selling = open ? (sale.left || 0) : 0;
+}
+/* opts: { create, details, publish }. details sends the name, the times,
+   the place and the words as well as the tickets. */
+async function ebSync(slug, opts = {}) {
+  if (!ebTok()) return { error: 'Eventbrite is not connected: EVENTBRITE_TOKEN is not set', status: 400 };
+  const conf = await ebConf();
+  if (!conf.org) return { error: 'Connect Eventbrite first, from the button above', status: 400 };
+  const w = ((await getSetting('workshops')) || {})[slug];
+  if (!w) return { error: 'No such class', status: 404 };
+  const eb = Object.assign({}, w.eb || {});
+  if (!eb.id && !opts.create) return { ok: true, note: 'not on Eventbrite' };
+  if (!eb.id) {
+    if (!w.when) return { error: 'Give the class a date first', status: 400 };
+    if (ms(w.when) < Date.now()) return { error: 'That class has already happened', status: 400 };
+    if (!(Number(w.places) > 0)) return { error: 'Set the places first: Eventbrite needs a number to sell', status: 400 };
+  }
+  if (opts.publish && !w.live) return { error: 'Put it live on the site first. Eventbrite sells from the same places, so a class that is off the site sells nothing there.', status: 400 };
+  const warn = [];
+  try {
+    if (!eb.id || opts.details) {
+      const mins = wsMins(w);
+      const body = ebEventBody(w, { venueId: await ebVenue(w, conf), mins });
+      if (!eb.id) {
+        const ev = await ebApi(`/organizations/${conf.org}/events/`, body);
+        Object.assign(eb, { id: String(ev.id || ''), url: ev.url || '', status: 'draft', made: Date.now() });
+        /* kept at once: a failure further on must not leave an event on
+           Eventbrite that this site has forgotten */
+        await ebSave(slug, { id: eb.id, url: eb.url, status: 'draft', made: eb.made, on: true });
+      } else {
+        const ev = await ebApi(`/events/${eb.id}/`, body);
+        if (ev.url) eb.url = ev.url;
+      }
+      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html);
+      if (h !== eb.descH) {
+        try { await ebDescribe(eb.id, html); eb.descH = h; }
+        catch (err) { warn.push('The description did not go: ' + String(err.message || err)); }
+      }
+    }
+    await ebTickets(slug, w, eb);
+    if (opts.publish) {
+      await ebApi(`/events/${eb.id}/publish/`, {});
+      eb.status = 'live'; eb.publishedAt = Date.now();
+    }
+    eb.err = warn.join(' '); eb.at = Date.now(); eb.on = true;
+  } catch (err) {
+    eb.err = String(err.message || err).slice(0, 300); eb.at = Date.now();
+    await ebSave(slug, eb);
+    return { error: 'Eventbrite: ' + eb.err, status: 502, eb };
+  }
+  await ebSave(slug, eb);
+  return { ok: true, eb, warn: eb.err };
+}
+/* after any change to these classes' bookings, Eventbrite's numbers follow */
+async function ebPushMany(slugs) {
+  if (!ebTok() || !slugs.length) return;
+  const all = (await getSetting('workshops').catch(() => null)) || {};
+  for (const sl of slugs) {
+    const w = all[sl];
+    if (!w || !w.eb || !w.eb.id || !w.when || ms(w.when) < Date.now()) continue;
+    await ebSync(sl, {}).catch(err => console.error('eventbrite push', sl, String(err && err.message || err)));
+  }
+}
+/* the request's own list of classes whose bookings changed (changeSetting
+   adds to it), sent on to Eventbrite once the reply has gone */
+function ebTouched(k) {
+  if (!String(k).startsWith('wsbook:')) return;
+  const box = ALERTS.getStore(); if (!box) return;
+  (box.eb || (box.eb = new Set())).add(String(k).slice(7));
+}
+async function ebAlarm(title, paras) {
+  try { await coachAlert(null, 'business', { title, body: String(paras[0] || '').replace(/<[^>]+>/g, '').slice(0, 140), tag: 'eventbrite:' + title.slice(0, 30) }); } catch {}
+  try { await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, title,
+    mail({ title: esc(title) + '.', paras, cta: { href: 'https://www.eventbrite.co.uk/organizations/events', label: 'Open Eventbrite' } })); } catch {}
+}
+/* One Eventbrite order, filed. Safe to run any number of times: the
+   session is the order, so the webhook and the hourly check agree. */
+async function ebFile(order) {
+  const o = ebOrderPlace(order);
+  if (!o.id || !o.event) return { ok: true, note: 'not an order' };
+  const all = (await getSetting('workshops')) || {};
+  const w = Object.values(all).find(x => x && x.eb && x.eb.id === o.event);
+  if (!w) return { ok: true, note: 'not one of ours' };
+  const slug = w.slug, session = 'eb-' + o.id;
+  if (o.live && !wsMailOk(o.email)) {
+    await ebAlarm('An Eventbrite order could not be filed', [`Order ${esc(o.id)} for ${esc(w.title)}, ${esc(wsWhenTxt(w))}, has no usable email address (${esc(o.email || 'none')}). It is not in the bookings here. Add them by hand from the Bookings page.`]);
+    return { ok: true, note: 'no email' };
+  }
+  let did = '', over = false, twice = false, row = null;
+  await changeSetting(`wsbook:${slug}`, cur => {
+    did = ''; over = false; twice = false; row = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const ex = l.find(x => x.session === session);
+    if (o.live) {
+      if (ex) return undefined;
+      const lv = wsLive(l);
+      twice = lv.some(x => x.email === o.email);
+      over = wsSale(w, l).full;
+      row = { email: o.email, name: o.name, at: o.at || Date.now(), session, paid: o.paid, unit: o.paid, status: 'booked',
+        source: 'eventbrite', src: 'eventbrite', ebEvent: o.event, ebOrder: o.id, ebTc: o.tc };
+      l.push(row); did = 'booked'; return l;
+    }
+    if (!ex || (ex.status || 'booked') !== 'booked') return undefined;
+    ex.status = o.refunded ? 'refunded' : 'cancelled'; if (o.refunded) ex.refunded = Number(ex.paid) || 0;
+    ex.cancelledAt = Date.now(); ex.cancelledBy = 'eventbrite'; row = ex; did = 'gone'; return l;
+  });
+  /* moved here by the coach to another date: the refund follows it there */
+  if (!did && !o.live) for (const sl of Object.keys(all)) {
+    if (sl === slug) continue;
+    await changeSetting(`wsbook:${sl}`, cur => {
+      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+      const ex = l.find(x => x.session === session && (x.status || 'booked') === 'booked'); if (!ex) return undefined;
+      ex.status = o.refunded ? 'refunded' : 'cancelled'; if (o.refunded) ex.refunded = Number(ex.paid) || 0;
+      ex.cancelledAt = Date.now(); ex.cancelledBy = 'eventbrite'; row = ex; did = 'gone'; return l; }).catch(() => {});
+    if (did) { await wsOfferFreed(sl, all[sl]); break; }
+  }
+  if (did === 'booked') {
+    try { await ensureAcct(o.email, o.name); } catch {}
+    await changeSetting(`wsmine:${o.email}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(slug)) return undefined; l.push(slug); return l; }).catch(() => {});
+    if (over) await ebAlarm('Eventbrite sold a place the class did not have', [
+      `<b>${esc(o.name || o.email)}</b> booked <b>${esc(w.title)}</b>, ${esc(wsWhenTxt(w))}, on Eventbrite at the same moment the last place went here, so the class is one over.`,
+      'They are in the bookings. Either keep them (the room usually has space for one more), or refund the order on Eventbrite and it comes off here by itself.']);
+    else if (twice) await ebAlarm('Booked twice: once here, once on Eventbrite', [
+      `<b>${esc(o.name || o.email)}</b> (${esc(o.email)}) already had a place on <b>${esc(w.title)}</b>, ${esc(wsWhenTxt(w))}, and has bought another on Eventbrite.`,
+      'If it is for a friend, put the friend\'s name and email on that place from the Bookings page. If it is a mistake, refund it on Eventbrite.']);
+    else await coachAlert(null, 'business', { title: 'Booked on Eventbrite: ' + (o.name || o.email), body: `${w.title}: ${wsWhenTxt(w)}`, tag: 'ebbook:' + o.id });
+  } else if (did === 'gone') {
+    await coachAlert(null, 'business', { title: (o.refunded ? 'Refunded on Eventbrite: ' : 'Cancelled on Eventbrite: ') + (o.name || o.email), body: `${w.title}: ${wsWhenTxt(w)}`, tag: 'ebgone:' + o.id });
+    await wsOfferFreed(slug, w);
+  }
+  return { ok: true, slug, did: did || 'nothing', over, twice };
+}
+/* every order on one class's event, for anything the webhook missed */
+async function ebPull(w) {
+  let token = '', n = 0;
+  for (let page = 0; page < 6; page++) {
+    const d = await ebApi(`/events/${w.eb.id}/orders/?status=all_not_deleted&expand=attendees${token ? '&continuation=' + enc(token) : ''}`);
+    for (const o of d.orders || []) { await ebFile(o); n++; }
+    const p = d.pagination || {};
+    if (!p.has_more_items || !p.continuation) break;
+    token = p.continuation;
+  }
+  return n;
 }
 
 /* the date is set on a workshop that took names first: the list hears, and
@@ -699,7 +956,7 @@ const caWhoDue = async () => {
   const now = Date.now();
   const onSale = [];
   for (const c of Object.values((await getSetting('workshops')) || {}).filter(c => c && c.live && c.when && ms(c.when) > now).sort((a, b) => ms(a.when) - ms(b.when))) {
-    const cap = Number(c.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${c.slug}`)) || []).length) : 0;
+    const sale = wsSale(c, (await getSetting(`wsbook:${c.slug}`)) || []), cap = Number(c.places) ? sale.places : 0, left = cap ? sale.left : 0;
     onSale.push({ c, cap, left, full: !!cap && !left });
   }
   const due = [];
@@ -717,7 +974,7 @@ async function caSendDue() {
     if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
     const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : wsRoomOf(o.c),
-      price: pl(o.c), left: wsLeftShown(o.c.places, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
+      price: pl(o.c), left: wsLeftShown(o.cap, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
     for (const { e, x, fresh } of due.slice(0, 90)) {
       const newSet = new Set(fresh.map(o => o.c.slug));
       const news = fresh.map(o => row(o, newSet)), all = onSale.map(o => row(o, newSet));
@@ -1584,9 +1841,9 @@ async function newsRender({ subject, body, slug, blocks }, test) {
   /* a class, from the dashboard's list: its date, places and price */
   const classOf = async sl => {
     const w = sl ? all[String(sl).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)] : null; if (!w) return null;
-    const left = Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length);
+    const sale = wsSale(w, (await getSetting(`wsbook:${w.slug}`)) || []), left = sale.left || 0;
     return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
-      card: { kicker: (wsLeftShown(w.places, left) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
+      card: { kicker: (wsLeftShown(sale.places, left) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
       btn: { label: 'Book your place', sub: /all levels|handstand and calisthenics/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
   };
@@ -2562,7 +2819,7 @@ async function changeSetting(k, fn, tries = 8) {
     const next = await fn(cur ? cur.value : null);
     if (next === undefined) return cur ? cur.value : null;
     if (!cur) {
-      if (await supa.insertIfAbsent('settings', { key: k, value: next, updated_at: nowISO() }, 'key')) return next;
+      if (await supa.insertIfAbsent('settings', { key: k, value: next, updated_at: nowISO() }, 'key')) { ebTouched(k); return next; }
       continue;
     }
     /* strictly later than what was read, so the next writer's check fails
@@ -2570,7 +2827,7 @@ async function changeSetting(k, fn, tries = 8) {
     const was = cur.updated_at, stamp = new Date(Math.max(Date.now(), Date.parse(was || 0) + 1)).toISOString();
     const done = await supa.update('settings', `key=eq.${enc(k)}` + (was ? `&updated_at=eq.${enc(was)}` : '&updated_at=is.null'),
       { value: next, updated_at: stamp });
-    if (Array.isArray(done) && done.length) return next;
+    if (Array.isArray(done) && done.length) { ebTouched(k); return next; }
     await new Promise(r => setTimeout(r, 15 + Math.random() * 40 * (i + 1)));
   }
   throw new Error('could not change ' + k + ': it kept changing underneath');
@@ -3979,7 +4236,12 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
       'Stripe sends it again for up to three days, so it files itself once this is fixed. The buyer may be waiting for their email.']); } catch {}
     throw err;
   }
-  finally { try { await flushAlerts(box); } catch {} }
+  finally {
+    try { await flushAlerts(box); } catch {}
+    /* the classes whose bookings this request changed: Eventbrite is told
+       what it may still sell, after the reply where Netlify allows */
+    try { if (box.eb && box.eb.size && ebTok()) { const slugs = [...box.eb]; box.eb = null; await later(() => ebPushMany(slugs)); } } catch {}
+  }
 });
 /* one entry in What broke, from a phone, a website page or the server
    itself, counted against the same message and place */
@@ -4746,7 +5008,7 @@ const handle = async (request) => {
           fresh = true;
           const live = wsLive(l);
           problem = live.some(b => b.email === pp.e) ? 'twice'
-            : (Number(w.places) > 0 && live.length >= Number(w.places)) ? 'full'
+            : wsSale(w, l).full ? 'full'
             : (w.when && ms(w.when) < Date.now()) ? 'past' : '';
           l.push({ email: pp.e, name: pp.nm, at: Date.now(), session: String(obj.id || ''), paid: share, pi: piNow,
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
@@ -7670,7 +7932,7 @@ const handle = async (request) => {
   const wsBare = t => String(t || '').replace(/\b(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)\.?(?:,?\s+\d{4})?\b/gi, ' ').replace(/\(\s*\)/g,' ').replace(/[\s,.\u00b7(-]+$/, '').replace(/\s{2,}/g, ' ').trim();
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-    places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
+    places: Number(w.places) > 0 ? (booked.places || Number(w.places)) : 0, booked: booked.booked, left: booked.left || 0,
     desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '', mins: wsMins(w), topic: w.topic || '', room: wsRoomOf(w),
     early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
       thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w) } : null });
@@ -7683,7 +7945,7 @@ const handle = async (request) => {
        seconds old can never sell a place twice. */
     const open = Object.values(all).filter(w => w && w.live && !(w.when && ms(w.when) < Date.now() - 6 * 3600e3));
     const [books, multiOff] = await Promise.all([Promise.all(open.map(w => getSetting(`wsbook:${w.slug}`).catch(() => null))), wsMultiOff()]);
-    const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
+    const out = open.map((w, i) => wsPublic(w, wsSale(w, books[i] || [])));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
     /* Shared between every edge now (durable). And the copy the class page
@@ -7975,7 +8237,7 @@ const handle = async (request) => {
     for (const w of Object.values(all)) {
       if (!w || !w.slug) continue;
       const book = (await getSetting(`wsbook:${w.slug}`)) || [];
-      taken[w.slug] = wsPlaces(book).length;
+      taken[w.slug] = wsSale(w, book).left;
       for (const b of wsLive(book)) {
         const e = norm(b.email); if (!e) continue;
         const x = booked[e] || (booked[e] = { n: 0, last: '' });
@@ -7993,7 +8255,7 @@ const handle = async (request) => {
       total: x.total || (x.todo || []).length, done: x.i || 0, fails: (x.fails || []).length, error: x.error || '', sentAt: x.sentAt || 0 }));
     const classes = Object.values(all).filter(w => w && w.when && ms(w.when) > Date.now())
       .sort((a, b) => ms(a.when) - ms(b.when)).map(w => ({ slug: w.slug, title: w.title, when: w.when, live: !!w.live, whenTxt: wsWhenTxt(w),
-        price: w.price || 0, places: w.places || 0, left: Math.max(0, (Number(w.places) || 0) - (taken[w.slug] || 0)) }));
+        price: w.price || 0, places: w.places || 0, left: taken[w.slug] || 0 }));
     return json({ list, sends, classes, appYes, from: (await newsConf()).from, ready: !!newsKey(), ownKey: !!process.env.RESEND_NEWS_KEY,
       owner: await isOwner(), sync: sync ? { ok: !!sync.ok, why: sync.why || '', off: sync.off || 0 } : null });
   }
@@ -8244,7 +8506,7 @@ const handle = async (request) => {
     if (w.when && ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 409);
     const book = (await getSetting(`wsbook:${slug}`)) || [];
     const live = wsLive(book);
-    if (Number(w.places) > 0 && live.length >= Number(w.places)) return json({ error: 'That one is full', full: true }, 409);
+    if (wsSale(w, book).full) return json({ error: 'That one is full', full: true }, 409);
     if (live.some(b => b.email === e)) return json({ error: 'You already have a place on this date under that email. To book a place for someone else, put their name and email in as the booker.' }, 409);
     /* ── both dates together ───────────────────────────────────────────
        A second date in the same booking: one payment at the pair price the
@@ -8258,8 +8520,8 @@ const handle = async (request) => {
       const x = all[sl];
       if (!x || !x.live) return json({ error: 'One of those dates is not open for booking' }, 404);
       if (x.when && ms(x.when) < Date.now()) return json({ error: `${wsWhenTxt(x)} has already happened` }, 409);
-      const lv = wsLive((await getSetting(`wsbook:${sl}`)) || []);
-      if (Number(x.places) > 0 && lv.length >= Number(x.places)) return json({ error: `${wsWhenTxt(x)} is full. Book the others, and join its waiting list.`, full: true, fullSlug: sl }, 409);
+      const lvAll = (await getSetting(`wsbook:${sl}`)) || [], lv = wsLive(lvAll);
+      if (wsSale(x, lvAll).full) return json({ error: `${wsWhenTxt(x)} is full. Book the others, and join its waiting list.`, full: true, fullSlug: sl }, 409);
       if (lv.some(b => b.email === e)) return json({ error: `You are already booked on ${wsWhenTxt(x)}. Pick the ones you have not got.` }, 409);
       extras.push([sl, x]);
     }
@@ -8275,9 +8537,9 @@ const handle = async (request) => {
     if (fr && fr.e === e) return json({ error: 'The person coming with you needs their own email address' }, 400);
     const people = fr ? [[e, nm], [fr.e, fr.nm]] : [[e, nm]];
     for (const [tSlug, tw] of targets) {
-      const held = wsLive((await getSetting(`wsbook:${tSlug}`)) || []);
+      const heldAll = (await getSetting(`wsbook:${tSlug}`)) || [], held = wsLive(heldAll), sale = wsSale(tw, heldAll);
       if (fr && held.some(b => b.email === fr.e)) return json({ error: `${fr.nm} already has a place on ${tSlug === slug ? 'that date' : wsWhenTxt(tw)}.` }, 409);
-      if (fr && Number(tw.places) > 0 && held.length + 2 > Number(tw.places)) return json({ error: (tSlug === slug ? 'That date' : wsWhenTxt(tw)) + ' has only one place left.', full: held.length >= Number(tw.places) }, 409);
+      if (fr && Number(tw.places) > 0 && sale.left < 2) return json({ error: (tSlug === slug ? 'That date' : wsWhenTxt(tw)) + ' has only one place left.', full: sale.full }, 409);
     }
     const units = targets.length * people.length;
     const base = wsNowCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
@@ -8299,7 +8561,7 @@ const handle = async (request) => {
           taken = '';
           const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
           const lv = wsLive(l);
-          if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
+          if (wsSale(tw, l).full) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
           l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, multiPer: 1, bundle: 1, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
@@ -8524,9 +8786,9 @@ const handle = async (request) => {
     const price = Number(w.price) || 0;
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
     if (!(off > 0)) return json({ error: code + ' takes nothing off this class' }, 400);
-    const book = wsLive((await getSetting(`wsbook:${slug}`)) || []);
-    const left = Number(w.places) > 0 ? Math.max(0, Number(w.places) - book.length) : 0;
-    if (Number(w.places) > 0 && !left) return json({ error: 'That class is full' }, 400);
+    const bookAll = (await getSetting(`wsbook:${slug}`)) || [], book = wsLive(bookAll);
+    const left = Number(w.places) > 0 ? wsSale(w, bookAll).left : 0;
+    if (wsSale(w, bookAll).full) return json({ error: 'That class is full' }, 400);
     /* booked on any date of the same class counts as booked */
     const held = new Set();
     for (const o of Object.values(all)) if (o && o.slug && wsKindOf(o) === wsKindOf(w))
@@ -8550,15 +8812,14 @@ const handle = async (request) => {
        priced now (a code made for one date does not carry over) */
     let nextW = null;
     for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > ms(w.when) && wsKindOf(o) === wsKindOf(w)).sort((a, b) => ms(a.when) - ms(b.when))) {
-      const n = wsLive((await getSetting(`wsbook:${o.slug}`)) || []).length;
-      if (!(Number(o.places) > 0) || n < Number(o.places)) { nextW = o; break; }
+      if (!wsSale(o, (await getSetting(`wsbook:${o.slug}`)) || []).full) { nextW = o; break; }
     }
     const nextLine = nextW ? (() => { const np = Number(nextW.price) || 0, nb = wsPageHref(nextW, 'offer');
       const nh = nb.includes('?') ? nb.replace('?', `?date=${enc(nextW.slug)}&`) : nb.replace('#', `?date=${enc(nextW.slug)}#`);
       return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#237f95;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
-        `${wsLeftShown(w.places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
+        `${wsLeftShown(wsSale(w, bookAll).places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
@@ -8604,8 +8865,8 @@ const handle = async (request) => {
       || 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
     const coming = [];
     for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when)).slice(0, 3)) {
-      const held = wsLive((await getSetting(`wsbook:${o.slug}`)) || []);
-      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : null });
+      const heldAll = (await getSetting(`wsbook:${o.slug}`)) || [], held = wsLive(heldAll);
+      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: wsSale(o, heldAll).left, cap: wsSale(o, heldAll).places });
     }
     const pr = (await getSetting('prices')) || {}, L = (k, d) => (pr[k] && pr[k].label) || d;
     const trial = Number(pr.trialDays);
@@ -8623,7 +8884,7 @@ const handle = async (request) => {
         dates: coming.map(c => {
           const [d0, ...tt] = wsWhenTxt(c.w).split(', ');
           return { day: d0, time: tt.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
-            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.w.places, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
+            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.cap, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
         }),
         more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
       return { T, M };
@@ -8669,13 +8930,15 @@ const handle = async (request) => {
       return { e, nm };
     }).filter(Boolean);
     if (!rows.length) return json({ error: 'No email addresses in that' }, 400);
+    /* booked on ClassBento: paid there, and one of the places held for it */
+    const cb = body.source === 'classbento';
     let added = 0, had = 0;
     await changeSetting(`wsbook:${slug}`, cur => {
       added = 0; had = 0;
       const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
       for (const r of rows) {
         if (l.some(x => x.email === r.e && (x.status || 'booked') === 'booked')) { had++; continue; }
-        l.push({ email: r.e, name: r.nm, at: Date.now(), session: 'ext-' + newId(), paid: 0, status: 'booked', source: 'setmore' });
+        l.push({ email: r.e, name: r.nm, at: Date.now(), session: 'ext-' + newId(), paid: 0, status: 'booked', ...(cb ? { source: 'classbento', src: 'classbento' } : { source: 'setmore' }) });
         added++;
       }
       return added ? l : undefined;
@@ -8738,6 +9001,70 @@ const handle = async (request) => {
     const href = `${SITE}/api/app/calendar/coach.ics?t=${t}`;
     return json({ ok: true, url: href, webcal: href.replace(/^https?:/, 'webcal:'), made: cur.at || 0 });
   }
+  /* ── Eventbrite, from the dashboard (25 Nov 2026) ──────────────────
+     GET: is it connected. POST action: connect (find the organisation and
+     add the webhook), draft (make or update the class's event, not on
+     sale), publish (Elliott's press only), sync, stop and resume selling
+     there, check (fetch its orders now). Owner only: it is selling. */
+  if (path === '/coach/eventbrite') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const state = async () => { const conf = await ebConf();
+      return { ready: !!ebTok(), org: conf.org || '', hookOk: !!(conf.hook && conf.hook.id),
+        hookUrl: conf.hook && conf.hook.k ? ebHookUrl(conf.hook.k) : '', at: conf.at || 0 }; };
+    if (request.method === 'GET') return json(await state());
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const act = String(body.action || ''), slug = wsSlug(body.slug || '');
+    let r;
+    try {
+      if (act === 'connect') r = await ebConnect();
+      else if (act === 'draft') r = await ebSync(slug, { create: true, details: true });
+      else if (act === 'publish') r = await ebSync(slug, { create: true, details: true, publish: true });
+      else if (act === 'sync') r = await ebSync(slug, { details: true });
+      else if (act === 'stop' || act === 'resume') { await ebSave(slug, { off: act === 'stop' }); r = await ebSync(slug, {}); }
+      else if (act === 'check') {
+        const w = ((await getSetting('workshops')) || {})[slug];
+        if (!w || !w.eb || !w.eb.id) r = { error: 'That class is not on Eventbrite', status: 400 };
+        else { const n = await ebPull(w); r = await ebSync(slug, {}); if (!r.error) r.orders = n; }
+      }
+      else r = { error: 'Nothing asked', status: 400 };
+    } catch (err) { r = { error: 'Eventbrite: ' + String(err.message || err).slice(0, 300), status: 502 }; }
+    if (r.error) return json(r, r.status || 400);
+    const all = (await getSetting('workshops')) || {};
+    return json(Object.assign({}, r, await state(), slug && all[slug] ? { workshop: all[slug], bookings: (await getSetting(`wsbook:${slug}`)) || [] } : {}));
+  }
+  /* Eventbrite's webhook: an order placed, refunded or changed. The body
+     only names the order; it is read back from Eventbrite with our own
+     token, so nothing in the call itself is trusted. A failure answers
+     500 and Eventbrite sends it again. */
+  if (path === '/eventbrite/hook' && request.method === 'POST') {
+    const conf = await ebConf();
+    if (!conf.hook || !conf.hook.k || url.searchParams.get('k') !== conf.hook.k || !ebTok()) return json({ error: 'Nope' }, 401);
+    const t = ebHookTarget(body && body.api_url);
+    if (!t || t.kind === 'other') return json({ ok: true, note: 'nothing to do' });
+    const withAtt = u => u + (u.includes('?') ? '&' : '?') + 'expand=attendees';
+    let order;
+    if (t.kind === 'order') order = await ebApi(withAtt(t.url));
+    else { const a = await ebApi(t.url); if (!a.order_id) return json({ ok: true, note: 'no order' }); order = await ebApi(withAtt(`/orders/${a.order_id}/`)); }
+    return json(await ebFile(order));
+  }
+  /* the hourly check (eb-sync.mjs): every class on Eventbrite still to
+     come, or just gone (late refunds), has its orders read and its numbers
+     set again, which also catches a ClassBento hold released or an early
+     bird ending at its hour */
+  if (path === '/eventbrite/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    if (!ebTok()) return json({ ok: true, note: 'Eventbrite is not connected' });
+    const all = (await getSetting('workshops')) || {};
+    const out = [];
+    for (const w of Object.values(all)) {
+      if (!w || !w.eb || !w.eb.id || !w.when || ms(w.when) < Date.now() - 2 * DAY) continue;
+      try { const n = await ebPull(w); const r = ms(w.when) > Date.now() ? await ebSync(w.slug, {}) : { ok: true };
+        out.push({ slug: w.slug, orders: n, ...(r.error ? { error: r.error } : {}) }); }
+      catch (err) { out.push({ slug: w.slug, error: String(err.message || err).slice(0, 200) }); }
+    }
+    return json({ ok: true, classes: out });
+  }
   if (path === '/coach/workshops') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('workshops')) || {};
@@ -8788,9 +9115,20 @@ const handle = async (request) => {
             + 'Refund them in Stripe and cancel their places first, or tick the box to delete it anyway.',
             bookings: held.length }, 409);
         }
+        /* on Eventbrite as well: a draft goes, one never sold is cancelled,
+           and one with orders stops selling and stays for Elliott to settle */
+        let ebNote = '';
+        const gw = all[slug];
+        if (gw && gw.eb && gw.eb.id && ebTok()) {
+          try {
+            if (gw.eb.status !== 'live') { await ebApi(`/events/${gw.eb.id}/`, null, 'DELETE'); ebNote = 'The Eventbrite draft is deleted too.'; }
+            else if (!(gw.eb.sold > 0)) { await ebApi(`/events/${gw.eb.id}/cancel/`, {}); ebNote = 'It is cancelled on Eventbrite too.'; }
+            else { await ebSave(slug, { off: true }); const r = await ebSync(slug, {}); if (r.error) throw new Error(r.error); ebNote = 'It has orders on Eventbrite, so it is still there but no longer selling. Refund or cancel them on Eventbrite.'; }
+          } catch (err) { ebNote = 'Eventbrite did not take it down: ' + String(err.message || err) + '. Do it on Eventbrite.'; }
+        }
         delete all[slug];
         await setSetting('workshops', all);
-        return json({ ok: true, workshops: await withBook() });
+        return json({ ok: true, workshops: await withBook(), ebNote });
       }
       const f = body.workshop || {};
       let slug = wsSlug(f.slug || f.title);
@@ -8833,7 +9171,14 @@ const handle = async (request) => {
         film: /^[a-f0-9]{32}$/.test(str(f.film, 40)) ? str(f.film, 40) : '',
         live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
+        /* places kept back for ClassBento, and how many hours before the
+           class any still unfilled come back to this site and Eventbrite
+           (25 Nov 2026). Empty is none held. */
+        cbHold: Math.max(0, Math.min(200, Math.round(Number(f.cbHold) || 0))) || undefined,
+        cbRelease: Math.max(0, Math.min(720, Math.round(Number(f.cbRelease) || 0))) || undefined,
       };
+      /* the Eventbrite side is the server's to write: what is stored stands */
+      { const pe = (all[slug] || all[wsSlug(body.was || '')] || {}).eb; if (pe) w.eb = pe; }
       /* when it first went on sale, for the new dates alerts */
       /* one already on sale before this existed counts from when it was made,
          so editing it does not tell anybody about a date that is not new */
@@ -8886,7 +9231,14 @@ const handle = async (request) => {
       if (w.live && w.when && !hadDate) told = await wsTellDated(slug, w);
       /* who asked for new dates of this kind hears at 9am, or on Send now */
       let alertsDue = 0; try { alertsDue = (await caWhoDue()).due.length; } catch {}
-      return json({ ok: true, workshop: w, workshops: await withBook(), told, alertsDue });
+      /* on Eventbrite too: the name, time, place, words, price and places follow */
+      let ebNote = '';
+      if (w.eb && w.eb.id && w.when && ms(w.when) > Date.now() && ebTok()) {
+        const r = await ebSync(slug, { details: true }).catch(err => ({ error: String(err.message || err) }));
+        ebNote = r.error ? r.error : 'Eventbrite updated too.';
+        const fresh = ((await getSetting('workshops')) || {})[slug]; if (fresh) Object.assign(w, { eb: fresh.eb });
+      }
+      return json({ ok: true, workshop: w, workshops: await withBook(), told, alertsDue, ebNote });
     }
     return json({ error: 'Nope' }, 405);
   }
@@ -9748,12 +10100,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         ics: w.when ? `/api/app/workshop/ics?slug=${enc(slug)}` : '',
         /* a workshop with no date yet reads as 1970, so it counted as already
            over: it could be booked and paid for and never cancelled */
-        canCancel: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_CUTOFF_H,
+        canCancel: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_CUTOFF_H && !wsExt(b), via: wsExtSrc[b.source] || '',
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsRefundableAt(b, w),
         back: (b.status || 'booked') === 'booked' && wsRefundableAt(b, w) ? (await wsRefundFor(b, slug)).back : 0,
         credit: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsNewRule(b) && wsHoursTo(w) > WS_CUTOFF_H && !wsRefundableAt(b, w),
         moved: !!b.movedFrom && wsNewRule(b), newRule: wsNewRule(b), cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, refundH: WS_REFUND_BEFORE_H, guest: !!b.payer,
-        moveTo: (b.status || 'booked') === 'booked' && !(b.movedFrom && wsNewRule(b)) && wsHoursTo(w) > WS_CUTOFF_H
+        moveTo: (b.status || 'booked') === 'booked' && !(b.movedFrom && wsNewRule(b)) && wsHoursTo(w) > WS_CUTOFF_H && !wsExt(b)
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
               && wsKindOf(o) === wsKindOf(w)
               /* not a date that costs more now: the move refuses it, and the
@@ -9826,7 +10178,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          moves: the payer moved and the friend was left behind */
       if (body.action === 'move' && who.length > 1) {
         const toSlug = wsSlug(body.to), to = all[toSlug];
-        const room = to && Number(to.places) > 0 ? Number(to.places) - wsPlaces((await getSetting(`wsbook:${toSlug}`)) || []).length : 99;
+        const room = to && Number(to.places) > 0 ? wsSale(to, (await getSetting(`wsbook:${toSlug}`)) || []).left : 99;
         if (room < who.length) return json({ error: `That date has ${room > 0 ? 'only ' + room + (room === 1 ? ' place' : ' places') : 'no places'} left, not enough for ${who.length} of you. Move just you, or pick another date.` }, 409);
       }
       let r = { error: 'Nothing asked', status: 400 }, refunded = 0, credits = [], done = 0, last = null;
@@ -9866,16 +10218,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     for (const o of Object.values(all)) {
       if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
       if (wsKindOf(o) !== wsKindOf(w)) continue;
-      const held = wsPlaces((await getSetting(`wsbook:${o.slug}`)) || []);
+      const heldAll = (await getSetting(`wsbook:${o.slug}`)) || [], held = wsPlaces(heldAll);
       const mine = held.some(x => x.email === t.e);
-      const left = Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : 99;
+      const left = Number(o.places) > 0 ? wsSale(o, heldAll).left : 99;
       others.push({ slug: o.slug, when: o.when, left, mine });
     }
     others.sort((x, y) => ms(x.when) - ms(y.when));
     return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked', creditCode: b.credit || '',
-      paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
+      paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !wsExt(b),
+      via: wsExtSrc[b.source] || '', viaWords: wsExt(b) ? wsExtWords(b) : '',
       credit: (b.status || 'booked') === 'booked' && (Number(b.paid) || 0) > 0 && wsNewRule(b) && hoursTo > WS_CUTOFF_H && !wsRefundableAt(b, w),
-      canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !(b.movedFrom && wsNewRule(b)), moved: !!b.movedFrom && wsNewRule(b),
+      canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !(b.movedFrom && wsNewRule(b)) && !wsExt(b), moved: !!b.movedFrom && wsNewRule(b),
       creditOnly: !!b.creditOnly, newRule: wsNewRule(b),
       mates, backAll, cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, refundH: WS_REFUND_BEFORE_H, others });
   }
@@ -10117,7 +10470,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const all = Object.values((await getSetting('workshops')) || {});
     const w = all.filter(x => x && x.live && x.when && ms(x.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when))[0]
       || { slug: 'sample', title: 'All Levels Handstand Class', when: new Date(Date.now() + 9 * 864e5).toISOString(), place: 'OverGravity, Shadwell', price: 2500, places: 14 };
-    const left = Number(w.places) ? Math.max(0, Number(w.places) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length) : 0;
+    const left = Number(w.places) ? wsSale(w, (await getSetting(`wsbook:${w.slug}`)) || []).left : 0;
     const me1 = String(clients()[await me()] || coaches()[await me()] || 'Elliott').split(' ')[0];
     const whenTxt = wsWhenTxt(w), price = Number(w.price) ? wsPounds(w.price) : 'Free';
     /* an early bird shows as it will be sent; without one, the preview makes

@@ -1,0 +1,175 @@
+/* ══════════════════════════════════════════════════════════════
+   Eventbrite: the same classes, sold there as well (25 Nov 2026)
+
+   A class can be listed on Eventbrite from the dashboard. This site stays
+   the one list of who is coming: Eventbrite's orders come back by webhook
+   (and by the hourly check, for any the webhook missed) into the class's
+   bookings, and what Eventbrite may still sell is set from what is left
+   here after every change. So the two never sell the same place, and the
+   places held for ClassBento are sold by neither.
+
+   Plain functions with no fetch and no database, so they can be tested on
+   their own, as slots.mjs is. app.mjs does the asking and the remembering.
+   The private token is EVENTBRITE_TOKEN in Netlify's environment, set by
+   Elliott himself; it never appears here (the repo is public).
+   ══════════════════════════════════════════════════════════════ */
+
+export const EB_API = 'https://www.eventbriteapi.com/v3';
+export const EB_TZ = 'Europe/London';
+/* Sports & Fitness, and the format "Class, Training, or Workshop" */
+export const EB_CATEGORY = '108';
+export const EB_FORMAT = '9';
+/* what the webhook is told about: a new order, a refund, a change to an
+   order or to the one person on it (a cancel arrives as the last of these) */
+export const EB_ACTIONS = 'order.placed,order.refunded,order.updated,attendee.updated';
+
+const ms = v => (v ? new Date(v).getTime() : 0);
+const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/* Eventbrite takes UTC to the second, with no milliseconds */
+export const ebUtc = t => new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+/* ── the place ─────────────────────────────────────────────────────
+   One Eventbrite venue per place, made once and remembered. OverGravity
+   unless a class says it is somewhere else. */
+export const ebVenueKey = w => (!w || !w.place || /overgravity/i.test(w.place))
+  ? 'overgravity' : String(w.place).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'elsewhere';
+export function ebVenueBody(w) {
+  if (ebVenueKey(w) === 'overgravity') return { venue: { name: 'OverGravity',
+    address: { address_1: 'Arches 160 to 163, Sutton Street', city: 'London', postal_code: 'E1 0DB', country: 'GB' } } };
+  const p = String(w.place).trim();
+  return { venue: { name: p.slice(0, 80), address: { address_1: p.slice(0, 120), city: 'London', country: 'GB' } } };
+}
+
+/* ── the event ─────────────────────────────────────────────────────
+   Eventbrite's line under the title is 140 characters at most: the one
+   line on who it is for, else the first sentence of the description. */
+export function ebSummary(w) {
+  const pick = String((w && w.who) || '').trim() || String((w && w.desc) || '').trim().split(/(?<=[.!?])\s+/)[0] || '';
+  const s = pick.replace(/\s+/g, ' ');
+  return s.length <= 140 ? s : s.slice(0, 139).replace(/\s+\S*$/, '') + '.';
+}
+export function ebEventBody(w, { venueId, mins }) {
+  const start = ms(w.when), end = start + Math.max(15, Number(mins) || 60) * 60e3;
+  return { event: {
+    name: { html: escH(String(w.title || '').slice(0, 75)) },
+    summary: ebSummary(w),
+    start: { timezone: EB_TZ, utc: ebUtc(start) },
+    end: { timezone: EB_TZ, utc: ebUtc(end) },
+    currency: 'GBP', venue_id: String(venueId), online_event: false,
+    listed: true, shareable: true, invite_only: false,
+    /* "places left" is shown on the site once a few are taken; Eventbrite
+       would show the count from the first ticket, so it does not show it */
+    show_remaining: false,
+    category_id: EB_CATEGORY, format_id: EB_FORMAT } };
+}
+/* The words on the listing, as one block of HTML. Built from the class's
+   own fields, so the dashboard stays the place they are written. parts:
+   { mins, where, coachLine, waiver } worked out by app.mjs. */
+export function ebDescHTML(w, parts) {
+  const p = parts || {};
+  const para = t => t ? `<p>${t}</p>` : '';
+  return [
+    para(escH(String(w.desc || '').trim())),
+    w.topic ? para(`<strong>This week:</strong> ${escH(w.topic)}.`) : '',
+    w.who ? para(`<strong>Who it is for:</strong> ${escH(w.who)}`) : '',
+    para(`<strong>How long:</strong> ${escH(String(p.mins || 60))} minutes. ${escH(p.coachLine || '')}`.trim()),
+    para(`<strong>Where:</strong> ${escH(p.where || 'OverGravity, Arches 160 to 163, Sutton Street, London E1 0DB')}.`),
+    para('<strong>What to bring:</strong> normal training kit you can move in, and a water bottle. Bare feet or socks, no shoes on the mats. Arrive ten minutes early so we start on time.'),
+    para(`<strong>Can't make it?</strong> Reply to your reminder email up to 24 hours before and we will move your place to another date, free. Refunds follow the refund policy on this page.`),
+    p.waiver ? para(`Everyone trains under our participation waiver: <a href="${escH(p.waiver)}">${escH(p.waiver.replace(/^https?:\/\//, ''))}</a>. Please read it before the day.`) : '',
+    para('London Handstand Academy will email you a reminder the day before with everything you need.'),
+  ].filter(Boolean).join('');
+}
+/* a short fingerprint, so the words are only sent again when they change
+   (and anything Elliott adds on Eventbrite itself is left alone otherwise) */
+export function ebHash(s) {
+  let h = 5381; const t = String(s || '');
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/* ── the tickets ───────────────────────────────────────────────────
+   One ticket, "Place", at the price the site charges; and while an early
+   bird is on, a second, "Early bird", at the early price until it ends,
+   with "Place" at the later price going on sale at that moment. Only one
+   of the two is ever on sale, so each can be offered everything that is
+   left without the two together selling more.
+
+   left   what this site and Eventbrite may still sell between them
+          (wsSale(w, list).left in app.mjs, the ClassBento hold kept back)
+   open   the class is on the site, not stopped on Eventbrite, still to come
+   tcs    { std, early } the ticket ids made already
+   filed  { ticketId: n } live Eventbrite bookings here, by ticket
+   sold   { ticketId: n } what Eventbrite says it has sold, by ticket
+   stdStart  when "Place" was last set to go on sale, if in the future
+
+   A ticket may sell what it has sold plus what is left, less any of its
+   orders not filed here yet (taking the larger of what Eventbrite counts
+   and what is filed keeps an unfiled order from being sold twice). One a
+   person per order: each order is one named place here. A ticket that
+   must sell nothing is hidden, as Eventbrite will not take a quantity of
+   none. Fees go on top for the buyer (Elliott, 25 Nov 2026). */
+export function ebTicketPlan(w, { left, open, now, tcs, filed, sold, stdStart }) {
+  const t = Number(now) || Date.now(), start = ms(w.when);
+  const T = tcs || {}, F = filed || {}, S = sold || {};
+  const price = Math.max(0, Math.round(Number(w.price) || 0));
+  const until = w.early ? ms(w.early.until) : 0;
+  const early = !!(w.early && until > t && until < start && Math.round(Number(w.early.then) || 0) > price);
+  const stdPrice = early ? Math.round(Number(w.early.then)) : price;
+  const room = id => Math.max(S[id] || 0, (F[id] || 0) + Math.max(0, Number(left) || 0));
+  const qty = (id, on) => {
+    if (!on) return { quantity_total: Math.max(1, S[id] || 0), hidden: true };
+    const q = room(id);
+    return q > 0 ? { quantity_total: q, hidden: false } : { quantity_total: 1, hidden: true };
+  };
+  const cost = p => p > 0 ? { free: false, cost: 'GBP,' + p } : { free: true };
+  const common = { include_fee: false, split_fee_with_organizer: false, minimum_quantity: 1, maximum_quantity: 1, sales_end: ebUtc(start) };
+  const out = [];
+  /* the early one first, so a new event lists it at the top */
+  if (early || T.early) {
+    const id = T.early || '';
+    if (early) out.push({ key: 'early', id, make: !id, body: { ticket_class: { name: 'Early bird', ...cost(price), ...common,
+      sales_end: ebUtc(until), ...qty(id, open) } } });
+    else out.push({ key: 'early', id, make: false, body: { ticket_class: qty(id, false) } });
+  }
+  const sid = T.std || '';
+  const std = { name: 'Place', ...cost(stdPrice), ...common, ...qty(sid, open) };
+  let nextStart = 0;
+  if (early) { std.sales_start = ebUtc(until); nextStart = until; }
+  /* an early bird ended early: "Place" was waiting for it, and goes on sale now */
+  else if (Number(stdStart) > t) std.sales_start = ebUtc(t - 60e3);
+  out.push({ key: 'std', id: sid, make: !sid, body: { ticket_class: std } });
+  return { tickets: out, stdStart: nextStart };
+}
+
+/* ── orders coming back ────────────────────────────────────────────
+   One Eventbrite order as the place it should be here: live while it is
+   placed and the person on it has not been cancelled or refunded. paid is
+   the ticket's own price, without the fees the buyer paid on top. */
+export function ebOrderPlace(order) {
+  const o = order || {}, att = Array.isArray(o.attendees) ? o.attendees : [];
+  const a = att[0] || {}, pr = a.profile || {};
+  const still = att.filter(x => x && !x.cancelled && !x.refunded && !/deleted|not attending/i.test(String(x.status || '')));
+  const status = String(o.status || '').toLowerCase();
+  const val = c => Math.max(0, Math.round(Number(c && c.value) || 0));
+  const paid = val(o.costs && o.costs.base_price) || val(a.costs && a.costs.base_price);
+  return {
+    id: String(o.id || ''), event: String(o.event_id || a.event_id || ''),
+    email: String(o.email || pr.email || '').trim().toLowerCase(),
+    name: String(o.name || [o.first_name, o.last_name].filter(Boolean).join(' ') || pr.name || '').trim().slice(0, 60),
+    live: status === 'placed' && (!att.length || still.length > 0),
+    refunded: status === 'refunded' || att.some(x => x && x.refunded),
+    paid, tc: String(a.ticket_class_id || ''), n: still.length || (att.length ? 0 : 1),
+    at: ms(o.created) || 0,
+  };
+}
+/* what a webhook is about: only Eventbrite's own API addresses are
+   followed, so a forged call can do no more than make us look up a real
+   order with our own token */
+export function ebHookTarget(apiUrl) {
+  const u = String(apiUrl || '');
+  if (!u.startsWith(EB_API + '/')) return null;
+  if (/\/orders\/\d+\/?(\?.*)?$/.test(u)) return { kind: 'order', url: u };
+  if (/\/attendees\/\d+\/?(\?.*)?$/.test(u)) return { kind: 'attendee', url: u };
+  return { kind: 'other', url: u };
+}
