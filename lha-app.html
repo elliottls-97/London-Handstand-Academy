@@ -21346,7 +21346,8 @@ function topSwitchHTML(){
 /* Advent sits in the switch while the challenge is on (Elliott, 25 Nov 2026),
    and a swipe across the switch moves to the one beside it ("swipeable") */
 const CH_ADV_FIG='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8.5 3v4M15.5 3v4M4 10h16"/><path d="M12 12.4l1 2 2.2.3-1.6 1.5.4 2.2-2-1.1-2 1.1.4-2.2-1.6-1.5 2.2-.3z" fill="currentColor" stroke="none"/></svg>';
-function chAdvOn(){ try{ if(coachedView()) return false; chLoad(); return chLive(); }catch(e){ return false; } }
+/* coaching clients only when switched on for them in the dashboard (coachOk) */
+function chAdvOn(){ try{ chLoad(); if(coachedView() && !(CH_D && CH_D.coachOk)) return false; return chLive(); }catch(e){ return false; } }
 let lgX=null;
 function lgTouch(e){ const t=e.touches&&e.touches[0]; lgX=t?t.clientX:null; }
 function lgSwipe(e){
@@ -29245,7 +29246,7 @@ function deskHead(bar){
   const sec=section(), cur = st.tab==='hello' ? '' : st.tab==='chal' ? 'adv' : sec==='classes' ? 'classes' : sec==='co' ? 'co' : 'hs';
   const coached=!!(st.in || st.coached);
   const items = coached
-    ? [['co',coachedView()?'Your programme':coWord()],['hs','Training'],['classes','Classes']]
+    ? [['co',coachedView()?'Your programme':coWord()]].concat(chAdvOn() ? [['adv','Advent']] : []).concat([['hs','Training'],['classes','Classes']])
     : [['hs','Training']].concat(chAdvOn() ? [['adv','Advent']] : []).concat([['classes','Classes'],['co',coWord()]]);
   /* signed out on the website, Classes is the class page itself, as in the site header */
   const nav=items.map(([k,l])=>`<button class="dnav${cur===k?' on':''}" onclick="acctMenu=false;${(!st.token && k==='classes' && !IOS_APP) ? "location.href='/handstand-class'" : (!st.token && k==='co' && !IOS_APP) ? "location.href='/coaching'" : `goSection('${k}')`}"
@@ -31276,7 +31277,7 @@ function chTryHTML(){
 }
 /* ── the card on Train ─────────────────────────────────────────────── */
 function chalCardHTML(){
-  if(coachedView() || st.preview) return '';
+  if((coachedView() && !(CH_D && CH_D.coachOk)) || st.preview) return '';
   chLoad(); setTimeout(chAuto, 0);
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
@@ -32040,7 +32041,7 @@ function render(){
   const screens=inPerson
     ? {classes:screenClasses,bookings:screenBookings,sessions:screenSessions,more:screenMore,fix:screenFix}
     : coached
-    ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress}
+    ? {today:screenToday,plan:screenPlan,progress:screenProgress,ask:screenAsk,more:screenMore,fix:screenFix,press:screenPress,chal:screenChallenge}
     : sec==='co'
     ? Object.assign({coaching:screenCoaching,coplans:screenCoPlans,more:screenMore,fix:screenFix}, onboarding ? {start:screenStart} : {})
     : hsScreens;
@@ -32060,7 +32061,7 @@ function render(){
     window._cpsWide=1; st.homeCps=true; window._hcpsAt=Date.now(); }
   /* on the advent page the bar is the challenge's own (Elliott, 25 Nov: "the
      bottom bars can be advent and leaderboard instead of top tabs") */
-  const tabs=(st.tab==='chal' && !coached) ? [['chal','Advent'],['chalboard','Leaderboard']] : inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
+  const tabs=(st.tab==='chal') ? [['chal','Advent'],['chalboard','Leaderboard']] : inPerson ? TABS.inperson.filter(([id])=>!(id==='bookings' && wide()))
     : coached ? TABS.coached.filter(([id])=>!(id==='ask' && wide() && !st.paused && !st.preview))
     : sec==='co' ? ((wide() && !coachedView() && !st.in && !(typeof awaitingBlock==='function' && awaitingBlock()) && sells()) ? [['cocheck','Coaching']]
       : coTabsList().filter(([id])=>!(id==='cochat' && wide() && !coachedView())))

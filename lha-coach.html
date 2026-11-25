@@ -10543,12 +10543,21 @@ function rosterHTML(){
 }
 
 /* ── one client, one screen ───────────────────────────────────────── */
+/* the advent challenge for a coaching client, on or off (Elliott, 25 Nov: "allow me
+   to turn the challenge on from the coach dashboard", first for Beth's demo) */
+function chalShowOn(email){ loadChal(); return !!(chal && (chal.coachShow||[]).includes(String(email||'').toLowerCase())); }
+function chalShowToggle(email){
+  const on=!chalShowOn(email);
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({showFor:email, on})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(on?'Advent challenge on in their app':'Advent challenge off in their app'); loadChal(true); }))
+    .catch(e=>flash(String(e.message||e)));
+}
 const MORE_ITEMS = email => [
   ['Review everything they have sent','the review tool',`reviewAllFrom(${jsq(email)})`],
   ['Check points','what they must show',`openCps(${jsq(email)})`],
   ['Account and password','',`openAcct(${jsq(email)})`],
   ['Copy a programme in','from another client',`openCopy('',${jsq(email)})`],
-];
+].concat(owner ? [['Advent challenge', chalShowOn(email) ? 'on: it shows in their app (tap to turn off)' : 'off: tap to show it in their app', `chalShowToggle(${jsq(email)})`]] : []);
 /* One sentence to this person about this week, on the top of their Today
    screen. It is the only thing in the app that nobody but a coach can
    produce: everything else is tailored from state or from the block. Ten

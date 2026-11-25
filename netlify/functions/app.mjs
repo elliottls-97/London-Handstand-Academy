@@ -12652,6 +12652,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       /* their own two films, to watch side by side at the end */
       f1: (mine.film1 && mine.film1.uid) || '', fEnd: (mine.filmEnd && mine.filmEnd.uid) || '',
       remind: mine.remind !== false };
+    /* a coaching client sees the challenge only when Elliott has switched it on
+       for them in the dashboard (25 Nov 2026, first for Beth's demo account) */
+    if (who) { const cs = await getSetting(`chalshow:${who}`).catch(() => null); if (cs && cs.on) out.coachOk = true; }
     /* the winners, once Elliott has said to show them: first names only */
     const pz = (await getSetting('chalprize').catch(() => null)) || {};
     if (pz.announced) {
@@ -12831,7 +12834,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
         dm: Array.from({ length: cfg.days }, (_, i) => Number(((r.value.d || {})[i + 1] || {}).m) || 0), remind: r.value.remind !== false,
         given: r.value.prize3m || 0, month: r.value.month || 0 })),
-      prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE });
+      prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE,
+      coachShow: (((await supa.rows('settings', `select=key,value&key=like.${enc('chalshow:')}*`).catch(() => [])) || [])
+        .filter(r => r.value && r.value.on).map(r => r.key.slice(9))) });
   }
   if (path === '/coach/challenge' && request.method === 'POST') {
     if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
@@ -12864,6 +12869,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { draw: { at: Date.now(), winners: pick, from: pick.length + pool.length } }));
     }
     if (typeof body.most === 'string') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { most: norm(body.most) }));
+    if (typeof body.showFor === 'string' && /@/.test(body.showFor))
+      await changeSetting(`chalshow:${norm(body.showFor)}`, () => ({ on: !!body.on, at: Date.now() }));
     /* a class winner booked in (or not), so the dashboard can tick them off */
     if (typeof body.classDone === 'string') {
       const e = norm(body.classDone);
