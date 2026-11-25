@@ -31276,12 +31276,20 @@ function chTryHTML(){
     <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:10px">One of the check points for ${esc(STAGES[T.L].n)}. ${CH_D && CH_D.day>=1 && CH_D.day<CH_D.cfg.days ? 'A new one behind tomorrow\'s door.' : 'Try it this week.'}</div></div>`;
 }
 /* ── the card on Train ─────────────────────────────────────────────── */
+/* the banner's cross hides it for a couple of days, and it is always back when
+   door 1 opens (Elliott, 25 Nov: "allow people to dismiss the handstand advent
+   challenge but it will show up every couple of days and defo on 1st") */
+function chBanHidden(){
+  const at=st.chalHideAt||0; if(!at) return false;
+  if(CH_D.day>=1 && !((st.chalHideDay|0)>=1)) return false;
+  return Date.now()-at < 2*864e5;
+}
 function chalCardHTML(){
   if((coachedView() && !(CH_D && CH_D.coachOk)) || st.preview) return '';
   chLoad(); setTimeout(chAuto, 0);
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
-  if(!me && st.chalHide) return '';
+  if(!me && chBanHidden()) return '';
   const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">${x||''}${inner}</div></div>`;
   const kick=t=>`<div class="kick2" style="color:var(--forest)">${esc(t)}</div>`;
   const head=h=>`<div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${h}</div>`;
@@ -31289,7 +31297,7 @@ function chalCardHTML(){
      advent challenge button so people know about it on the app (banner is xmasy)") */
   if(!me) return `<div class="rise rise-1" style="padding:12px 20px 0"><div class="chban" style="--now:${-(performance.now()/1000).toFixed(2)}s">
       ${CH_LIGHTS}${CH_SNOW}${CH_GROUND}
-      <button aria-label="Hide the challenge" onclick="st.chalHide=1;save();render()" class="chban-x">&times;</button>
+      <button aria-label="Hide the challenge for now" onclick="st.chalHideAt=Date.now();st.chalHideDay=CH_D.day;save();render()" class="chban-x">&times;</button>
       <div class="chban-in">
         <div class="kick2" style="color:#f3c77a">${n<1 ? chDate(1).getUTCDate()+' TO '+chDate(days).getUTCDate()+' '+chDate(days).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}).toUpperCase()+' · FREE' : 'DOOR '+n+' OF '+days+' · JOIN ANY TIME · FREE'}</div>
         <div style="font:400 27px/1.08 var(--serif);margin-top:8px;letter-spacing:-.01em">The Handstand Advent <em style="font-style:normal;color:#f3c77a">Challenge.</em></div>
