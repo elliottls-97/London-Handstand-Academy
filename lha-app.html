@@ -3388,6 +3388,10 @@ function trackOpen(){
     /* the advent challenge: the group's link (?chal=join), or back from
        paying for its extras (?chal=paid) */
     const chq=(q.get('chal')||'').replace(/[^a-z]/g,'').slice(0,8);
+    /* the challenge link's own source, apart from the first touch st.ref keeps:
+       the WhatsApp group's link (?src=whatsapp) is what shows its chat button */
+    const chs=(q.get('src')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,20);
+    if(chq==='join' && chs) st.chalSrc=chs;
     if(chq){ st.chalNext=1; if(chq==='join') st.chalJoin=1; save(); history.replaceState(null,'',location.pathname);
       if(chq==='paid') setTimeout(()=>{ toast('Paid, thank you. Your extras are on.'); let k=0;
         const w=()=>{ chLoad(true); if(++k<6 && !chPaid()) setTimeout(w, 2500); }; setTimeout(w, 1200); }, 600); }
@@ -29164,7 +29168,7 @@ function deskHead(bar){
     ? [['co',coachedView()?'Your programme':coWord()],['hs','Training'],['classes','Classes']]
     : [['hs','Training'],['classes','Classes'],['co',coWord()]];
   /* signed out on the website, Classes is the class page itself, as in the site header */
-  const nav=items.map(([k,l])=>`<button class="dnav${cur===k?' on':''}" onclick="acctMenu=false;${(!st.token && k==='classes' && !IOS_APP) ? "location.href='/handstand-class'" : (!st.token && k==='co' && !IOS_APP) ? "location.href='/form-check'" : `goSection('${k}')`}"
+  const nav=items.map(([k,l])=>`<button class="dnav${cur===k?' on':''}" onclick="acctMenu=false;${(!st.token && k==='classes' && !IOS_APP) ? "location.href='/handstand-class'" : (!st.token && k==='co' && !IOS_APP) ? "location.href='/coaching'" : `goSection('${k}')`}"
     aria-current="${cur===k?'page':'false'}">${esc(l)}</button>`).join('');
   const nMsg=msgsNew();
   const name=(st.client||'').split(' ')[0] || (st.email ? st.email.split('@')[0] : '');
@@ -31070,7 +31074,7 @@ function chJoin(){
 }
 function chJoinAs(nm, show){
   chBusy=true; render();
-  chPost('/join',{name:nm, show, stage:chLevel(), src:st.ref||''})
+  chPost('/join',{name:nm, show, stage:chLevel(), src:st.chalSrc||st.ref||''})
     .then(()=>{ chBusy=false; track('chaljoin', chLevel()); save();
       toast(CH_D && CH_D.day>=1 ? 'You are in. Day '+CH_D.day+' is today.' : 'You are in. Day 1 is '+chWeekday(1)+'.'); chLoad(true); })
     .catch(e=>{ chBusy=false; toast(e.message); render(); });
@@ -31115,7 +31119,7 @@ function chShare(kind){
     : 'Handstand advent '+Math.min(n,days)+'/'+days+' ✓';
   track('chalshare', chLevel());
   if(navigator.share){ navigator.share({text}).catch(()=>{}); return; }
-  const done=()=>toast('Copied. Paste it in the group.');
+  const done=()=>toast('Copied, ready to paste.');
   try{ navigator.clipboard.writeText(text).then(done, ()=>toast(text)); }catch(e){ toast(text); }
 }
 /* the group chat: a new window where one is allowed, else the link itself.
@@ -31219,7 +31223,7 @@ function screenChallenge(){
 }
 const chSteps = () => `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${[
     ['Practise every day', 'Any practice counts: your own, a class, or the app. Ill, injured or away? Flag the day.'],
-    ['Log it, open a door', 'Each day you log opens a door on your advent calendar. Post yours to the group.'],
+    ['Log it, open a door', 'Each day you log opens a door on your advent calendar. Everyone\'s are on the board.'],
     ['Film your start and your end', 'Any handstand you like, when you join and on the last days, so you can see how far you came.']
   ].map(([t,d],i)=>`<div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--forest);color:var(--on-primary);font:700 12px/26px var(--sans);text-align:center">${i+1}</span>
     <span><b style="display:block;font:600 15px/1.3 var(--sans)">${t}</b><span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">${d}</span></span></div>`).join('')}</div>`;
@@ -31247,7 +31251,7 @@ function chPageHTML(){
       <div class="kick2" style="color:var(--forest)">YOU ARE IN</div>
       <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Door 1 opens ${chEm(esc(chDayName(1))+'.')}</div>
       <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${chStartDone()?'Your starting point is in. Practise as normal until door 1.':'First, your starting point, just below. Then practise as normal until door 1.'}</div>
-      <button class="btn2" style="width:100%;margin-top:14px" onclick="chShare('in')">Tell the group you are in</button></div>` : '';
+      <button class="btn2" style="width:100%;margin-top:14px" onclick="chShare('in')">${me.group?'Tell the group you are in':'Share that you are in'}</button></div>` : '';
   const start = (chStartOpen() && (n<1 || !chStartDone())) ? chStartHTML() : '';
   const film = (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
   /* the starting point comes first until it is done; then the calendar leads */

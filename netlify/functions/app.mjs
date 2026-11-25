@@ -12644,7 +12644,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       team: { mins: pub.reduce((t, x) => t + (x.mins || 0), 0), goalH: cfg.goalH },
       day, count: rows.length, board, week, me: null };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
-      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}), group: cfg.group,
+      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
+      /* the WhatsApp group is the accountability group's own (Elliott, 25 Nov:
+         "its only for that group"), so only people who came from its link see it */
+      group: mine.src === 'whatsapp' ? cfg.group : '',
       film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine),
       /* their own two films, to watch side by side at the end */
       f1: (mine.film1 && mine.film1.uid) || '', fEnd: (mine.filmEnd && mine.filmEnd.uid) || '',
@@ -12810,7 +12813,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
         if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
         if (Number(c.goalH) > 0) x.goalH = Math.min(9999, Math.round(Number(c.goalH)));
-        /* the challenge's group chat (a WhatsApp invite link), shown to everyone who joined */
+        /* the accountability group's WhatsApp link, shown only to people who joined from its link (?src=whatsapp) */
         if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
         if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
         if (typeof c.earlyUntil === 'string' && !isNaN(Date.parse(c.earlyUntil))) x.earlyUntil = new Date(c.earlyUntil).toISOString();
