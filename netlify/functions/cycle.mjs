@@ -456,6 +456,10 @@ async function coachingLoop(done, now) {
     for (const k of Object.keys(subsBy)) subsBy[k].sort((a, b) => b.at - a.at);
   } catch { subsBy = null; }
 
+  /* clips cleared on Today (dealt with elsewhere) are not chased by email
+     (25 Nov 2026: the morning email nagged about clips already cleared) */
+  let todayCleared = {};
+  try { for (const r of (await supa.rows('settings', `key=like.${enc('todaydone:')}*&select=key,value`)) || []) Object.assign(todayCleared, r.value || {}); } catch {}
   for (const c of everyone) {
     try {
       if (past[c.email]) { done.skipped++; continue; }
@@ -536,6 +540,7 @@ async function coachingLoop(done, now) {
       for (const s of mine) {
         if (s.status !== 'submitted') continue;
         if (now - (s.at || 0) < REVIEW_HOURS * 60 * 60 * 1000) continue;
+        if (todayCleared['q:' + s.id]) continue;
         const ckey = `chase:${s.id}`;
         if (await supa.row('nudges', `key=eq.${enc(ckey)}&select=key`).catch(() => null)) continue;
         const hrs = Math.round((now - s.at) / 3600000);

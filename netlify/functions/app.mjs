@@ -2027,9 +2027,26 @@ async function sendCoachAlert(client, items) {
     const to = norm(client ? coachOf(client) : primaryCoach());
     if (!to) return;
     const rec = await pushSubs(to, 'pushcoach');
-    if (!rec.subs.length) return;
+    if (!rec.subs.length && !(Array.isArray(rec.apns) && rec.apns.length)) return;
     const on = Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {});
-    const mine = items.filter(it => on[it.kind]);
+    const all = items.filter(it => on[it.kind]);
+    if (!all.length) return;
+    const send = async payload => {
+      const at = payload.t ? '&t=' + payload.t : '';
+      const r = await pushSend(to, Object.assign({
+        url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
+      }, payload, { t: undefined }), 'pushcoach');
+      await mailNote(to, 'Dashboard: ' + String(payload.title || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+    };
+    /* what a client sends you, a message, a clip or a question, is its own
+       notification: never bundled, never silent, never replacing the one
+       before, and it stays on screen until it is opened (Elliott, 25 Nov:
+       "I can't trust that when a notification comes in, that's the most
+       recent thing ... it's not clear that Hannah's sending a new clip") */
+    const imp = client ? all.filter(it => it.kind === 'messages') : [];
+    for (let i = 0; i < imp.length; i++)
+      await send(Object.assign({}, imp[i].payload || {}, { tag: 'm:' + norm(client) + ':' + Date.now() + ':' + i, important: true, quiet: false }));
+    const mine = all.filter(it => !imp.includes(it));
     if (!mine.length) return;
     const last = mine[mine.length - 1].payload || {};
     let payload = Object.assign({}, last);
@@ -2046,15 +2063,12 @@ async function sendCoachAlert(client, items) {
       if (lines.length > 1) {
         payload = { title: first + ': ' + lines.length + ' updates', body: lines.join(' \u00b7 ').slice(0, 180), t: last.t };
       }
-      /* one per client on the phone, and a repeat inside the window is quiet */
+      /* the routine news (check points, how it felt, sessions): one per
+         client on the phone, and a repeat inside the window is quiet */
       payload.tag = 'c:' + who;
       if (open) payload.quiet = true;
     }
-    const at = payload.t ? '&t=' + payload.t : '';
-    const r = await pushSend(to, Object.assign({
-      url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
-    }, payload, { t: undefined }), 'pushcoach');
-    await mailNote(to, 'Dashboard: ' + String(payload.title || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+    await send(payload);
   } catch {}
 }
 const firstNameOf = e => String(clients()[norm(e)] || '').split(' ')[0] || norm(e);
@@ -12808,7 +12822,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (ep.length) paras.push(`<b>What broke on people's phones in the last day:</b><br>` + li(ep.slice(0, 20).map(x => `${esc(x.m)}${x.n > 1 ? ' (' + x.n + ' times)' : ''}${x.who.length ? ' &middot; ' + esc(x.who.slice(0, 3).join(', ')) : ''}${x.isNew ? ' &middot; new' : ''}`)));
       paras.push(`The full list is in the dashboard, Settings, App.`);
       if (to) await email(to, `LHA: ${[fp.length ? fp.length + ' film' + (fp.length === 1 ? '' : 's') : '', ep.length ? ep.length + ' thing' + (ep.length === 1 ? '' : 's') + ' broke' : ''].filter(Boolean).join(', ')}`,
-        mail({ title: 'Something needs a look.', paras, cta: { href: `${SITE}/lha-coach.html#settings`, label: 'Open the dashboard' } }), undefined, { essential: true }).catch(() => {});
+        mail({ title: 'Something needs a look.', paras, cta: { href: `${SITE}/lha-coach.html#settings-app`, label: 'Open the dashboard' } }), undefined, { essential: true }).catch(() => {});
       await sendCoachAlert(null, [{ kind: 'business', payload: { title: ep.length ? `${ep.length} thing${ep.length === 1 ? '' : 's'} broke on people's phones` : `${fp.length} film${fp.length === 1 ? '' : 's'} need a look`,
         body: (ep[0] ? ep[0].m : fp[0].name + ': ' + fp[0].what).slice(0, 140), tag: 'health' } }]);
     }
@@ -14722,7 +14736,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${esc(text.slice(0, 2000)) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
-      await coachAlert(who, 'messages', { title: firstNameOf(who) + (text ? '' : ' ' + kind),
+      await coachAlert(who, 'messages', { title: kind ? firstNameOf(who) + ' ' + kind.replace('sent a video', 'sent a clip') : 'Message from ' + firstNameOf(who),
         body: text ? text.slice(0, 160) : 'Open it on the dashboard.', tag: 'msg:' + who, t: 'thread' });
       return json({ ok: true, id: (addedC && addedC.id) || '' });
     }
@@ -16546,7 +16560,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!wait.length) continue;
         const lastM = wait[wait.length - 1];
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e],
-          id: 'msg:' + e, kind: 'msg', at: ms(wait[0].created_at), clips: 0, n: wait.length,
+          id: 'msg:' + e, kind: 'msg', at: ms(wait[0].created_at), last: ms(lastM.created_at), clips: 0, n: wait.length,
           unread: wait.filter(m => !m.read_at).length,
           msgs: wait.slice(-4).map(m => ({ text: String(m.body || '').slice(0, 600),
             image: !!m.image, video: !!m.video, at: ms(m.created_at), unread: !m.read_at })),
@@ -16571,7 +16585,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           && !(String(f.kind || '').toLowerCase() === 'session feel' && !f.text));
         if (said.length) {
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'said:' + e, kind: 'said', at: said[0].at, clips: 0, n: said.length,
+            id: 'said:' + e, kind: 'said', at: said[0].at, last: Math.max(...said.map(f => f.at || 0)), clips: 0, n: said.length,
             said: said.slice(-8).map(f => ({ kind: f.kind || 'note', text: f.text || '',
               reasons: f.reasons || [], context: f.context || '', at: f.at })),
             numbers: { name: said.slice(-3).map(f => (f.kind || 'note')
@@ -16584,7 +16598,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const trained = (p.sessions || []).filter(x => x && (x.at || 0) > sinceTrain && (x.done || x.kind === 'part'));
         if (trained.length) {
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'trained:' + e, kind: 'trained', at: trained[0].at, clips: 0, n: trained.length,
+            id: 'trained:' + e, kind: 'trained', at: trained[0].at, last: Math.max(...trained.map(x => x.at || 0)), clips: 0, n: trained.length,
             sessions: trained.slice(-6).map(x => ({ name: x.name || '', mins: Math.round(Number(x.actual || x.mins) || 0),
               done: !!x.done, got: x.got || 0, of: x.of || 0, stoppedAt: x.stoppedAt || '', at: x.at })),
             numbers: { name: trained.slice(-3).map(x => x.name || 'A session').join(' · ') } });
@@ -16624,7 +16638,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (fresh.length) {
           fresh.sort((a, b) => b.at - a.at);
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at,
+            id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at, last: fresh[0].at,
             clips: 0, n: fresh.length, logs: fresh.slice(0, 6),
             numbers: { name: fresh.slice(0, 4).map(x => x.n + ' ' + x.v).join(' · ') } });
         }
@@ -16632,8 +16646,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       for (const s of (waiting || [])) {
         const e = s.email;
         if (!roster[e] || !owns(e) || s.status !== 'submitted') continue;
+        const c0 = (s.clips || [])[0], cap = c0 && typeof c0 === 'object' ? String(c0.name || '') : '';
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e], id: s.id, kind: s.kind,
-          cycle: s.cycle, at: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {},
+          cycle: s.cycle, at: ms(s.created_at), last: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {},
+          /* the words they sent with a clip in the chat */
+          cap: /^(Clip sent in the chat|Form check clip)$/.test(cap) ? '' : cap.slice(0, 200),
           /* the clips themselves, so the review screen can load the next
              person's without opening their page first */
           uids: (s.clips || []).slice(0, 12) });

@@ -318,6 +318,12 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .tcard-who{flex:1;min-width:0}
 .tcard-who b{display:block;font:600 15.5px/1.25 var(--sans)}
 .tcard-who span{display:block;font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:2px}
+/* the newest thing on a card, and New since you last looked (Phase 1, 25 Nov) */
+.tcard-who .tcard-latest{font:600 12.5px/1.35 var(--sans);color:var(--ink);margin-top:3px}
+.tnew{display:inline-block;margin-right:6px;padding:3px 7px;border-radius:999px;background:var(--amber);color:#3b2a08;
+  font:700 10px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;vertical-align:1px}
+.tcard-who .tnew{display:inline-block;font:700 10px/1 var(--sans);margin:0 6px 0 0}
+.tcard.tcard-fresh{box-shadow:inset 4px 0 0 var(--amber),0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
 .tcard-age{flex:none;text-align:right}
 .tcard-age b{display:block;font:400 24px/1 var(--serif)}
 .tcard-age span{display:block;font:600 9.5px/1.2 var(--sans);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
@@ -749,7 +755,7 @@ function freshen(force){
      third of everything the server was asked in a week (19 Nov 2026). */
   const due=(at, gap, floor)=> now-at >= (force ? floor : gap);
   /* a minute while you are here, five when you are not */
-  if(due(queueAt, here?60000:300000, 5000)){ queueAt=now; loadQueue(); }
+  if(due(queueAt, here?(view==='today'?30000:60000):300000, 5000)){ queueAt=now; loadQueue(); }
   /* applications and website questions too: they were read once at sign
      in, so a dashboard left open never showed a new one, push or no push,
      until a reload (16 Oct 2026, review). Every five minutes while you are
@@ -9468,18 +9474,18 @@ function inboxItems(){
   const out=[];
   queue.forEach(q=>{
     if(q.kind==='msg'){
-      out.push({id:'M:'+q.email, type:'message', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'M:'+q.email, type:'message', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Reply', msg:true, n:q.n||1, unread:q.unread||0, msgs:q.msgs||[],
         detail:(q.n>1?q.n+' messages · ':'')+'"'+clip((q.numbers||{}).name||'',110)+'"'});
       return;
     }
     if(q.kind==='trained'){
-      out.push({id:'R:'+q.email, type:'trained', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'R:'+q.email, type:'trained', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Seen', sessions:q.sessions||[], detail:(q.numbers||{}).name||''});
       return;
     }
     if(q.kind==='said'){
-      out.push({id:'T:'+q.email, type:'said', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'T:'+q.email, type:'said', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Read', said:q.said||[],
         detail:(q.numbers||{}).name||(q.n+' things')});
       return;
@@ -9491,7 +9497,7 @@ function inboxItems(){
          under "Also happened" with the headline reading nobody waiting,
          so Marina's three hits on 5 Nov 2026 were invisible */
       const hits=(q.logs||[]).filter(x=>cpLogHit(q.email,x)).length;
-      out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'See their check points', cplog:true, logs:q.logs||[], hits, act:hits?1:0,
         detail:q.n+' check point'+(q.n===1?'':'s')+' logged'
           +((q.numbers||{}).name?' · '+q.numbers.name:'')});
@@ -9500,10 +9506,14 @@ function inboxItems(){
     const t = q.kind==='assessment'?'check' : q.kind==='checkpoint'?'point' : 'review';
     const nums=Object.entries(q.numbers||{}).filter(([k])=>k!=='photo'&&k!=='k'&&k!=='name')
       .map(([k,v])=>k+' '+v).join(' · ');
-    const what = t==='check' ? 'Free form check'
+    /* a clip a client sends in the chat is a clip, with their words; "Free form
+       check" is for somebody who is not a client (Elliott, 25 Nov: "Hannah sends in
+       a clip, and it's not clear that Hannah's sending a new clip to me") */
+    const what = t==='check' ? (q.coached ? 'Clip from the chat' : 'Free form check')
       : t==='point' ? ('Check point: '+((q.numbers||{}).name||''))
       : ('Block '+(q.cycle||1)+' test');
-    out.push({id:'q:'+q.id, type:t, email:q.email, name:q.name||q.email, at:q.at,
+    out.push({id:'q:'+q.id, type:t, email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
+      clientClip: t==='check' && !!q.coached, cap:q.cap||'',
       action:'Open the thread', numbers:q.numbers||{}, clips:q.clips||0, cycle:q.cycle||1, uids:q.uids||[],
       detail:what+' · '+q.clips+' clip'+(q.clips===1?'':'s')+(nums?' · '+nums:'')});
   });
@@ -9550,7 +9560,7 @@ function inboxItems(){
         +(A.days||A.commitment?' · '+(A.days||A.commitment):'')+(A.injuries?' · '+clip(A.injuries,40):'')});
   });
   return out.filter(x=>!(todayClr[x.id] && (x.at||0)<=todayClr[x.id]))
-            .map(x=>({...x, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
+            .map(x=>({...x, last:x.last||x.at, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
             .sort((a,b)=>b.hrs-a.hrs);
 }
 
@@ -9752,14 +9762,18 @@ function todayPeople(){
   return [...by.values()].map(p=>{
     const act=p.items.filter(x=>x.act!=null ? x.act : INBOX_TYPE[x.type].act);
     const oldest=act.length?Math.min(...act.map(x=>x.at||Date.now())):0;
-    const newest=Math.max(...p.items.map(x=>x.at||0));
+    const newest=Math.max(...p.items.map(x=>x.last||x.at||0));
+    const latest=p.items.slice().sort((a,b)=>(b.last||b.at||0)-(a.last||a.at||0))[0];
     const c=p.email?clients.find(x=>x.email===p.email):null;
-    return Object.assign(p,{act:act.length, oldest, newest, name:whoName(p.name,p.email),
+    return Object.assign(p,{act:act.length, oldest, newest, latest, name:whoName(p.name,p.email),
       mine:!!(c&&c.mine), client:!!(c&&c.coached!==false),
       hrs:oldest?Math.round((Date.now()-oldest)/3600000):null});
   /* a coached client waiting comes before somebody who is not one yet:
      Hannah, paying and 27 days without training, sat last (2 Nov 2026) */
-  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (b.client-a.client) || (a.act ? a.oldest-b.oldest : b.newest-a.newest));
+  /* newest first (Elliott, 25 Nov, Phase 1): whoever sent something last is at
+     the top; each card still says how long the oldest thing has waited, in red
+     past the promise, so nothing old is lost */
+  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (b.newest-a.newest));
 }
 /* "n7g4kng2rh" and "pb" were the name on a card: the front of an email,
    or an Apple hidden address, says nothing about who it is */
@@ -9833,6 +9847,24 @@ function seenAll(email){
 /* a line's list shows two and folds the rest: seven drill ratings in a row
    was a wall to read before getting to anybody else (8 Oct 2026) */
 const lineMore=new Set();
+/* what a line is called: a chat clip from a client is a Clip, not a form check */
+const tagLabel = r => (r.type==='check' && r.clientClip) ? 'Clip' : INBOX_TYPE[r.type].label;
+/* the newest thing on a card, in words */
+function latestSay(r){
+  if(r.type==='message') return (r.n>1?r.n+' messages':'Message');
+  if(r.type==='check') return r.clientClip?'New clip':'Form check';
+  if(r.type==='point') return 'Check point clip';
+  return tagLabel(r);
+}
+/* New since you last looked at Today: the moment you last left it (Phase 1, 25 Nov) */
+let todaySeenPrev=0, todayVisit=0;
+try{ todaySeenPrev=Number(localStorage.getItem('lha_today_seen'))||0; }catch(e){}
+const isNewT = t => todaySeenPrev>0 && (t||0) > todaySeenPrev;
+function todayVisitTick(){ if(view==='today'){ if(!todayVisit) todayVisit=Date.now(); } else todayVisitEnd(); }
+/* a look of a few seconds counts as seen; a glance away and back does not */
+function todayVisitEnd(){ if(!todayVisit) return; const looked=Date.now()-todayVisit>=4000; todayVisit=0; if(!looked) return; todaySeenPrev=Date.now();
+  try{ localStorage.setItem('lha_today_seen', String(todaySeenPrev)); }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) todayVisitEnd(); });
 function lineMoreToggle(id){ lineMore.has(id)?lineMore.delete(id):lineMore.add(id); draw(); }
 function lineHTML(r){
   const T=INBOX_TYPE[r.type], open=inboxRow===r.id, e=esc(r.email||''), je=jsq(r.email||'');
@@ -9841,7 +9873,7 @@ function lineHTML(r){
   if(r.type==='message'){
     what=(r.n>1?r.n+' messages':'A message')+(r.unread?'':' <span class="muted">read, not answered</span>');
     body=`<div class="tsub">${(r.msgs||[]).map(m=>`<div class="tmsg${m.unread?' new':''}">${
-      m.image?'<i>A photo</i> ':''}${m.video?'<i>A video</i> ':''}${esc(clip(m.text,320))}</div>`).join('')
+      m.image?'<i>A photo</i> ':''}${m.video?'<i>A video</i> ':''}${m.text?esc(clip(m.text,320)):(!m.image&&!m.video?'<i>A voice note</i>':'')}</div>`).join('')
       || `<div class="tmsg">${esc(r.detail)}</div>`}</div>`;
     if(open) body+=quickReplyHTML(r.email);
     acts=toggle('Reply here')+`<button class="btn btn-secondary btn-sm" onclick="openClient(${je},'thread')">Open the chat</button>
@@ -9852,8 +9884,8 @@ function lineHTML(r){
     body=`<div class="tsub"><div>${r.clips} clip${r.clips===1?'':'s'} to watch</div></div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openClient(${je},'marks')">Watch it</button>`;
   } else if(r.type==='check' || r.type==='review'){
-    what=esc(r.type==='check'?'Form check':'Block '+(r.cycle||1)+' test');
-    body=`<div class="tsub"><div>${esc(r.detail)}</div></div>`;
+    what=esc(r.type==='check'?(r.clientClip?(r.clips>1?r.clips+' clips':'A clip'):'Form check'):'Block '+(r.cycle||1)+' test');
+    body=`<div class="tsub">${r.cap?`<div class="tmsg">${esc(clip(r.cap,320))}</div>`:''}<div>${esc(r.detail)}</div></div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openClient(${je},'thread')">Open it</button>`;
   } else if(r.type==='logged'){
     what=r.hits?(r.hits+' target'+(r.hits===1?'':'s')+' hit, to sign off'):r.logs&&r.logs.length?(r.logs.length+' logged'):esc(r.detail);
@@ -9896,8 +9928,8 @@ function lineHTML(r){
     +`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle(${jsq(r.id)})">Show ${many-2} more</button>`;
   else if(many>2 && !open) body+=`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle(${jsq(r.id)})">Show fewer</button>`;
   return `<div class="tline" data-k="${esc(r.id)}">
-    <div class="tline-top"><span class="tag ${T.cls}">${T.label}</span>
-      <span class="tline-what">${what}</span><span class="tline-at">${esc(ago(r.at))}</span></div>
+    <div class="tline-top"><span class="tag ${T.cls}">${esc(tagLabel(r))}</span>
+      <span class="tline-what">${isNewT(r.last||r.at)?'<b class="tnew">New</b>':''}${what}</span><span class="tline-at">${esc(ago(r.last||r.at))}</span></div>
     ${body}
     ${acts?`<div class="tline-acts">${acts}</div>`:''}
   </div>`;
@@ -9912,7 +9944,7 @@ function lineCount(r){ return r.type==='message'?(r.n||1)
   : (r.said||r.flags||r.sessions||r.logs||[]).length || (r.type==='point'?(r.clips||1):1); }
 function personCardHTML(p, cat){
   const lines=p.items.filter(r=>cat==='all'||INBOX_TYPE[r.type].filter===cat)
-    .sort((a,b)=>(LINE_ORDER.indexOf(a.type)-LINE_ORDER.indexOf(b.type))||((a.at||0)-(b.at||0)));
+    .sort((a,b)=>((b.last||b.at||0)-(a.last||a.at||0)) || (LINE_ORDER.indexOf(a.type)-LINE_ORDER.indexOf(b.type)));
   if(!lines.length) return '';
   const c=p.email?clients.find(x=>x.email===p.email):null;
   const seenable=p.items.filter(r=>['said','logged','trained','flag'].includes(r.type)).length>1;
@@ -9920,28 +9952,30 @@ function personCardHTML(p, cat){
   const key='p:'+(p.email||p.items[0].id);
   const open=cardOpen.has(key) || lines.some(r=>r.id===inboxRow);
   /* two check point clips read "Check point clip·Check point clip" */
-  const kinds=new Map(); lines.forEach(r=>{ const l=INBOX_TYPE[r.type].label; kinds.set(l,(kinds.get(l)||0)+lineCount(r)); });
+  const kinds=new Map(); lines.forEach(r=>{ const l=tagLabel(r); kinds.set(l,(kinds.get(l)||0)+lineCount(r)); });
+  const lt=p.latest, fresh=lt && isNewT(lt.last||lt.at);
+  const latestHTML=lt?`<span class="tcard-latest">${fresh?'<b class="tnew">New</b>':''}${esc(latestSay(lt))} &middot; ${esc(ago(lt.last||lt.at))}</span>`:'';
   const sum=[...kinds].map(([l,n])=>`<span>${esc(l)}${n>1?' <i>'+n+'</i>':''}</span>`).join('<span aria-hidden="true">&middot;</span>');
   const chev=`<span class="tcard-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>`;
-  if(!open) return `<article class="tcard" data-k="${esc(key)}">
+  if(!open) return `<article class="tcard${fresh?' tcard-fresh':''}" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="false" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
-      <div class="tcard-who"><b>${esc(p.name)}</b><span>${
+      <div class="tcard-who"><b>${esc(p.name)}</b>${latestHTML}<span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
-      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'oldest waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
     </header>
     <div class="tcard-sum" style="display:flex;gap:10px;align-items:center"><span onclick="cardToggle(${jsq(key)})" style="cursor:pointer;flex:1;min-width:0">${sum}</span>
       <button class="ghostlink" style="flex:none;color:var(--grey)" onclick="todayClearPerson(${jsq(key)})" title="Dealt with already: off Today until something new comes in">Clear</button></div>
   </article>`;
-  return `<article class="tcard open" data-k="${esc(key)}">
+  return `<article class="tcard open${fresh?' tcard-fresh':''}" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="true" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
-      <div class="tcard-who"><b>${esc(p.name)}</b><span>${
+      <div class="tcard-who"><b>${esc(p.name)}</b>${latestHTML}<span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
-      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'oldest waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
     </header>
@@ -14676,6 +14710,7 @@ function routeHash(h){
   if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme','121'].includes(t)?t:'thread'); return true; }
   /* a booking, a cancel or a refund in the coach's email opens here */
   if(h==='bookings'){ go('bookings'); return true; }
+  if(h==='settings-app' || h==='settings'){ setTab='app'; go('settings'); return true; }
   if(h==='today' || c){ go('today'); freshen(true); return true; }
   return false;
 }
@@ -14694,9 +14729,19 @@ try{
       const d=e.data||{};
       if(d.type==='lha-coach-go'){ routeHash(d.hash||'#today'); }
       if(d.type==='lha-push'){
+        /* a client's message, clip or question: everything is asked again now,
+           their plan included (a flag never reached Today until a reload), and
+           the alert stays until you click it (Phase 1, 25 Nov) */
+        const cm=/[#&]c=([^&]+)/.exec(String(d.url||'')), em=cm?decodeURIComponent(cm[1]):'';
+        if(d.important){ extrasAt=0; clientsAt=0; }
         freshen(true);
+        if(em) fetch(API+'/progress?email='+encodeURIComponent(em),{headers:hdr()}).then(r=>r.ok?r.json():null)
+          .then(x=>{ if(x){ prog[em]=Object.assign(x.progress||{},{flagSeen:Number(x.flagSeen)||0}); drawSoon(); } }).catch(()=>{});
         if(view==='client' && sel && ctab==='thread') loadCoachThread(sel, true);
-        if(!document.hidden) flash(String(d.title||'')+(d.body?': '+String(d.body).slice(0,80):''));
+        if(!document.hidden){
+          if(d.important){ pushAlert={title:String(d.title||''), body:String(d.body||'').slice(0,160), hash:String(d.url||'').split('#')[1]||'today'}; draw(); }
+          else flash(String(d.title||'')+(d.body?': '+String(d.body).slice(0,80):''));
+        }
       }
     });
   }
@@ -14847,6 +14892,21 @@ function copyHTML(){
           copyBusy?'Copying…':'Copy and open the builder'}</button>
       </div>
     </div></div>`;
+}
+/* a client's message, clip or question while the dashboard is open: a card that
+   stays until you open it or close it */
+let pushAlert=null;
+function pushAlertGo(){ const h=pushAlert&&pushAlert.hash; pushAlert=null; draw(); if(h) routeHash('#'+h); }
+function pushAlertHTML(){
+  if(!pushAlert) return '';
+  return `<div role="alert" style="position:fixed;right:20px;top:20px;z-index:1001;width:min(360px,calc(100vw - 40px));background:#fff;
+    border:1px solid rgba(29,85,102,.14);border-left:4px solid var(--amber);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px 16px 12px">
+    <div style="display:flex;gap:10px;align-items:flex-start"><div style="flex:1;min-width:0;cursor:pointer" onclick="pushAlertGo()">
+      <div style="font:700 15px/1.3 var(--sans);color:var(--ink)">${esc(pushAlert.title)}</div>
+      ${pushAlert.body?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">${esc(pushAlert.body)}</div>`:''}
+      <div style="font:600 12.5px/1 var(--sans);color:var(--forest);margin-top:10px">Open it</div></div>
+      <button aria-label="Close" onclick="pushAlert=null;draw()" style="border:0;background:none;cursor:pointer;font:400 20px/1 var(--sans);color:var(--grey2);width:32px;height:32px">&times;</button></div>
+  </div>`;
 }
 function toastHTML(){
   if(!toastMsg) return '';
@@ -15012,7 +15072,7 @@ function setChatsFilter(f){ chatsFilter=f; try{ localStorage.setItem('lha_coach_
 function chatRowHTML(c){
   const L=c.lastMsg, mine=L.from==='coach', k=chatKind(c);
   const typingNow=threadFor===c.email && Date.now()-dTypingAt<8000;
-  const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
+  const prev=(L.video?'<b>Clip</b> ':L.image?'<b>Photo</b> ':'')+(L.text ? esc(L.text) : (L.video||L.image) ? '' : '<i>Message</i>');
   const tag=k==='enquiry'?' <em>enquiry</em>':k==='session'?' <em>1-2-1</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':k==='past'?' <em>past client</em>':'';
   return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient(${jsq(c.email)},'thread')">
     <span class="av"${k==='new'?' style="background:var(--mist);color:var(--grey)"':''}>${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
@@ -15054,6 +15114,7 @@ function chatsHTML(){
 }
 
 function drawNow(){
+  todayVisitTick();
   /* the open chat is only built when it is the screen being shown: it was
      built on every draw of every screen, a date formatter per message
      (19 Nov 2026 sweep: 22 ms a draw with 300 messages held) */
@@ -15084,7 +15145,7 @@ function drawNow(){
     /* the toast goes last: in front of the editors it shifted each one along
        a place, so a toast rebuilt the open builder and lost its scroll */
     + bulkHTML() + copyHTML() + newBlkHTML()
-    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML() + toastHTML();
+    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML() + toastHTML() + pushAlertHTML();
   if(html!==lastHTML){ lastHTML=html; morphInto($('#v'), html); }
   syncReview(); syncSite();
 }
