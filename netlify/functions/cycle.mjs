@@ -1012,7 +1012,10 @@ async function workshopMail(done) {
           /* the reminder is the moment somebody finds out they cannot come:
              the way to move or cancel goes with it, while it still counts */
           const canChange = hoursTo > WS_CUTOFF_H;
-          const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
+          /* bought on Eventbrite or ClassBento: the money is there, so no
+             cancel link here; a move is still ours to do (25 Nov 2026) */
+          const ext = p.source === 'eventbrite' || p.source === 'classbento';
+          const link = canChange && p.session && !ext ? await manageLink(w.slug, p.email, p.session, w.when) : '';
           /* the health declaration and photos are asked once paid (13 Oct
              2026); anybody who skipped them is asked again here, on the page
              they would have seen. A guest is asked on the day. */
@@ -1021,7 +1024,7 @@ async function workshopMail(done) {
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#237f95">Move to another date${Number(p.at) >= WS_POLICY_FROM ? ', or cancel for a credit towards another class' : ' or cancel'}</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
-                : [`Can't make it after all? Reply to this email.`]),
+                : [ext && canChange ? `Can't make it after all? Reply to this email and we will move your place to another date.` : `Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
           done.workshops.reminded++;

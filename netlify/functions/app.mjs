@@ -132,8 +132,8 @@ const wsExtSrc = { eventbrite: 'Eventbrite', classbento: 'ClassBento' };
 const wsExt = b => !!(b && wsExtSrc[b.source]);
 /* what somebody who bought elsewhere is told when they try to change it here */
 const wsExtWords = b => (b && b.source === 'eventbrite')
-  ? 'You booked this place on Eventbrite, so a cancel or refund is done there, from your Eventbrite order. To move to another date instead, reply to your reminder email and we will move it for you.'
-  : `You booked this place on ${wsExtSrc[b && b.source] || 'another site'}, so a cancel or refund is done there. To move to another date instead, reply to your reminder email and we will move it for you.`;
+  ? 'You booked this place on Eventbrite, so a cancel or refund is done there, from your Eventbrite order. To move to another date instead, reply to any email from us, or write to info@londonhandstandacademy.com, and we will move it for you.'
+  : `You booked this place on ${wsExtSrc[b && b.source] || 'another site'}, so a cancel or refund is done there. To move to another date instead, reply to any email from us, or write to info@londonhandstandacademy.com, and we will move it for you.`;
 const wsCbHold = w => {
   const p = Math.max(0, Number(w && w.places) || 0), h = Math.max(0, Math.round(Number(w && w.cbHold) || 0));
   if (!h || !p) return 0;
@@ -8754,7 +8754,7 @@ const handle = async (request) => {
         paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
           wsWhereHTML(w),
           w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#237f95">Add it to your calendar</a>.` : '',
-          early ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
+          wsExt(b) ? esc(wsExtWords(b)) : early ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
