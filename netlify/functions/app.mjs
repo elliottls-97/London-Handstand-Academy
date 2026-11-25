@@ -12666,8 +12666,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const cfg = await chCfg(), today = chDay(cfg), day = Number(body.day);
     if (!Number.isInteger(day) || day < 1 || day > cfg.days) return json({ error: 'That is not a challenge day' }, 400);
     if (day > today) return json({ error: 'That day has not come yet' }, 400);
-    /* today and the two days before it: forgetting to log is not missing a day */
-    if (day < today - 2) return json({ error: 'Days more than two back cannot be changed' }, 400);
+    /* any day so far, not only the last two (Elliott, 25 Nov: "if i missed a
+       day, i trained but didn't log, allow me to click on open days and log
+       i trained"); nothing changes once the films have closed */
+    if (today > cfg.days + 3) return json({ error: 'The challenge has finished' }, 400);
     const k = String(body.k || ''), flag = String(body.flag || '');
     const v = await changeSetting(`chal:${who}`, cur => {
       if (!cur) return undefined;
