@@ -2394,7 +2394,9 @@ async function chCfg() {
   const earlyUntil = o.earlyUntil && !isNaN(Date.parse(o.earlyUntil)) ? o.earlyUntil : CH.earlyUntil;
   return { start, days: CH.days, price: CH.price, early: CH.early, earlyUntil,
     call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120),
-    group: String(o.group || '').slice(0, 300) };
+    group: String(o.group || '').slice(0, 300),
+    /* the group's target, in hours, for the team total (25 Nov 2026) */
+    goalH: Number(o.goalH) > 0 ? Math.round(Number(o.goalH)) : 100 };
 }
 /* day 1 is the start date in London; 0 or less is before it */
 const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
@@ -2417,14 +2419,15 @@ async function chGiveDays(e, days) {
   await setSetting(`plusuntil:${e}`, iso(from + days * 864e5));
 }
 const CH_KINDS = ['s', 'm', 'f', 'c', 'o'];
-const CH_FLAGS = ['ill', 'injured', 'away', 'other'];
+const CH_FLAGS = ['rest', 'ill', 'injured', 'away', 'other'];
 /* what the app may show of somebody else: a first name or initials, and their dots */
 const chPublic = (v, cfg) => {
   const nm = String(v.n || '').trim(), first = nm.split(/\s+/)[0] || 'Someone';
   const ini = nm.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join('').slice(0, 3) || '?';
   let d = '';
   for (let i = 1; i <= cfg.days; i++) { const x = (v.d || {})[i]; d += x ? x.k : ((v.fl || {})[i] ? 'x' : '.'); }
-  return { n: v.show === 'initials' ? ini : first, d, st: Number.isInteger(v.st) ? v.st : null };
+  const mins = Object.values(v.d || {}).reduce((t, x) => t + (Number(x && x.m) || 0), 0);
+  return { n: v.show === 'initials' ? ini : first, d, st: Number.isInteger(v.st) ? v.st : null, mins };
 };
 /* Form checks through Apple (31 Oct 2026): a second subscription in the
    Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
@@ -12636,10 +12639,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       .sort((a, b) => (b.up - a.up) || (b.last - a.last)).slice(0, 50);
     const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote,
         need: CH_PRIZE.need, floor: CH_PRIZE.floor },
+      team: { mins: pub.reduce((t, x) => t + (x.mins || 0), 0), goalH: cfg.goalH },
       day, count: rows.length, board, week, me: null };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
       st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}), group: cfg.group,
-      film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine) };
+      film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine),
+      /* their own two films, to watch side by side at the end */
+      f1: (mine.film1 && mine.film1.uid) || '', fEnd: (mine.filmEnd && mine.filmEnd.uid) || '',
+      remind: mine.remind !== false };
     /* the winners, once Elliott has said to show them: first names only */
     const pz = (await getSetting('chalprize').catch(() => null)) || {};
     if (pz.announced) {
@@ -12724,6 +12731,33 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!v) return json({ error: 'Join the challenge first' }, 400);
     return json({ ok: true, wk: v.wk });
   }
+  /* the evening reminder, on unless they turn it off (25 Nov 2026) */
+  if (path === '/challenge/remind' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { remind: body.on !== false }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, remind: v.remind !== false });
+  }
+  /* 7pm, from chal-remind.mjs: a notification to everyone whose door is still
+     shut today, once a day each. Notifications only, never email. */
+  if (path === '/challenge/remind/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg);
+    if (day < 1 || day > cfg.days) return json({ ok: true, day, sent: 0, note: 'not a challenge day' });
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let sent = 0, skipped = 0;
+    for (const r of rows) {
+      const v = r.value || {}, e = r.key.slice(5);
+      if (v.remind === false || (v.d || {})[day] || (v.fl || {})[day]) { skipped++; continue; }
+      if (!(await supa.insertIfAbsent('nudges', { key: `chalremind:${e}:${day}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { skipped++; continue; }
+      const res = await pushSend(e, { title: `Door ${day} is still shut`, body: 'Practised today? Open it in your advent calendar. Any practice counts.',
+        url: '/lha-app.html?chal=open', tag: `chal:${day}` }).catch(() => ({ sent: 0 }));
+      if (res && res.sent) sent++;
+    }
+    return json({ ok: true, day, sent, skipped });
+  }
   if (path === '/challenge/checkout' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Make an account first' }, 401);
@@ -12759,6 +12793,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
         film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
         logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
+        dm: Array.from({ length: cfg.days }, (_, i) => Number(((r.value.d || {})[i + 1] || {}).m) || 0), remind: r.value.remind !== false,
         given: r.value.prize3m || 0, month: r.value.month || 0 })),
       prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE });
   }
@@ -12770,6 +12805,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const x = Object.assign({}, cur || {});
         if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
         if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
+        if (Number(c.goalH) > 0) x.goalH = Math.min(9999, Math.round(Number(c.goalH)));
         /* the challenge's group chat (a WhatsApp invite link), shown to everyone who joined */
         if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
         if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
@@ -12796,6 +12832,25 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       await changeSetting(`chal:${e}`, cur => { if (!cur || cur.prize3m) return undefined; fresh = true; return Object.assign({}, cur, { prize3m: Date.now() }); });
       if (fresh) await chGiveDays(e, CH_PRIZE.months * 30);
     }
+    /* the films, deleted from Stream once the challenge is over (Elliott,
+       25 Nov: "i don't need to keep it after the end of the challenge") */
+    let filmsGone = 0;
+    if (body.deleteFilms === true) {
+      const cfg = await chCfg();
+      if (chDay(cfg) <= cfg.days + 3 && !body.anyway) return json({ error: 'End films are still coming in. Delete them after day ' + (cfg.days + 3) + '.' }, 400);
+      if (!CF_TOK()) return json({ error: 'Stream is not set up' }, 503);
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      for (const r of rows) {
+        const v = r.value || {}, uids = [v.film1 && v.film1.uid, v.filmEnd && v.filmEnd.uid].filter(u => /^[a-f0-9]{32}$/.test(String(u || '')));
+        if (!uids.length) continue;
+        for (const uid of uids) {
+          const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream/${uid}`,
+            { method: 'DELETE', headers: { Authorization: `Bearer ${CF_TOK()}` } }).catch(() => null);
+          if (res && (res.ok || res.status === 404)) filmsGone++;
+        }
+        await changeSetting(r.key, cur => cur ? Object.assign({}, cur, { film1: null, filmEnd: null, filmsDeleted: Date.now() }) : undefined).catch(() => {});
+      }
+    }
     /* a free month for everyone who reached it, once each */
     let monthN = 0;
     if (body.monthAll === true) {
@@ -12818,7 +12873,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!u || ms(u) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
       }
     }
-    return json({ ok: true, cfg: await chCfg(), prize: (await getSetting('chalprize').catch(() => null)) || {}, monthN });
+    return json({ ok: true, cfg: await chCfg(), prize: (await getSetting('chalprize').catch(() => null)) || {}, monthN, filmsGone });
   }
   if (path === '/redeem' && request.method === 'POST') {
     const who = await me();
