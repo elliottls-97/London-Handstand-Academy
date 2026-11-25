@@ -2379,14 +2379,14 @@ const fcFull = (used, max = FC_CLIPS) => max === 1
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
 const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
   return Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / 864e5); };
-/* ── the 30 day handstand challenge (24 Nov 2026) ─────────────────────
+/* ── the handstand advent challenge (24 Nov 2026; 24 days from 25 Nov) ──
    Elliott: a free one for the accountability group, paid extras on top,
-   in December. Free: the 30 days, logging, the board, the Sunday test.
-   Paid (£29 early, then £39): two video replies (day 1 and day 30), the
+   1 to 24 December, an advent calendar. Free: the 24 days, logging, the board, the Sunday test.
+   Paid (£29 early, then £39): two video replies (the first and last day), the
    whole Ladder until a week after it ends, and the weekly live call. Each
    person is one setting, chal:<email>, so the board is one read. The dates
    and the call link can be changed in the dashboard (chalcfg). */
-const CH = { id: 'dec26', start: '2026-12-01', days: 30, price: 3900, early: 2900,
+const CH = { id: 'dec26', start: '2026-12-01', days: 24, price: 3900, early: 2900,
   earlyUntil: '2026-11-30T00:00:00Z', boardMin: 10, replies: 2 };
 async function chCfg() {
   const o = (await getSetting('chalcfg').catch(() => null)) || {};
@@ -2402,11 +2402,11 @@ const chPrice = cfg => Date.now() < Date.parse(cfg.earlyUntil) ? cfg.early : cfg
 /* London midnight after the last day, plus a week, for the Ladder they paid for */
 const chLadderUntil = cfg => Date.parse(cfg.start + 'T00:00:00Z') + (cfg.days + 7) * 864e5;
 /* the prizes (25 Nov 2026): a set of parallettes for the most improved,
-   picked by Elliott from the day 1 and day 30 films, and three months of the
-   Ladder for three people drawn from everyone who logs 25 of the 30 days.
-   Each flagged day takes one off the 25, down to 15. Free entry: the extras
+   picked by Elliott from the first and last day films, and three months of the
+   Ladder for three people drawn from everyone who logs 20 of the 24 days.
+   Each flagged day takes one off the 20, down to 12. Free entry: the extras
    do not change anybody's chances. */
-const CH_PRIZE = { need: 25, floor: 15, drawN: 3, months: 3 };
+const CH_PRIZE = { need: 20, floor: 12, drawN: 3, months: 3 };
 const chLogged = v => Object.keys((v && v.d) || {}).filter(k => +k >= 1 && +k <= CH.days).length;
 const chNeed = v => Math.max(CH_PRIZE.floor, CH_PRIZE.need - Object.keys((v && v.fl) || {}).filter(k => +k >= 1 && +k <= CH.days).length);
 const chEligible = v => chLogged(v) >= chNeed(v);
@@ -12617,7 +12617,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      WORKSHOP26 on a screen at the end of a workshop. The comp button in the
      dashboard does this per account by hand; this is the same thing a
      person types themselves. Codes carry a number of days and a limit. */
-  /* ── the 30 day challenge (24 Nov 2026) ─────────────────────────── */
+  /* ── the handstand advent challenge (24 Nov 2026) ───────────────── */
   if (path === '/challenge' && request.method === 'GET') {
     const who = await me(), cfg = await chCfg(), day = chDay(cfg);
     const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || [])
@@ -12633,11 +12633,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const first = Number(wk[ks[0]]), last = Number(wk[ks[ks.length - 1]]);
         return { n: chPublic(r.value, cfg).n, me: r.key === `chal:${who}`, first, last, up: last - first, weeks: ks.length }; })
       .sort((a, b) => (b.up - a.up) || (b.last - a.last)).slice(0, 50);
-    const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote },
+    const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote,
+        need: CH_PRIZE.need, floor: CH_PRIZE.floor },
       day, count: rows.length, board, week, me: null };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
       st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}), group: cfg.group,
-      film1: !!(mine.film1 && mine.film1.uid), film30: !!(mine.film30 && mine.film30.uid), need: chNeed(mine) };
+      film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine) };
     /* the winners, once Elliott has said to show them: first names only */
     const pz = (await getSetting('chalprize').catch(() => null)) || {};
     if (pz.announced) {
@@ -12682,20 +12683,21 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!v) return json({ error: 'Join the challenge first' }, 400);
     return json({ ok: true, me: { d: v.d, fl: v.fl } });
   }
-  /* a day 1 or day 30 film, for the most improved: uploaded through /upload
+  /* a day 1 or last day film, for the most improved: uploaded through /upload
      like any clip, then recorded here. Day 1 can go in up to day 7 (people
-     join late); day 30 from day 28 to three days after the end. */
+     join late); the last day's from two days before it to three days after. */
   if (path === '/challenge/film' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     const cfg = await chCfg(), day = chDay(cfg), which = Number(body.which), uid = String(body.uid || '');
-    if (![1, 30].includes(which)) return json({ error: 'Day 1 or day 30' }, 400);
+    if (![1, cfg.days].includes(which)) return json({ error: 'Day 1 or day ' + cfg.days }, 400);
     if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That clip did not upload' }, 400);
     if (which === 1 && (day < 1 || day > 7)) return json({ error: day < 1 ? 'Your day 1 film goes in on day 1' : 'Day 1 films closed on day 7' }, 400);
-    if (which === 30 && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your day 30 film goes in from day ' + (cfg.days - 2) }, 400);
-    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { ['film' + which]: { uid, at: Date.now() } }) : undefined);
+    if (which === cfg.days && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your day ' + cfg.days + ' film goes in from day ' + (cfg.days - 2) }, 400);
+    const slot = which === 1 ? 'film1' : 'filmEnd';
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { [slot]: { uid, at: Date.now() } }) : undefined);
     if (!v) return json({ error: 'Join the challenge first' }, 400);
-    return json({ ok: true, film1: !!v.film1, film30: !!v.film30 });
+    return json({ ok: true, film1: !!v.film1, filmEnd: !!v.filmEnd });
   }
   if (path === '/challenge/week' && request.method === 'POST') {
     const who = await me();
@@ -12720,8 +12722,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         mode: 'payment',
         'line_items[0][price_data][currency]': 'gbp',
         'line_items[0][price_data][unit_amount]': String(amount),
-        'line_items[0][price_data][product_data][name]': '30 Day Handstand Challenge: the extras',
-        'line_items[0][price_data][product_data][description]': 'My video reply on day 1 and day 30, the weekly live call, and the whole Ladder until a week after the end.',
+        'line_items[0][price_data][product_data][name]': 'Handstand Advent Challenge: help from Elliott',
+        'line_items[0][price_data][product_data][description]': 'The app\'s sessions for your level until a week after the end, my video feedback on your first and last day films, and the weekly live call.',
         'line_items[0][quantity]': '1',
         'payment_method_types[0]': 'card',
         'metadata[challenge]': CH.id, 'metadata[name]': nm,
@@ -12740,7 +12742,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg),
       { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
         comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
-        film1: (r.value.film1 && r.value.film1.uid) || '', film30: (r.value.film30 && r.value.film30.uid) || '',
+        film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
         logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
         given: r.value.prize3m || 0, month: r.value.month || 0 })),
       prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE });
