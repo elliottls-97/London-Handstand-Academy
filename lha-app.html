@@ -1686,6 +1686,10 @@ button{color:var(--ink)}
 .chban .chsnow{inset:0;border-radius:26px}
 .chban .chground{left:-6px;bottom:-10px;width:calc(100% + 12px)}
 .chban-in{position:relative;z-index:3}
+.chban-when{display:inline-block;margin-bottom:12px;padding:7px 13px;border-radius:999px;background:#f3c77a;color:#3b2a08;font:700 13.5px/1 var(--sans)}
+.chsoon{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;pointer-events:none;text-align:center;white-space:nowrap;
+ padding:14px 20px;border-radius:18px;background:rgba(11,33,41,.82);border:1.5px solid rgba(243,199,122,.7);color:#fff;font:500 14px/1.35 var(--sans);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+.chsoon b{display:block;font:400 22px/1.15 var(--serif);color:#f3c77a;margin-top:2px}
 .chban-go{display:block;width:100%;margin-top:16px;min-height:54px;border:0;border-radius:16px;cursor:pointer;background:#fff;color:#123c48;
  font:700 16px/1.2 var(--sans);box-shadow:0 10px 24px -10px rgba(0,0,0,.45)}
 .chban-x{position:absolute;top:50px;right:8px;z-index:4;width:40px;height:40px;border:0;background:none;cursor:pointer;color:rgba(255,255,255,.7);font:400 22px/1 var(--sans)}
@@ -31290,7 +31294,11 @@ function chalCardHTML(){
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
   if(!me && chBanHidden()) return '';
-  const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">${x||''}${inner}</div></div>`;
+  /* in it: the cross hides the card for the day, or until door 1 opens (Elliott,
+     25 Nov: "the ad is not dismissable at the top") */
+  if(me && st.chCardHide!=null && (st.chCardHide===n || (n<1 && st.chCardHide<1))) return '';
+  const shut=`<button aria-label="Hide for ${n<1?'now':'today'}" onclick="st.chCardHide=CH_D.day;save();render()" style="position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;background:none;cursor:pointer;color:var(--grey2);font:400 20px/1 var(--sans)">&times;</button>`;
+  const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">${x||shut}${inner}</div></div>`;
   const kick=t=>`<div class="kick2" style="color:var(--forest)">${esc(t)}</div>`;
   const head=h=>`<div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${h}</div>`;
   /* not in yet: a Christmas banner to sign up (Elliott, 25 Nov: "a sign up for the
@@ -31299,12 +31307,13 @@ function chalCardHTML(){
       ${CH_LIGHTS}${CH_SNOW}${CH_GROUND}
       <button aria-label="Hide the challenge for now" onclick="st.chalHideAt=Date.now();st.chalHideDay=CH_D.day;save();render()" class="chban-x">&times;</button>
       <div class="chban-in">
+        ${n<1 ? `<div class="chban-when">Starts ${esc(chDayName(1))}</div>` : ''}
         <div class="kick2" style="color:#f3c77a">${n<1 ? chDate(1).getUTCDate()+' TO '+chDate(days).getUTCDate()+' '+chDate(days).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}).toUpperCase()+' · FREE' : 'DOOR '+n+' OF '+days+' · JOIN ANY TIME · FREE'}</div>
         <div style="font:400 27px/1.08 var(--serif);margin-top:8px;letter-spacing:-.01em">The Handstand Advent <em style="font-style:normal;color:#f3c77a">Challenge.</em></div>
         <div style="font:400 14px/1.5 var(--sans);color:rgba(255,255,255,.82);margin-top:8px;max-width:30em">A door a day to Christmas Eve. Practise, log it, open a door. Parallettes for the most improved.</div>
         <button class="chban-go" onclick="track('chalbanner',chLevel());chOpen()">Sign up for the advent challenge</button>
       </div></div></div>`;
-  if(n<1) return wrap(kick('YOU ARE IN') + head('Day 1 is '+chEm(esc(chWeekday(1))+'.'))
+  if(n<1) return wrap(kick('YOU ARE IN · ADVENT CHALLENGE') + head('Starts '+chEm(esc(chDayName(1))+'.'))
     + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${(1-n)===1?'Tomorrow':'In '+(1-n)+' days'}. On day 1 you film your first clip.</div>`
     + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">The challenge</button>`);
   if(n>days) return wrap(kick('ADVENT IS DONE') + head(chGot()+' of '+days+' '+chEm('doors open.'))
@@ -31707,7 +31716,7 @@ function chCalHTML(){
       : got>=days?'The whole picture. Merry Christmas.'
       : 'Tap today\'s door when you have practised. '+(missedN?'Missed logging a day? Tap its door.':'Each one shows more of the picture.')}</div>
     <div style="position:relative"><div class="chbox" style="--now:${-(performance.now()/1000).toFixed(2)}s">${CH_CAP}${CH_LIGHTS}${st.chWhole && chFinale() ? `<img class="chwhole" src="${CH_SCENE}" alt="The whole picture: a snowy night, a Christmas tree, a snowman, and a one arm handstand in a Santa hat">`
-      : `<div class="chdoors" style="background-image:url(${CH_SCENE})">${doors}</div>${CH_SNOW}`}${CH_GROUND}</div>${ask}</div>
+      : `<div class="chdoors" style="background-image:url(${CH_SCENE})">${doors}</div>${CH_SNOW}${n<1?`<div class="chsoon">Door 1 opens<b>${esc(chDayName(1))}</b></div>`:''}`}${CH_GROUND}</div>${ask}</div>
     ${log}
   </div>`;
 }
