@@ -2393,7 +2393,8 @@ async function chCfg() {
   const start = /^\d{4}-\d{2}-\d{2}$/.test(String(o.start || '')) ? o.start : CH.start;
   const earlyUntil = o.earlyUntil && !isNaN(Date.parse(o.earlyUntil)) ? o.earlyUntil : CH.earlyUntil;
   return { start, days: CH.days, price: CH.price, early: CH.early, earlyUntil,
-    call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120) };
+    call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120),
+    group: String(o.group || '').slice(0, 300) };
 }
 /* day 1 is the start date in London; 0 or less is before it */
 const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
@@ -12635,7 +12636,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote },
       day, count: rows.length, board, week, me: null };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
-      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
+      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}), group: cfg.group,
       film1: !!(mine.film1 && mine.film1.uid), film30: !!(mine.film30 && mine.film30.uid), need: chNeed(mine) };
     /* the winners, once Elliott has said to show them: first names only */
     const pz = (await getSetting('chalprize').catch(() => null)) || {};
@@ -12752,6 +12753,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const x = Object.assign({}, cur || {});
         if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
         if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
+        /* the challenge's group chat (a WhatsApp invite link), shown to everyone who joined */
+        if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
         if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
         if (typeof c.earlyUntil === 'string' && !isNaN(Date.parse(c.earlyUntil))) x.earlyUntil = new Date(c.earlyUntil).toISOString();
         return x;

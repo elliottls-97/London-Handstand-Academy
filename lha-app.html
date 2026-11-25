@@ -3335,7 +3335,7 @@ function trackOpen(){
     /* the 30 day challenge: the group's link (?chal=join), or back from
        paying for its extras (?chal=paid) */
     const chq=(q.get('chal')||'').replace(/[^a-z]/g,'').slice(0,8);
-    if(chq){ st.chalNext=1; save(); history.replaceState(null,'',location.pathname);
+    if(chq){ st.chalNext=1; if(chq==='join') st.chalJoin=1; save(); history.replaceState(null,'',location.pathname);
       if(chq==='paid') setTimeout(()=>{ toast('Paid, thank you. Your extras are on.'); let k=0;
         const w=()=>{ chLoad(true); if(++k<6 && !chPaid()) setTimeout(w, 2500); }; setTimeout(w, 1200); }, 600); }
 
@@ -28079,6 +28079,8 @@ document.addEventListener('visibilitychange', ()=>{
 });
 
 function screenWelcome(){
+  /* came from the challenge's link: say so, and nothing about prices */
+  if(st.chalNext && !st.token){ chLoad(); return chWelcomeHTML(); }
   /* 6a, over film now: Elliott and Suryava upside down behind it (wmSync,
      outside #app), so the words are light and the buttons are glass. The
      four bars are the quiz, and the same strip carries through it, so the
@@ -28385,7 +28387,8 @@ function screenJoin(){
     <!-- the stage goal used to be glued onto the end of the sentence about
          the payment page, so two unrelated statements ran together -->
     <div style="font:400 15px/1.55 var(--sans);color:var(--grey);margin-top:12px">${
-      quizEnd ? 'Your answers put you at stage '+(placedStage()+1)+', <b style="color:var(--ink)">'+esc((STAGES[placedStage()]||s).n)+'</b>. '
+      (st.chalNext && !st.token) ? 'Your name and email, so your 30 days, the board and your films are kept. Your level is '+esc((STAGES[Math.max(placedStage(), st.placed|0)]||s).n)+'.'
+      : quizEnd ? 'Your answers put you at stage '+(placedStage()+1)+', <b style="color:var(--ink)">'+esc((STAGES[placedStage()]||s).n)+'</b>. '
         /* placed above the free stage: that stage is the paid Ladder, with
            the free week on it, and the free stage is still theirs */
         +((placedStage()>=FREE_STAGES && !isPlus())
@@ -28493,7 +28496,7 @@ function screenJoin(){
             : track ? 'Save my progress'
             : clip ? 'Continue'
             : plan ? 'Continue to payment'
-            : acct ? 'Create account' : quizEnd ? 'Show me my plan' : 'Save and start'}</button>
+            : (st.chalNext && !st.token) ? 'Join the challenge' : acct ? 'Create account' : quizEnd ? 'Show me my plan' : 'Save and start'}</button>
         <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:2px">
           By joining you agree to our
           <a href="/terms" target="_blank" rel="noopener" style="color:var(--forest)">Terms</a> and
@@ -28730,7 +28733,10 @@ function freeSessionsUsed(){
   return sessionsDone().length;
 }
 
-function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizStep=0; st.quizAns=[]; save(); render(); }
+function startFree(){ st.mode='free'; st.tab=st.quizDone?'home':'quiz'; st.quizStep=0; st.quizAns=[];
+  /* from the challenge's link the first question (classes or the app) is not theirs to answer */
+  if(st.chalNext){ try{ intake().how='app'; }catch(e){} st.viewChosen='app'; st.inPerson=false; st.quizStep=1; }
+  save(); render(); }
 
 
 /* ── shell ─────────────────────────────────────────────────── */
@@ -30913,18 +30919,19 @@ function appIntroMount(){
   appIntroH.open();
 }
 function appIntroStop(){ if(appIntroH){ try{ appIntroH.stop(); }catch(e){} appIntroH=null; } }
-/* ── the 30 day handstand challenge (24 Nov 2026) ─────────────────────
-   Elliott: "lets finish the handstand challenge including a free one for
-   the accountability group". Free: the 30 days at your stage, a log of each
-   day, the board and the Sunday test. The extras (£29 early, then £39): my
-   video reply on day 1 and day 30, the weekly live call, and the whole
-   Ladder until a week after it ends. A finished session logs the day by
-   itself; anything else is logged on the Challenge screen. The server holds
-   it all (chal:<email>), so the board is everyone's. */
-let CH_D=null, chBusy=false, chErr='', chAt=0, chPick=null, chMins=15, chWkVal='';
-const CH_KIND={s:'Session',m:'The minimum',f:'Mobility',c:'A class',o:'My own training'};
-const CH_COL={s:'var(--forest)',m:'#8fbeca',f:'#cfe6ec',c:'#1d5566',o:'#5fa8b9',x:'transparent'};
-const CH_FLAG={ill:'Ill',injured:'Injured',away:'Away',other:'Other'};
+/* ── the 30 day handstand challenge (24 Nov 2026, reworked 25 Nov) ─────
+   Elliott, 25 Nov: "make it a challenge to practice regularly and improve
+   their handstand, if they want help they can pay for the app", with
+   "occasional suggestions for exercises to try depending on their level
+   from the checkpoints". So: any practice counts and is one tap to log, the
+   group's habit of posting "12/30" is a Share button, a Try this card brings
+   one of their level's check points every three days, and help (the app's
+   sessions, my replies, the call) is the paid extras. A finished session
+   logs the day by itself. The server holds it all (chal:<email>). */
+let CH_D=null, chBusy=false, chErr='', chAt=0, chWkVal='', chUpBusy=0;
+const CH_KIND={o:'Practised',s:'App session',m:'5 minutes',c:'A class',f:'Mobility'};
+const CH_COL={o:'var(--forest)',s:'var(--forest)',m:'var(--forest)',c:'var(--forest)',f:'var(--forest)'};
+const CH_FLAG={ill:'Ill',injured:'Injured',away:'Away',other:'Something else'};
 /* the Sunday test and the film on days 1 and 30: one of each stage's own
    check points, a number that goes up */
 const CH_TEST=[
@@ -30934,18 +30941,24 @@ const CH_TEST=[
   {n:'Tuck wall balance', u:'s', how:'Tuck off the wall and balance. Count from the moment nothing touches.'},
   {n:'Longest freestanding hold', u:'s', how:'Kick up and hold. Your best of five goes.'},
   {n:'Chair-assisted handstand hold', u:'s', how:'Feet on the chair, hips stacked over the shoulders, push tall and hold.'}];
-const chTest = () => CH_TEST[Math.max(0, Math.min(CH_TEST.length-1, (CH_D&&CH_D.me&&Number.isInteger(CH_D.me.st)) ? CH_D.me.st : curStage()))];
+/* their level is where their answers put them, even if they train on the free stage */
+const chLevel = () => (CH_D && CH_D.me && Number.isInteger(CH_D.me.st)) ? CH_D.me.st : Math.max(placedStage(), st.placed|0);
+const chStageN = () => (STAGES[chLevel()]||STAGES[0]).n;
+const chTest = () => CH_TEST[Math.max(0, Math.min(CH_TEST.length-1, chLevel()))];
 const chJoined = () => !!(CH_D && CH_D.me);
 const chPaid = () => !!(CH_D && CH_D.me && CH_D.me.paid);
 const chPounds = p => '£'+(p%100 ? (p/100).toFixed(2) : String(p/100));
 const chDate = n => { const d=new Date((CH_D?CH_D.cfg.start:'2026-12-01')+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n-1); return d; };
 const chDayName = n => chDate(n).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+const chWeekday = n => chDate(n).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'});
 const chLive = () => !!CH_D && CH_D.day <= CH_D.cfg.days + 3;
+const chGot = () => chJoined() ? Object.keys(CH_D.me.d).filter(k=>+k>=1 && +k<=CH_D.cfg.days).length : 0;
+const chEm = t => `<em style="color:var(--forest);font-style:normal">${t}</em>`;
 function chLoad(force){
   if(chBusy || (!force && CH_D && Date.now()-chAt < 5*60000)) return;
   chBusy=true;
   fetch('/api/app/challenge',{headers:authed()}).then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(d=>{ CH_D=d; chAt=Date.now(); chErr=''; chBusy=false; chAuto(); chRepaint(); })
+    .then(d=>{ CH_D=d; chAt=Date.now(); chErr=''; chBusy=false; chAutoJoin(); chAuto(); chRepaint(); })
     .catch(e=>{ chBusy=false; chErr='Could not load the challenge. Check your signal.'; chRepaint(); });
 }
 function chRepaint(){ if(st.tab==='chal' || st.tab==='home') render(); }
@@ -30963,221 +30976,255 @@ function chAuto(){
   if(!s.length) return;
   st.chAutoDay=n; save();
   const mins=Math.max(5, Math.round(s.reduce((t,x)=>t+(Number(x.mins)||0),0)) || 15);
-  chPost('/log',{day:n,k:'s',m:mins,auto:1,stage:curStage()}).then(j=>{ me.d=j.me.d; me.fl=j.me.fl; chAt=0; chLoad(true); }).catch(()=>{});
+  chPost('/log',{day:n,k:'s',m:mins,auto:1,stage:chLevel()}).then(j=>{ me.d=j.me.d; me.fl=j.me.fl; chAt=0; chLoad(true); }).catch(()=>{});
 }
 function chOpen(){ st.tab='chal'; save(); chLoad(true); render(); const s=$('#app .scroll'); if(s) s.scrollTop=0; }
 function chJoin(){
-  if(!st.token){ st.chalNext=1; save(); toast('Make your account first, so your 30 days are kept.'); go('joinFree'); return; }
+  /* no account yet: make one, and they are joined the moment it exists */
+  if(!st.token){ st.chalNext=1; st.chalJoin=1; save(); go('joinFree'); return; }
   const nm=String(($('#chName')||{}).value||'').trim(), ini=!!($('#chIni')||{}).checked;
   if(!nm){ toast('Your first name, for the board.'); const f=$('#chName'); if(f) f.focus(); return; }
+  chJoinAs(nm, ini?'initials':'name');
+}
+function chJoinAs(nm, show){
   chBusy=true; render();
-  chPost('/join',{name:nm, show:ini?'initials':'name', stage:curStage(), src:st.ref||''})
-    .then(()=>{ chBusy=false; track('chaljoin', curStage()); toast(CH_D && CH_D.day>=1 ? 'You are in. Day '+CH_D.day+' is today.' : 'You are in. See you on day 1.'); chLoad(true); })
+  chPost('/join',{name:nm, show, stage:chLevel(), src:st.ref||''})
+    .then(()=>{ chBusy=false; track('chaljoin', chLevel()); st.chTab='today'; save();
+      toast(CH_D && CH_D.day>=1 ? 'You are in. Day '+CH_D.day+' is today.' : 'You are in. Day 1 is '+chWeekday(1)+'.'); chLoad(true); })
     .catch(e=>{ chBusy=false; toast(e.message); render(); });
+}
+/* back from making the account they pressed Join for: joined, no second press */
+function chAutoJoin(){
+  if(!st.chalJoin || !st.token || !CH_D || CH_D.me || chBusy) return;
+  delete st.chalJoin; save();
+  const nm=(st.client||'').trim().split(/\s+/)[0] || String(st.email||'').split('@')[0];
+  if(nm) chJoinAs(nm, 'name');
 }
 function chBuy(){
   if(!st.token){ st.chalNext=1; save(); go('joinFree'); return; }
-  track('chalbuy', curStage());
+  track('chalbuy', chLevel());
   chPost('/checkout',{name:(CH_D&&CH_D.me&&CH_D.me.n)||st.client||''})
     .then(j=>{ if(j.url) location.href=j.url; }).catch(e=>toast(e.message));
 }
-function chLog(day){
-  const k=chPick; if(!k){ toast('Pick what you did first.'); return; }
-  chPost('/log',{day, k, m: k==='m' ? 5 : chMins, stage:curStage()})
-    .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; chPick=null; track('challog', curStage());
-      toast(Object.keys(j.me.d).length===1 ? 'Day logged. That is the first one.' : 'Day '+day+' logged.'); render(); chLoad(true); })
+/* one tap: what they did is the whole log */
+function chLog(day, k){
+  chPost('/log',{day, k, m: k==='m' ? 5 : 0, stage:chLevel()})
+    .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; track('challog', chLevel());
+      toast(day===CH_D.day ? 'Day '+day+' done.' : 'Day '+day+' logged.'); render(); chLoad(true); })
     .catch(e=>toast(e.message));
 }
 function chFlag(day, f){
-  chPost('/log',{day, flag:f}).then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; toast('Flagged. It is not counted against you.'); render(); chLoad(true); }).catch(e=>toast(e.message));
+  chPost('/log',{day, flag:f}).then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; st.chFlagOpen=0;
+    toast('Flagged. It does not count against you.'); render(); chLoad(true); }).catch(e=>toast(e.message));
 }
 function chUndo(day){
   chPost('/log',{day, undo:1}).then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; render(); chLoad(true); }).catch(e=>toast(e.message));
 }
 function chWeekSave(w){
   const v=Number(String(($('#chWk')||{}).value||'').replace(',','.'));
-  if(!(v>=0)){ toast('Your number, in '+(chTest().u==='s'?'seconds':'reps')+'.'); return; }
-  chPost('/week',{w, v}).then(j=>{ CH_D.me.wk=j.wk; chWkVal=''; toast('Saved. Week '+w+': '+v+(chTest().u==='s'?' s':'')); chLoad(true); }).catch(e=>toast(e.message));
+  if(!(v>=0)){ toast('Your number, in seconds.'); return; }
+  chPost('/week',{w, v}).then(j=>{ CH_D.me.wk=j.wk; chWkVal=''; toast('Saved. Week '+w+': '+v+' s'); chLoad(true); }).catch(e=>toast(e.message));
 }
 function chFilm(){ st.coTab='check'; save(); go('coaching'); }
-/* the card on Train: before it starts, the invitation; during, today */
+/* the group posts "12/30": the same line, ready to paste in the chat */
+function chShare(kind){
+  const n=CH_D.day, days=CH_D.cfg.days;
+  const text = kind==='in' ? 'I am in for the 30 day handstand challenge, starting '+chDayName(1)+'. londonhandstandacademy.com/challenge'
+    : 'Handstand challenge '+Math.min(n,days)+'/'+days+' ✓';
+  track('chalshare', chLevel());
+  if(navigator.share){ navigator.share({text}).catch(()=>{}); return; }
+  const done=()=>toast('Copied. Paste it in the group.');
+  try{ navigator.clipboard.writeText(text).then(done, ()=>toast(text)); }catch(e){ toast(text); }
+}
+const chGroupBtn = cls => (CH_D && CH_D.me && CH_D.me.group) ? `<a class="${cls||'btn2'}" href="${esc(CH_D.me.group)}" target="_blank" rel="noopener"
+    style="display:grid;place-items:center;text-decoration:none;min-height:46px;box-sizing:border-box;width:100%">Open the group chat</a>` : '';
+/* ── Try this: one of their level's check points every three days ───── */
+function chTry(){
+  const L=chLevel(), all=(typeof CHECKPOINTS!=='undefined' && CHECKPOINTS[L]) || [];
+  const cps=all.filter(c=>c && c.kind!=='face' && c.demo);
+  if(!cps.length) return null;
+  const n=Math.max(1, CH_D ? CH_D.day : 1), i=Math.floor((n-1)/3)%cps.length;
+  return {c:cps[i], L, next: 3-((n-1)%3)};
+}
+function chAim(c){
+  if(c.kind==='secs') return 'Aim for '+c.target+' seconds';
+  if(c.kind==='count') return 'Aim for '+c.target;
+  if(c.kind==='breaks') return 'Aim for eight clean in '+c.target+' goes or fewer';
+  return '';
+}
+function chTryHTML(){
+  const T=chTry(); if(!T) return '';
+  const c=T.c, d=drillById(c.demo)||{}, uid=(String(d.url||'').match(/[0-9a-f]{32}/)||[])[0], locked=stageLocked(T.L);
+  const film = !d.url ? '' : !locked ? `<div style="margin-top:12px">${drillFilm(d.url,'16/10',true)}</div>`
+    : `<div style="position:relative;margin-top:12px;border-radius:18px;overflow:hidden;aspect-ratio:16/10;background:#11150f">
+        ${uid?`<img src="${strStill(uid)}" alt="" loading="lazy" onerror="this.remove()" style="width:100%;height:100%;object-fit:cover;display:block;opacity:.85">`:''}
+        <span style="position:absolute;left:12px;bottom:12px;right:12px;font:600 12.5px/1.35 var(--sans);color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.6)">The film is in the app's ${esc(STAGES[T.L].n)} sessions</span></div>`;
+  const aim=chAim(c);
+  return `<div class="card" style="margin-top:12px">
+    <div class="kick2" style="color:var(--forest)">TRY THIS · ${esc(STAGES[T.L].n.toUpperCase())}</div>
+    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${esc(c.n)}.</div>
+    ${aim?`<div style="font:600 13.5px/1.3 var(--sans);color:var(--deep);margin-top:6px">${esc(aim)}</div>`:''}
+    ${c.why?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(c.why)}</div>`:''}
+    ${film}
+    ${locked && d.url ? `<button class="btn2" style="width:100%;margin-top:10px" onclick="openTrial(${T.L})">Watch it: the app free for 7 days</button>` : ''}
+    <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:10px">One of the check points for ${esc(STAGES[T.L].n)}. A new one in ${T.next} day${T.next===1?'':'s'}.</div></div>`;
+}
+/* ── the card on Train ─────────────────────────────────────────────── */
 function chalCardHTML(){
   if(coachedView() || st.preview) return '';
   chLoad();
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
   if(!me && st.chalHide) return '';
-  let kick, head, sub, btn;
-  if(!me){
-    kick = n<1 ? 'STARTS '+chDayName(1).toUpperCase() : 'DAY '+n+' OF '+days+' · JOIN ANY TIME';
-    head = `30 Day Handstand <em style="color:var(--forest);font-style:normal">Challenge.</em>`;
-    sub = `Free, with a set of parallettes for the most improved. 15 minutes a day, or 5 when life is busy. ${CH_D.count>=5?CH_D.count+' have joined.':''}`;
-    btn = 'See the challenge';
-  } else if(n<1){
-    kick='YOU ARE IN'; head=`Day 1 is <em style="color:var(--forest);font-style:normal">${esc(chDate(1).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'}))}.</em>`;
-    sub = (1-n)===1 ? 'Tomorrow. Film your test on day 1.' : 'In '+(1-n)+' days. Film your test on day 1.'; btn='The challenge';
-  } else if(n>days){
-    const got=Object.keys(me.d).length;
-    kick='THE CHALLENGE IS DONE'; head=`${got} of ${days} <em style="color:var(--forest);font-style:normal">days.</em>`;
-    sub='Film your test again and put it beside day 1.'; btn='See how it went';
-  } else {
-    const did=me.d[n], fl=me.fl[n];
-    kick='DAY '+n+' OF '+days;
-    head = did ? `Today is <em style="color:var(--forest);font-style:normal">logged.</em>` : fl ? `Today is <em style="color:var(--forest);font-style:normal">flagged.</em>` : `Did you handstand <em style="color:var(--forest);font-style:normal">today?</em>`;
-    sub = did ? (CH_KIND[did.k]||'')+(did.m&&did.k!=='m'?', '+did.m+' min':'') : fl ? CH_FLAG[fl]+'. Not counted against you.' : 'A session logs itself when you finish it.';
-    btn = did||fl ? 'The challenge' : 'Log today';
-  }
-  return `<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">
-    ${!me?`<button aria-label="Hide the challenge" onclick="st.chalHide=1;save();render()" style="position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;background:none;cursor:pointer;color:var(--grey2);font:400 20px/1 var(--sans)">&times;</button>`:''}
-    <div class="kick2" style="color:var(--forest)">${esc(kick)}</div>
-    <div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${head}</div>
-    <div style="font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:5px">${esc(sub)}</div>
-    ${me && n>=1 && n<=days ? chDotsHTML(me, 9) : ''}
-    <button class="btn" style="margin-top:12px;padding:15px" onclick="chOpen()">${esc(btn)}</button></div></div>`;
+  const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">${x||''}${inner}</div></div>`;
+  const kick=t=>`<div class="kick2" style="color:var(--forest)">${esc(t)}</div>`;
+  const head=h=>`<div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${h}</div>`;
+  if(!me) return wrap(kick(n<1 ? 'STARTS '+chDayName(1).toUpperCase() : 'DAY '+n+' OF '+days+' · JOIN ANY TIME')
+    + head('30 Day Handstand '+chEm('Challenge.'))
+    + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">Practise every day and get better. Any practice counts. Free, with a set of parallettes for the most improved.</div>`
+    + `<button class="btn" style="margin-top:12px;padding:15px" onclick="chOpen()">See the challenge</button>`,
+    `<button aria-label="Hide the challenge" onclick="st.chalHide=1;save();render()" style="position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;background:none;cursor:pointer;color:var(--grey2);font:400 20px/1 var(--sans)">&times;</button>`);
+  if(n<1) return wrap(kick('YOU ARE IN') + head('Day 1 is '+chEm(esc(chWeekday(1))+'.'))
+    + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${(1-n)===1?'Tomorrow':'In '+(1-n)+' days'}. Practise as normal until then.</div>`
+    + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">The challenge</button>`);
+  if(n>days) return wrap(kick('THE CHALLENGE IS DONE') + head(chGot()+' of '+days+' '+chEm('days.'))
+    + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">See how it went</button>`);
+  const did=me.d[n], fl=me.fl[n];
+  if(did || fl) return wrap(kick('DAY '+n+' OF '+days) + head(did ? 'Today is '+chEm('done.') : 'Today is '+chEm('flagged.'))
+    + chDotsHTML(me, 9)
+    + `<div style="display:flex;gap:8px;margin-top:12px">${did?`<button class="btn" style="flex:1;padding:14px" onclick="chShare()">Share my day</button>`:''}
+       <button class="btn2" style="flex:1" onclick="chOpen()">The challenge</button></div>`);
+  return wrap(kick('DAY '+n+' OF '+days) + head('Did you practise '+chEm('today?'))
+    + `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. A finished session logs itself.</div>`
+    + `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" style="flex:1.3;padding:14px" onclick="chLog(${n},'o')">Yes, log it</button>
+       <button class="btn2" style="flex:1" onclick="chOpen()">Other options</button></div>`);
 }
-/* thirty small dots, one a day, coloured by what was done */
+/* thirty small dots, one a day */
 function chDotsHTML(me, sz){
   const days=CH_D.cfg.days, n=CH_D.day; let h='';
   for(let i=1;i<=days;i++){ const x=me.d?me.d[i]:null, f=me.fl?me.fl[i]:null;
-    h+=`<i title="Day ${i}" style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${x?CH_COL[x.k]:'rgba(29,85,102,.08)'};${f?'border:1.5px dashed var(--grey2);background:transparent;':''}${i===n?'box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--amber);':''}"></i>`; }
-  return `<div style="display:flex;flex-wrap:wrap;gap:${Math.round(sz/2)}px;margin-top:12px" aria-label="${Object.keys(me.d||{}).length} of ${days} days logged">${h}</div>`;
+    h+=`<i title="Day ${i}" style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${x?'var(--forest)':'rgba(29,85,102,.08)'};${f?'border:1.5px dashed var(--grey2);background:transparent;':''}${i===n?'box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--amber);':''}"></i>`; }
+  return `<div style="display:flex;flex-wrap:wrap;gap:${Math.round(sz/2)}px;margin-top:12px" aria-label="${chGot()} of ${days} days logged">${h}</div>`;
 }
+/* ── the Challenge screen ──────────────────────────────────────────── */
 function screenChallenge(){
   chLoad();
   const W='<div class="scroll s"><div class="chpg">';
-  const back=`<button onclick="go('home')" style="background:none;border:0;padding:0;cursor:pointer;font:500 13px/1.4 var(--sans);color:var(--forest)">&larr; Train</button>`;
+  const back=`<button onclick="go('home')" style="background:none;border:0;padding:0;cursor:pointer;font:500 13px/1.4 var(--sans);color:var(--forest);min-height:32px">&larr; Train</button>`;
   if(!CH_D) return W+back+`<div style="font:400 15px/1.6 var(--sans);color:var(--grey);margin-top:24px">${chErr?esc(chErr)+` <button class="btn2" style="margin-top:12px" onclick="chLoad(true)">Try again</button>`:'Loading the challenge…'}</div></div></div>`;
   const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me;
   const tab = me ? (st.chTab||'today') : 'join';
   const head=`<div class="kick2" style="color:var(--forest);margin-top:16px">30 DAY HANDSTAND CHALLENGE</div>
     <h1 style="margin:8px 0 0;font:400 40px/1 var(--serif);letter-spacing:-.015em">${
-      n<1 ? `Starts ${esc(chDate(1).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'}))} <em style="color:var(--forest);font-style:normal">${chDate(1).getUTCDate()} ${esc(chDate(1).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}))}.</em>`
-      : n>days ? `Thirty days, <em style="color:var(--forest);font-style:normal">done.</em>`
-      : `Day ${n} of <em style="color:var(--forest);font-style:normal">${days}.</em>`}</h1>`;
-  const seg = me ? `<div class="seg" style="margin-top:16px">${[['today','Today'],['board','Board'],['week','Sunday test']].map(([k,l])=>
+      n<1 ? 'Starts '+esc(chWeekday(1))+' '+chEm(chDate(1).getUTCDate()+' '+esc(chDate(1).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}))+'.')
+      : n>days ? 'Thirty days, '+chEm('done.')
+      : 'Day '+n+' of '+chEm(days+'.')}</h1>
+    ${me && n>=1 ? `<div style="font:400 14px/1.4 var(--sans);color:var(--grey);margin-top:6px">You have logged ${chGot()} day${chGot()===1?'':'s'}.</div>` : ''}`;
+  const seg = me ? `<div class="seg" style="margin-top:16px">${[['today','Today'],['board','Everyone'],['week','Sunday test']].map(([k,l])=>
     `<button class="${tab===k?'on':''}" onclick="st.chTab='${k}';save();render()">${l}</button>`).join('')}</div>` : '';
   const body = tab==='join' ? chJoinHTML() : tab==='board' ? chBoardHTML() : tab==='week' ? chWeekHTML() : chTodayHTML();
   return W+back+head+seg+body+'</div></div>';
 }
+const chSteps = () => `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${[
+    ['Practise every day', 'Any practice counts: your own, a class, or the app. Ill, injured or away? Flag the day.'],
+    ['Log it in one tap', 'Everyone\'s days are on the board, and you can post yours to the group.'],
+    ['Film day 1 and day 30', 'Your level\'s test, so you can see how far you came. Sundays, do it again.']
+  ].map(([t,d],i)=>`<div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--forest);color:var(--on-primary);font:700 12px/26px var(--sans);text-align:center">${i+1}</span>
+    <span><b style="display:block;font:600 15px/1.3 var(--sans)">${t}</b><span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">${d}</span></span></div>`).join('')}</div>`;
 function chJoinHTML(){
-  const c=CH_D.cfg, n=CH_D.day, first=(st.client||'').split(' ')[0]||'';
-  const early=Date.now()<Date.parse(c.earlyUntil);
-  const until=new Date(Date.parse(c.earlyUntil)-1).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'});
-  return `<p style="font:400 15px/1.55 var(--sans);color:var(--grey);margin:12px 0 0">${days30()} at your stage, ${esc((STAGES[curStage()]||STAGES[0]).n)}. 15 minutes a day, or 5 when life is busy. Log each day, see everyone's on the board, and test yourself on Sundays.</p>
+  const first=(st.client||'').split(' ')[0]||'';
+  return `<p style="font:400 15.5px/1.55 var(--sans);color:var(--grey);margin:12px 0 0">Practise every day for 30 days and get better at handstands. Free.</p>
     <div class="card" style="margin-top:16px">
-      <div class="kick2" style="color:var(--forest)">FREE</div>
-      <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Join the <em style="color:var(--forest);font-style:normal">challenge.</em></div>
-      <ul class="chlist"><li>A session at your stage, or the 5 minute minimum</li><li>One tap to log the day, and a finished session logs itself</li><li>The board: everyone's thirty days</li><li>The Sunday test, ranked by how far you have come</li><li>Ill, injured or away: flag the day, it is not counted against you</li></ul>
-      ${st.token?`<label for="chName" style="display:block;font:600 12px/1 var(--sans);color:var(--grey);margin-top:16px">Your first name, for the board</label>
+      ${chSteps()}
+      ${st.token?`<label for="chName" style="display:block;font:600 12px/1 var(--sans);color:var(--grey);margin-top:20px">Your first name, for the board</label>
       <input id="chName" value="${esc(first)}" autocomplete="given-name" maxlength="40" style="width:100%;box-sizing:border-box;margin-top:8px;min-height:50px;padding:0 14px;border-radius:14px;border:1px solid rgba(29,85,102,.14);background:#fff;font:500 16px/1 var(--sans);color:var(--ink)">
       <label style="display:flex;align-items:center;gap:10px;min-height:44px;margin-top:6px;font:400 14px/1.3 var(--sans)"><input id="chIni" type="checkbox" style="width:20px;height:20px;accent-color:var(--forest);margin:0">Show my initials instead</label>`:''}
-      <button class="btn" style="margin-top:12px" ${chBusy?'disabled':''} onclick="chJoin()">${st.token?'Join free':'Make an account and join, free'}</button>
+      <button class="btn" style="margin-top:${st.token?12:20}px" ${chBusy?'disabled':''} onclick="chJoin()">Join free</button>
+      ${st.token?'':`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Your name and email next, so your days are kept.</div>`}
     </div>
     ${chPrizesHTML()}
-    <div class="card" style="margin-top:12px">
-      <div style="display:flex;align-items:baseline;gap:10px"><div class="kick2" style="color:var(--forest)">THE EXTRAS</div>
-        <div style="margin-left:auto;font:700 20px/1 var(--sans);color:var(--deep)">${chPounds(CH_D.cfg.now)}</div></div>
-      ${early?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:right;margin-top:4px">until ${esc(until)}, then ${chPounds(c.price)}</div>`:''}
-      <ul class="chlist"><li>My video reply on your day 1 film and your day 30 film</li><li>A live call every week, ${esc(c.callNote)}</li><li>The whole Ladder, every stage, until a week after it ends</li></ul>
-      <button class="btn2" style="width:100%;margin-top:12px" onclick="chBuy()">Add the extras · ${chPounds(CH_D.cfg.now)}</button>
-      <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Join free first. You can add these any time.</div>
-    </div>`;
-}
-const days30 = () => (CH_D?CH_D.cfg.days:30)+' days';
-/* what each weekday is for: the shape of a week, from the canvas */
-function chPlanFor(i){
-  const wd=chDate(i).getUTCDay();
-  if(wd===0) return {t:'Sunday test', s:'Your test, then a short session', k:'test'};
-  if(wd===3) return {t:'Mobility', s: chPaid() ? 'Wrists and shoulders, and the live call' : 'Wrists and shoulders', k:'f'};
-  if(wd===6) return {t:'The Saturday class', s:'It counts. No class? Mobility at home.', k:'c'};
-  return {t:'Session', s:(STAGES[curStage()]||STAGES[0]).n+', '+(st.time||15)+' min', k:'s'};
+    ${chHelpHTML(true)}`;
 }
 function chTodayHTML(){
-  const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me, T=chTest();
-  const cal = chCalHTML();
-  if(n<1) return cal+`<div class="card" style="margin-top:12px"><div class="kick2" style="color:var(--forest)">BEFORE DAY 1</div>
-      <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Your test: <em style="color:var(--forest);font-style:normal">${esc(T.n)}.</em></div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(T.how)} You film it on day 1 and again on day 30.</div>
-      <button class="btn" style="margin-top:14px" onclick="startDay(-1,'full')">Train today anyway</button></div>`+chPrizesHTML()+chExtrasHTML();
-  const P=n<=days?chPlanFor(n):null, did=me.d[n], fl=me.fl[n];
+  const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me;
+  /* before day 1: what happens, and something to try */
+  if(n<1) return `<div class="card" style="margin-top:14px">
+      <div class="kick2" style="color:var(--forest)">YOU ARE IN</div>
+      <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Day 1 is ${chEm(esc(chDayName(1))+'.')}</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Practise as normal until then. On day 1 you film your test: ${esc(chTest().n.toLowerCase())}.</div>
+      ${chSteps()}
+      <button class="btn" style="margin-top:16px" onclick="chShare('in')">Tell the group you are in</button>
+      ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
+    </div>${chTryHTML()}${chPrizesHTML()}${chHelpHTML()}`;
+  const did=n<=days?me.d[n]:null, fl=n<=days?me.fl[n]:null;
+  const log = n>days ? `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">HOW IT WENT</div>
+      <div style="font:400 26px/1.1 var(--serif);margin-top:6px">${chGot()} of ${days} ${chEm('days.')}</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${Object.keys(me.fl).length?Object.keys(me.fl).length+' flagged, not counted against you. ':''}Keep going: the Ladder carries on from your stage.</div></div>`
+    : (did||fl) ? `<div class="card" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="flex:none;width:44px;height:44px;border-radius:50%;background:${did?'var(--forest)':'rgba(29,85,102,.08)'};display:grid;place-items:center">${did?`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>`:''}</span>
+        <span style="flex:1;min-width:0"><span style="display:block;font:400 24px/1.1 var(--serif)">Day ${n} ${chEm(did?'done.':'flagged.')}</span>
+        <span style="display:block;font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${did?esc(CH_KIND[did.k]||'')+(did.auto?', from the session you finished':''):esc(CH_FLAG[fl])+'. It does not count against you.'}</span></span></div>
+      ${did?`<button class="btn" style="margin-top:14px" onclick="chShare()">Share to the group</button>`:''}
+      ${chGroupBtn('btn2')?`<div style="margin-top:8px">${chGroupBtn('btn2')}</div>`:''}
+      <button onclick="chUndo(${n})" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Change it</button></div>`
+    : `<div class="card" style="margin-top:14px">${chLogHTML(n)}</div>`;
   const film = (n<=3 || (n<=7 && !me.film1)) ? chFilmHTML(1) : (n>=days-2 && n<=days+3) ? chFilmHTML(30) : '';
+  const sunday = (n>=1 && n<=days && chDate(n).getUTCDay()===0) ? `<button class="card" onclick="st.chTab='week';save();render()" style="display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:16px 18px;cursor:pointer;text-align:left;border:1px solid rgba(29,85,102,.10)">
+      <span style="flex:1;min-width:0"><span class="kick2" style="color:var(--forest);display:block">IT IS SUNDAY</span><span style="display:block;font:400 19px/1.2 var(--serif);margin-top:5px">Do your test: ${esc(chTest().n.toLowerCase())}</span></span>
+      <span style="font:600 18px/1 var(--sans);color:var(--forest)">&rsaquo;</span></button>` : '';
+  const late=[n-1,n-2].filter(i=>i>=1 && i<=days && !me.d[i] && !me.fl[i]);
+  const lateH = late.length && n<=days+2 ? `<div class="card" style="margin-top:12px;padding:16px 18px"><div class="kick2" style="color:var(--forest)">FORGOT TO LOG?</div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${late.map(i=>`<button class="btn2${st.chLate===i?' on':''}" style="flex:1;min-width:130px${st.chLate===i?';border-color:var(--forest)':''}" onclick="st.chLate=${st.chLate===i?0:i};save();render()">Day ${i}, ${esc(chDate(i).toLocaleDateString('en-GB',{weekday:'short',timeZone:'UTC'}))}</button>`).join('')}</div>
+      ${st.chLate && late.includes(st.chLate) ? `<div style="margin-top:14px">${chLogHTML(st.chLate, true)}</div>` : ''}</div>` : '';
   const call = (chPaid() && n<=days) ? `<div class="card" style="margin-top:12px;padding:16px 18px;display:flex;align-items:center;gap:12px">
       <div style="flex:1;min-width:0"><div class="kick2" style="color:var(--forest)">LIVE CALL</div><div style="font:400 18px/1.2 var(--serif);margin-top:5px">${esc(CH_D.cfg.callNote)}</div></div>
       ${me.call?`<a class="btn2" style="flex:none;text-decoration:none;display:grid;place-items:center;min-height:44px;padding:0 16px" href="${esc(me.call)}" target="_blank" rel="noopener">Join</a>`:`<span style="font:400 12.5px/1.3 var(--sans);color:var(--grey2);max-width:120px;text-align:right">The link is here on the day</span>`}</div>` : '';
-  const today = n>days ? `<div class="card" style="margin-top:12px"><div class="kick2" style="color:var(--forest)">HOW IT WENT</div>
-      <div style="font:400 26px/1.1 var(--serif);margin-top:6px">${Object.keys(me.d).length} of ${days} <em style="color:var(--forest);font-style:normal">days.</em></div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${Object.keys(me.fl).length?Object.keys(me.fl).length+' flagged, not counted against you. ':''}Carry on with the Ladder from your stage.</div></div>`
-    : `<div class="card" style="margin-top:12px">
-      <div class="kick2" style="color:var(--forest)">TODAY · ${esc(P.t.toUpperCase())}</div>
-      <div style="font:400 15px/1.45 var(--sans);color:var(--grey);margin-top:6px">${esc(P.s)}</div>
-      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px">
-        <button class="chgo${P.k==='f'||P.k==='c'?'':' on'}" onclick="startDay(-1,'full')"><b>Session</b><small>${st.time||15} min</small></button>
-        <button class="chgo" onclick="chMinOpen()"><b>Minimum</b><small>5 min</small></button>
-        <button class="chgo${P.k==='f'||P.k==='c'?' on':''}" onclick="startDay(-1,'wrist')"><b>Mobility</b><small>Wrists</small></button>
-      </div>
-      ${st.chMin?`<div style="margin-top:12px;padding:14px;border-radius:16px;background:rgba(35,127,149,.06);font:400 14px/1.5 var(--sans)">
-        <b style="font-weight:600">The minimum, 5 minutes.</b> A minute of wrist circles, then three goes at your test, ${esc(T.n.toLowerCase())}. Then log it below.</div>`:''}
-    </div>
-    <div class="card" style="margin-top:12px">
-      ${did||fl ? `<div class="kick2" style="color:var(--forest)">DAY ${n} ${did?'LOGGED':'FLAGGED'}</div>
-        <div style="font:400 22px/1.2 var(--serif);margin-top:6px">${did?esc(CH_KIND[did.k]||'')+(did.m&&did.k!=='m'?', '+did.m+' min':''):esc(CH_FLAG[fl])+'. Not counted against you.'}</div>
-        ${did&&did.auto?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:4px">From the session you finished.</div>`:''}
-        <button class="btn2" style="width:100%;margin-top:12px" onclick="chUndo(${n})">Change it</button>`
-      : chLogHTML(n)}
-    </div>`;
-  /* a day missed in the log, not in the room: the two before today can still be logged */
-  const late=[n-1,n-2].filter(i=>i>=1 && i<=days && !me.d[i] && !me.fl[i]);
-  const lateH = late.length && n<=days+2 ? `<div class="card" style="margin-top:12px;padding:16px 18px"><div class="kick2" style="color:var(--forest)">FORGOT TO LOG?</div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${late.map(i=>`<button class="btn2" style="flex:1;min-width:140px" onclick="st.chLate=${i};save();render()">Day ${i}, ${esc(chDate(i).toLocaleDateString('en-GB',{weekday:'short',timeZone:'UTC'}))}</button>`).join('')}</div>
-      ${st.chLate && late.includes(st.chLate) ? `<div style="margin-top:12px">${chLogHTML(st.chLate)}</div>` : ''}</div>` : '';
-  return cal+film+today+lateH+call+chPrizesHTML()+(chPaid()?'':chExtrasHTML());
+  return log+film+sunday+lateH+chTryHTML()+chCalHTML()+call+chPrizesHTML()+chHelpHTML();
 }
-function chMinOpen(){ st.chMin=!st.chMin; save(); render(); }
-function chLogHTML(n){
-  const opts=['s','m','f','c','o'];
-  return `<div class="kick2" style="color:var(--forest)">LOG DAY ${n}</div>
-    <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Did you <em style="color:var(--forest);font-style:normal">handstand?</em></div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">${opts.map(k=>`<button class="chopt${chPick===k?' on':''}" aria-pressed="${chPick===k}" onclick="chPick='${k}';render()">${esc(CH_KIND[k])}</button>`).join('')}</div>
-    ${chPick && chPick!=='m' ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;min-height:52px;padding:0 6px 0 14px;border-radius:16px;border:1px solid rgba(29,85,102,.14)">
-      <span style="font:600 14px/1 var(--sans)">Minutes</span><span style="display:flex;align-items:center;gap:10px">
-      <button aria-label="Fewer minutes" class="chstep" onclick="chMins=Math.max(5,chMins-5);render()">&minus;</button>
-      <b style="font:700 17px/1 var(--sans);min-width:28px;text-align:center;font-variant-numeric:tabular-nums">${chMins}</b>
-      <button aria-label="More minutes" class="chstep" onclick="chMins=Math.min(180,chMins+5);render()">+</button></span></div>` : ''}
-    <button class="btn" style="margin-top:12px" onclick="chLog(${n})">Log day ${n}</button>
-    <div style="font:600 12px/1.3 var(--sans);color:var(--grey);margin-top:14px">Can't train? Flag the day. It is not counted against you.</div>
-    <div style="display:flex;gap:6px;margin-top:8px">${Object.keys(CH_FLAG).map(f=>`<button class="chflag" onclick="chFlag(${n},'${f}')">${CH_FLAG[f]}</button>`).join('')}</div>`;
+/* the log: one tap on what they did. late: a day before today */
+function chLogHTML(n, late){
+  const fo=st.chFlagOpen===n;
+  return `${late?'':`<div class="kick2" style="color:var(--forest)">DAY ${n}</div>
+    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Did you practise ${chEm('today?')}</div>
+    <div style="font:400 13.5px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Tap what you did.</div>`}
+    <button class="btn" style="margin-top:14px" onclick="chLog(${n},'o')">Yes, I practised</button>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${['s','m','c'].map(k=>`<button class="chopt" style="flex:1;min-width:0" onclick="chLog(${n},'${k}')">${esc(CH_KIND[k])}</button>`).join('')}</div>
+    ${fo ? `<div style="font:600 12.5px/1.3 var(--sans);color:var(--grey);margin-top:14px">Flagged days do not count against you.</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">${Object.keys(CH_FLAG).map(f=>`<button class="chflag" onclick="chFlag(${n},'${f}')">${CH_FLAG[f]}</button>`).join('')}</div>`
+      : `<button onclick="st.chFlagOpen=${n};save();render()" style="display:block;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:40px">Can't ${late?'that day':'today'}? Flag it</button>`}`;
 }
-/* the month, Monday first, each day coloured by what was done */
+/* the month, Monday first: done, flagged, today */
 function chCalHTML(){
   const days=CH_D.cfg.days, n=CH_D.day, me=CH_D.me||{d:{},fl:{}};
   const lead=(chDate(1).getUTCDay()+6)%7; let cells='';
   for(let i=0;i<lead;i++) cells+='<span></span>';
   for(let i=1;i<=days;i++){ const x=me.d[i], f=me.fl[i], d=chDate(i).getUTCDate(), today=i===n;
-    const bg=x?CH_COL[x.k]:'transparent', fg=x&&(x.k==='s'||x.k==='c')?'#fff':(i>n?'var(--grey2)':'var(--ink)');
-    cells+=`<span class="chc" title="Day ${i}${x?', '+esc(CH_KIND[x.k]):f?', '+CH_FLAG[f]:''}" style="background:${bg};color:${fg};${f?'border:1.5px dashed var(--grey2);':''}${today?'box-shadow:0 0 0 2px var(--amber);':''}">${d}</span>`; }
-  const got=Object.keys(me.d).length, fl=Object.keys(me.fl).length;
-  return `<div class="card" style="margin-top:14px;padding:14px 16px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font:600 14px/1 var(--sans)">${esc(chDate(1).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}))}</b>
-      <span style="font:400 12.5px/1 var(--sans);color:var(--grey)">${got} logged${fl?' · '+fl+' flagged':''}</span></div>
+    cells+=`<span class="chc" title="Day ${i}${x?', done':f?', flagged':''}" style="background:${x?'var(--forest)':'transparent'};color:${x?'#fff':(i>n?'var(--grey2)':'var(--ink)')};${f?'border:1.5px dashed var(--grey2);':''}${today?'box-shadow:0 0 0 2px var(--amber);':''}">${d}</span>`; }
+  const months=[...new Set([1,days].map(i=>chDate(i).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'})))].join(' and ');
+  const dot=(st2,t)=>`<span style="display:flex;align-items:center;gap:5px"><i style="width:10px;height:10px;border-radius:50%;box-sizing:border-box;display:block;${st2}"></i>${t}</span>`;
+  return `<div class="card" style="margin-top:12px;padding:14px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font:600 14px/1 var(--sans)">${esc(months)}</b>
+      <span style="font:400 12.5px/1 var(--sans);color:var(--grey)">${chGot()} done${Object.keys(me.fl).length?' · '+Object.keys(me.fl).length+' flagged':''}</span></div>
     <div class="chcal" style="margin-top:10px">${['M','T','W','T','F','S','S'].map(x=>`<span class="chh">${x}</span>`).join('')}${cells}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;margin-top:10px;font:400 11.5px/1 var(--sans);color:var(--grey)">${['s','m','f','c','o'].map(k=>`<span style="display:flex;align-items:center;gap:4px"><i style="width:9px;height:9px;border-radius:50%;background:${CH_COL[k]};display:block"></i>${CH_KIND[k]}</span>`).join('')}</div></div>`;
+    <div style="display:flex;gap:14px;justify-content:center;margin-top:10px;font:400 12px/1 var(--sans);color:var(--grey)">
+      ${dot('background:var(--forest)','Done')}${dot('border:1.5px dashed var(--grey2)','Flagged')}${dot('box-shadow:0 0 0 2px var(--amber)','Today')}</div></div>`;
 }
 function chFilmHTML(which){
   const T=chTest(), paid=chPaid(), me=CH_D.me, inn=!!me['film'+which];
   return `<div class="card" style="margin-top:12px">
     <div class="kick2" style="color:var(--forest)">FILM DAY · DAY ${which}</div>
-    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${which===1?'Film where you':'Film where you have'} <em style="color:var(--forest);font-style:normal">${which===1?'start.':'got to.'}</em></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px"><b style="color:var(--ink);font-weight:600">${esc(T.n)}.</b> ${esc(T.how)} Side on, phone at hip height, hands to feet in the frame, a minute at most.</div>
+    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${which===1?'Film where you':'Film where you have'} ${chEm(which===1?'start.':'got to.')}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your test: <b style="color:var(--ink);font-weight:600">${esc(T.n.toLowerCase())}.</b> ${esc(T.how)} Film side on, phone at hip height, your whole body in the frame, a minute at most.</div>
     ${inn ? `<div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:12px 14px;border-radius:16px;background:rgba(35,127,149,.08)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
-        <span style="flex:1;font:600 14px/1.3 var(--sans)">Your day ${which} film is in the competition.</span>
+        <span style="flex:1;font:600 14px/1.3 var(--sans)">Your day ${which} film is in.</span>
         <button onclick="chFilmUp(${which})" style="border:0;background:none;color:var(--forest);font:600 13px/1 var(--sans);cursor:pointer;min-height:44px">Replace</button></div>`
       : `<button class="btn" style="margin-top:14px" onclick="chFilmUp(${which})">Upload your day ${which} film</button>
-        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">It enters you for the parallettes. Only Elliott sees it.</div>`}
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Only Elliott sees it. It enters you for the parallettes.</div>`}
     <div id="chfu-${which}" role="status" style="font:600 13px/1.4 var(--sans);color:var(--forest);margin-top:8px;text-align:center"></div>
-    <button class="btn2" style="width:100%;margin-top:10px" onclick="chFilm()">${paid?'Send it to Elliott for a video reply':'Use your free form check for my reply'}</button></div>`;
+    <button onclick="chFilm()" style="display:block;margin:4px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1.4 var(--sans);cursor:pointer;min-height:40px">${paid?'Want my feedback on it? Send it for a video reply':'Want my feedback on it? Your first form check is free'}</button></div>`;
 }
-let chUpBusy=0;
 function chFilmUp(which){
   if(chUpBusy) return;
   const inp=document.createElement('input');
@@ -31193,73 +31240,98 @@ function chFilmUp(which){
   };
   inp.click();
 }
+/* help is the paid part: the app's sessions at their level, my replies, the call */
+function chHelpHTML(big){
+  if(!CH_D || chPaid() || CH_D.day>CH_D.cfg.days) return '';
+  const c=CH_D.cfg, early=Date.now()<Date.parse(c.earlyUntil);
+  const until=new Date(Date.parse(c.earlyUntil)-1).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/London'});
+  if(!big) return `<button onclick="st.chHelp=!st.chHelp;save();render()" class="card" style="display:flex;align-items:center;gap:12px;width:100%;margin-top:12px;padding:16px 18px;cursor:pointer;text-align:left;border:1px solid rgba(29,85,102,.10)">
+      <span style="flex:1;min-width:0"><span style="display:block;font:600 15px/1.3 var(--sans)">Want my help?</span><span style="display:block;font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:2px">Sessions for your level, my feedback and a weekly call</span></span>
+      <span style="font:600 18px/1 var(--sans);color:var(--forest)">${st.chHelp?'&minus;':'+'}</span></button>${st.chHelp?chHelpHTML(true):''}`;
+  return `<div class="card" style="margin-top:12px">
+      <div style="display:flex;align-items:baseline;gap:10px"><div class="kick2" style="color:var(--forest)">HELP FROM ME</div>
+        <div style="margin-left:auto;font:700 20px/1 var(--sans);color:var(--deep)">${chPounds(c.now)}</div></div>
+      ${early?`<div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:right;margin-top:4px">until ${esc(until)}, then ${chPounds(c.price)}</div>`:''}
+      <ul class="chlist"><li>The app's sessions for your level, every stage, for the whole challenge and a week after</li><li>My video feedback on your day 1 and day 30 films</li><li>A live call every week, ${esc(c.callNote)}</li></ul>
+      <button class="btn2" style="width:100%;margin-top:12px" onclick="chBuy()">Get help · ${chPounds(c.now)}</button>
+      <div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:8px;text-align:center">Optional. The challenge is free either way.</div></div>`;
+}
 /* the prizes, and how close you are to the draw */
 function chPrizesHTML(){
-  const me=CH_D.me, days=CH_D.cfg.days, n=CH_D.day;
+  const me=CH_D.me, days=CH_D.cfg.days;
   const closes=chDate(days+3).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
   const told=chDate(days+4).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
   const W=CH_D.winners;
   if(W) return `<div class="card" style="margin-top:12px">
     <div class="kick2" style="color:var(--forest)">THE WINNERS</div>
-    ${W.mine?`<div style="font:400 24px/1.1 var(--serif);margin-top:6px">You <em style="color:var(--forest);font-style:normal">won.</em></div><div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:4px">Elliott is in touch by email.</div>`:''}
+    ${W.mine?`<div style="font:400 24px/1.1 var(--serif);margin-top:6px">You ${chEm('won.')}</div><div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:4px">Elliott is in touch by email.</div>`:''}
     ${W.most?`<div style="font:400 15px/1.5 var(--sans);margin-top:10px"><b style="font-weight:600">Most improved, the parallettes:</b> ${esc(W.most)}</div>`:''}
-    ${W.draw.length?`<div style="font:400 15px/1.5 var(--sans);margin-top:6px"><b style="font-weight:600">Three months of the Ladder:</b> ${W.draw.map(esc).join(', ')}</div>`:''}</div>`;
-  const got=me?Object.keys(me.d).filter(k=>+k>=1&&+k<=days).length:0, need=me?(me.need||25):25, pct=Math.min(100,Math.round(got/need*100));
+    ${W.draw.length?`<div style="font:400 15px/1.5 var(--sans);margin-top:6px"><b style="font-weight:600">Three months of the app:</b> ${W.draw.map(esc).join(', ')}</div>`:''}</div>`;
+  const got=chGot(), need=me?(me.need||25):25, pct=Math.min(100,Math.round(got/need*100));
   return `<div class="card" style="margin-top:12px">
     <div class="kick2" style="color:var(--forest)">PRIZES</div>
-    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Win a set of <em style="color:var(--forest);font-style:normal">parallettes.</em></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">For the most improved, picked by me from your day 1 and day 30 films. And three people drawn from everyone who logs ${need===25?'25':need} of the ${days} days win three months of the Ladder.</div>
-    ${me?`<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>The draw</span><span style="color:var(--deep);font-variant-numeric:tabular-nums">${got} of ${need} days</span></div>
+    <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Win a set of ${chEm('parallettes.')}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">For the most improved, from your day 1 and day 30 films, whatever level you start at. And log ${need} days to go in the draw for three months of the app.</div>
+    ${me?`<div style="margin-top:14px"><div style="display:flex;justify-content:space-between;font:600 13px/1 var(--sans)"><span>Days for the draw</span><span style="color:var(--deep);font-variant-numeric:tabular-nums">${got} of ${need}</span></div>
       <div style="height:8px;border-radius:99px;background:rgba(29,85,102,.10);margin-top:8px;overflow:hidden"><i style="display:block;height:100%;width:${pct}%;background:var(--forest);border-radius:99px"></i></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${[1,30].map(w=>`<span class="chwk">Day ${w} film: <b>${me['film'+w]?'in':'not yet'}</b></span>`).join('')}</div></div>`:''}
     <details style="margin-top:12px"><summary style="cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);min-height:32px">The rules</summary>
       <ul class="chlist" style="font-size:13px;color:var(--grey)">
-        <li>Joining the challenge is your entry. It is free, and the extras do not change anybody's chances.</li>
-        <li>Most improved: picked by Elliott from your day 1 and day 30 films of your stage's test. Day 1 films go in by day 7, day 30 films by ${esc(closes)}. His pick is final.</li>
-        <li>The draw: log 25 of the ${days} days. Each day you flag takes one off the 25, down to 15. Three winners, drawn at random, each get three months of the Ladder.</li>
-        <li>Winners shown here on ${esc(told)} and told by email. One prize each. The parallettes go to a UK address. No cash instead.</li>
+        <li>Joining is your entry. It is free, and paying for help does not change anybody's chances.</li>
+        <li>Most improved: Elliott picks from your day 1 and day 30 films. Day 1 films by day 7, day 30 films by ${esc(closes)}. His pick is final.</li>
+        <li>The draw: log 25 of the ${days} days. Flag a day as ill, injured or away and you need one fewer, down to 15. Three winners, picked at random.</li>
+        <li>Winners shown here on ${esc(told)} and told by email. One prize each. Parallettes go to a UK address. No cash instead.</li>
       </ul></details></div>`;
-}
-function chExtrasHTML(){
-  if(!CH_D || CH_D.day>CH_D.cfg.days) return '';
-  return `<div class="card" style="margin-top:12px;padding:16px 18px">
-    <div style="display:flex;align-items:baseline;gap:10px"><div class="kick2" style="color:var(--forest)">THE EXTRAS</div><b style="margin-left:auto;font:700 17px/1 var(--sans);color:var(--deep)">${chPounds(CH_D.cfg.now)}</b></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">My video reply on day 1 and day 30, the live call every week, and the whole Ladder until a week after the end.</div>
-    <button class="btn2" style="width:100%;margin-top:12px" onclick="chBuy()">Add the extras</button></div>`;
 }
 function chBoardHTML(){
   const b=CH_D.board;
-  if(!b) return `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">THE BOARD</div>
-    <div style="font:400 22px/1.2 var(--serif);margin-top:6px">It opens at <em style="color:var(--forest);font-style:normal">ten.</em></div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${CH_D.count} ${CH_D.count===1?'person has':'people have'} joined so far. Everyone's thirty days show here once ten are in.</div></div>`;
+  if(!b) return `<div class="card" style="margin-top:14px"><div class="kick2" style="color:var(--forest)">EVERYONE</div>
+    <div style="font:400 22px/1.2 var(--serif);margin-top:6px">It opens at ${chEm('ten.')}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${CH_D.count} ${CH_D.count===1?'person has':'people have'} joined so far. Everyone's thirty days show here once ten are in.</div>
+    <button class="btn2" style="width:100%;margin-top:12px" onclick="chShare('in')">Invite someone</button></div>`;
   return `<div class="card" style="margin-top:14px;padding:6px 16px">${b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
     return `<div style="padding:12px 0;border-bottom:1px solid rgba(29,85,102,.08)">
       <div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' <span style="color:var(--forest);font-weight:600">(you)</span>':''}</b>
         <span style="margin-left:auto;font:600 12.5px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${got}/${CH_D.cfg.days}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${r.d.split('').map((c,i)=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.08)':c==='x'?'transparent':CH_COL[c]};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===CH_D.day?'box-shadow:0 0 0 1.5px var(--amber);':''}"></i>`).join('')}</div></div>`; }).join('')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">${r.d.split('').map((c,i)=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.08)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===CH_D.day?'box-shadow:0 0 0 1.5px var(--amber);':''}"></i>`).join('')}</div></div>`; }).join('')}</div>
     <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:10px;text-align:center">First names only. A dashed ring is a flagged day.</div>`;
 }
 function chWeekHTML(){
-  const T=chTest(), me=CH_D.me, n=CH_D.day, wk=Math.min(5, Math.ceil(Math.max(1,n)/7)), u=T.u==='s'?' s':'';
+  const T=chTest(), me=CH_D.me, n=CH_D.day, wk=Math.min(5, Math.ceil(Math.max(1,n)/7));
   const mine=Object.keys(me.wk||{}).map(Number).sort((a,b)=>a-b);
-  const canWk = n>=1;
-  const list = (CH_D.week||[]);
+  const list=(CH_D.week||[]);
   return `<div class="card" style="margin-top:14px">
-    <div class="kick2" style="color:var(--forest)">SUNDAY TEST · ${esc((STAGES[Number.isInteger(me.st)?me.st:curStage()]||STAGES[0]).n.toUpperCase())}</div>
+    <div class="kick2" style="color:var(--forest)">SUNDAY TEST · ${esc(chStageN().toUpperCase())}</div>
     <div style="font:400 24px/1.1 var(--serif);margin-top:6px">${esc(T.n)}.</div>
-    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(T.how)} Ranked by how far you have come since your first one.</div>
-    ${mine.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${mine.map(w=>`<span class="chwk">Week ${w}: <b>${me.wk[w]}${u}</b></span>`).join('')}</div>`:''}
-    ${canWk?`<label for="chWk" style="display:block;font:600 12px/1 var(--sans);color:var(--grey);margin-top:16px">Week ${wk}, ${T.u==='s'?'in seconds':'reps'}</label>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(T.how)} Do it on Sundays and put your best in here. You are ranked against people at your level by how much you have improved.</div>
+    ${mine.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${mine.map(w=>`<span class="chwk">Week ${w}: <b>${me.wk[w]} s</b></span>`).join('')}</div>`:''}
+    ${n>=1?`<label for="chWk" style="display:block;font:600 12px/1 var(--sans);color:var(--grey);margin-top:16px">Week ${wk}, your best in seconds</label>
     <div style="display:flex;gap:8px;margin-top:8px"><input id="chWk" inputmode="decimal" value="${esc(me.wk&&me.wk[wk]!=null?me.wk[wk]:chWkVal)}" oninput="chWkVal=this.value" style="flex:1;min-width:0;min-height:52px;padding:0 14px;border-radius:14px;border:1px solid rgba(29,85,102,.14);background:#fff;font:600 18px/1 var(--sans);color:var(--ink)">
       <button class="btn" style="width:auto;padding:0 22px" onclick="chWeekSave(${wk})">Save</button></div>`
-    :`<div style="font:400 13.5px/1.4 var(--sans);color:var(--grey2);margin-top:12px">The first one is on day 1. Film it too.</div>`}
+    :`<div style="font:400 13.5px/1.4 var(--sans);color:var(--grey2);margin-top:12px">The first one is on day 1, when you film it.</div>`}
   </div>
   ${list.length?`<div class="card" style="margin-top:12px;padding:6px 16px">${list.map((r,i)=>`<div style="display:flex;align-items:center;gap:12px;padding:11px 0;${i<list.length-1?'border-bottom:1px solid rgba(29,85,102,.08)':''}">
       <span style="font:400 22px/1 var(--serif);width:22px;text-align:center;color:${i===0?'#a86a12':'var(--grey)'}">${i+1}</span>
       <span style="flex:1;min-width:0"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' (you)':''}</b>
-        <span style="display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px">${r.first}${u} to ${r.last}${u}${r.weeks<2?', first week':''}</span></span>
-      <b style="font:700 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${r.up>=0?'+':''}${Math.round(r.up*10)/10}${u}</b></div>`).join('')}</div>`
-    :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:12px;text-align:center">Everyone on your stage shows here once they have a result.</div>`}`;
+        <span style="display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px">${r.first} s to ${r.last} s${r.weeks<2?', first week':''}</span></span>
+      <b style="font:700 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${r.up>=0?'+':''}${Math.round(r.up*10)/10} s</b></div>`).join('')}</div>`
+    :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey2);margin-top:12px;text-align:center">Everyone at your level shows here once they have a result.</div>`}`;
+}
+/* ── arriving from the group's link: the welcome says what this is ──── */
+function chWelcomeHTML(){
+  const W=wide();
+  return `<div class="scroll s" style="min-height:100dvh;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:calc(env(safe-area-inset-top) + 44px) ${W?'56px':'26px'} 40px;position:relative;background:transparent;color:#fff">
+    <div style="max-width:520px;${W?'margin:0 auto;width:100%':''}">
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:#a9e2e6">Starts ${esc(CH_D?chDayName(1):'1 December')}</div>
+    <div style="font:400 50px/.98 var(--serif);letter-spacing:-.015em;margin-top:12px;text-shadow:0 2px 24px rgba(0,0,0,.35)">The 30 Day Handstand <em style="color:#a3dcea;font-style:normal">Challenge.</em></div>
+    <div style="font:400 17px/1.45 var(--sans);color:rgba(255,255,255,.88);margin-top:14px">First, a minute of questions to find your level, so your test and the things to try fit you. Then you are in.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px">
+      <button onclick="startFree()" style="height:56px;border:0;border-radius:14px;cursor:pointer;background:#fff;color:var(--deep);box-shadow:0 14px 34px rgba(0,0,0,.35);font:700 17px/1 var(--sans)">Find my level &rarr;</button>
+      <button onclick="st.tab='signin';save();render()" style="height:52px;border-radius:14px;border:1px solid rgba(255,255,255,.34);background:rgba(255,255,255,.12);color:#fff;cursor:pointer;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);font:600 16px/1 var(--sans)">I have an account. Sign in</button>
+    </div>
+    <div style="margin-top:16px;font:400 13px/1.5 var(--sans);color:rgba(255,255,255,.74)">Free. Any practice counts.</div>
+    </div></div>`;
 }
 
 function render(){
@@ -31394,6 +31466,10 @@ function render(){
   if(!st.in && !st.quizDone && (st.mode==='free' || st.tab==='quiz')
      && !(st.tab==='clipq' || (st.signinFirst && (st.tab==='signin' || st.tab==='reset')) || (st.checkFirst && (st.tab==='coaching' || st.tab==='joinFree')))){ st.tab='quiz'; swap(st.introNext ? screenIntro() : screenQuiz()); return; }
   /* shown once, between finishing the quiz and the ladder */
+  /* from the challenge's link the trial question waits: they came for a free
+     challenge, and their level is kept in st.placed for its test and tips */
+  if(st.chalNext && st.quizDone && !st.oriented && !st.in){
+    st.oriented=true; if(trialPending()){ st.freeChoice=true; st.stage=0; st.wantUpgrade=null; } save(); try{ sendIntake(); }catch(e){} }
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
     swap(screenOriented()); return; }
   if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
