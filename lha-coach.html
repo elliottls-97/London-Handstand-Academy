@@ -1651,7 +1651,7 @@ function chalAct(body, done, ask){
 /* the prizes (25 Nov 2026): films side by side for the most improved, the
    draw for three months of the Ladder, and when to show the winners */
 function chalPrizeHTML(ppl){
-  const pz=chal.prize||{}, R=chal.rules||{need:25,floor:15,drawN:3,months:3};
+  const pz=chal.prize||{}, R=Object.assign({need:20,floor:12,drawN:4,appN:1,months:3},chal.rules||{});
   const films=ppl.filter(p=>p.film1||p.filmEnd).sort((a,b)=>(!!(b.film1&&b.filmEnd))-(!!(a.film1&&a.filmEnd)));
   const elig=ppl.filter(p=>p.eligible), winners=(pz.draw&&pz.draw.winners)||[];
   const byE=Object.fromEntries(ppl.map(p=>[p.email,p]));
@@ -1660,7 +1660,7 @@ function chalPrizeHTML(ppl){
   return `<div class="card" style="margin-bottom:16px">
     <div class="kick">PRIZES</div>
     <div style="font:400 26px/1.1 var(--serif);margin-top:8px">Most improved: <em style="color:var(--forest);font-style:normal">${pz.most?esc(nm(pz.most)):'not picked yet'}.</em></div>
-    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${films.length} sent a film, ${films.filter(p=>p.film1&&p.filmEnd).length} sent both. Start film on the left, end film on the right.</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">They win the parallettes and a 1-2-1 with you. ${films.length} sent a film, ${films.filter(p=>p.film1&&p.filmEnd).length} sent both. Start film on the left, end film on the right.</div>
     ${films.length?`<div style="display:flex;flex-direction:column;gap:16px;margin-top:14px">${films.map(p=>`<div data-k="chf-${esc(p.email)}" style="border-top:1px solid var(--line);padding-top:12px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b>
         <span style="font:400 12.5px var(--sans);color:var(--grey2)">${p.st!=null?esc(['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press'][p.st]||''):''}</span>
@@ -1672,11 +1672,12 @@ function chalPrizeHTML(ppl){
       </div></div>`).join('')}</div>`:''}
     <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:16px">
       <div style="font:400 22px/1.2 var(--serif)">The draw: <em style="color:var(--forest);font-style:normal">${elig.length} reached it.</em></div>
-      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${R.need} logged days, one fewer for each flagged day, down to ${R.floor}. ${R.drawN} winners get ${R.months} months of the Ladder.</div>
-      ${winners.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${winners.map(e=>{ const p=byE[e]||{};
-        return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px var(--sans)">${esc(nm(e))}</b><span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(e)}</span>
-          ${p.given?`<span style="margin-left:auto;font:600 12.5px var(--sans);color:var(--forest)">${R.months} months given</span>`
-            :`<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="chalAct({give:${esc(JSON.stringify(e))}},'${R.months} months given')">Give ${R.months} months</button>`}</div>`; }).join('')}
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${R.need} logged days, one fewer for each flagged day, down to ${R.floor}. ${R.drawN} drawn: the first ${R.appN===1?'gets':R.appN+' get'} ${R.months} months of the app, the other ${R.drawN-R.appN} a free class in January (a form check if they cannot get to London). Pick the most improved first: they are left out of the draw, one prize each.</div>
+      ${winners.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${winners.map((e,i)=>{ const p=byE[e]||{}, cd=(pz.classDone||{})[e];
+        return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px var(--sans)">${esc(nm(e))}</b><span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(e)} · ${i<R.appN?R.months+' months of the app':'a class in January'}</span>
+          ${i<R.appN ? (p.given?`<span style="margin-left:auto;font:600 12.5px var(--sans);color:var(--forest)">${R.months} months given</span>`
+            :`<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="chalAct({give:${esc(JSON.stringify(e))}},'${R.months} months given')">Give ${R.months} months</button>`)
+            : `<button class="btn ${cd?'btn-ghost':'btn-secondary'} btn-sm" style="margin-left:auto" onclick="chalAct({classDone:${esc(JSON.stringify(e))}},'${cd?'Not booked':'Booked in'}')">${cd?'Booked in ✓':'Mark as booked in'}</button>`}</div>`; }).join('')}
         <div style="font:400 12px var(--sans);color:var(--grey2)">Drawn ${new Date(pz.draw.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} from ${pz.draw.from}.</div></div>`:''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <button class="btn btn-primary btn-sm" ${elig.length?'':'disabled'} onclick="chalAct({draw:true},'Drawn',${winners.length?"'Draw again? The winners above are replaced.'":"'Draw "+R.drawN+" winners now, at random, from the "+elig.length+" who reached it?'"})">${winners.length?'Draw again':'Draw '+R.drawN+' winners'}</button>

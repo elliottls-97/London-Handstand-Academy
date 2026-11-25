@@ -2408,7 +2408,9 @@ const chLadderUntil = cfg => Date.parse(cfg.start + 'T00:00:00Z') + (cfg.days + 
    Ladder for three people drawn from everyone who logs 20 of the 24 days.
    Each flagged day takes one off the 20, down to 12. Free entry: the extras
    do not change anybody's chances. */
-const CH_PRIZE = { need: 20, floor: 12, drawN: 3, months: 3 };
+/* the draw (25 Nov 2026, Elliott): four drawn, the first gets three months
+   of the app, the other three a free class in January */
+const CH_PRIZE = { need: 20, floor: 12, drawN: 4, appN: 1, months: 3 };
 const chLogged = v => Object.keys((v && v.d) || {}).filter(k => +k >= 1 && +k <= CH.days).length;
 const chNeed = v => Math.max(CH_PRIZE.floor, CH_PRIZE.need - Object.keys((v && v.fl) || {}).filter(k => +k >= 1 && +k <= CH.days).length);
 const chEligible = v => chLogged(v) >= chNeed(v);
@@ -12651,7 +12653,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const pz = (await getSetting('chalprize').catch(() => null)) || {};
     if (pz.announced) {
       const nameOf = e => { const r = rows.find(x => x.key === `chal:${e}`); return r ? chPublic(r.value, cfg).n : ''; };
-      out.winners = { most: pz.most ? nameOf(pz.most) : '', draw: (pz.draw && pz.draw.winners || []).map(nameOf).filter(Boolean),
+      const drawn = (pz.draw && pz.draw.winners) || [];
+      out.winners = { most: pz.most ? nameOf(pz.most) : '', app: drawn.slice(0, CH_PRIZE.appN).map(nameOf).filter(Boolean),
+        cls: drawn.slice(CH_PRIZE.appN).map(nameOf).filter(Boolean),
         mine: !!who && (pz.most === who || ((pz.draw && pz.draw.winners) || []).includes(who)) };
     }
     return json(out);
@@ -12817,7 +12821,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        improved, give the months, and show the winners in the app */
     if (body.draw === true) {
       const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
-      const pool = rows.filter(r => r.value && chEligible(r.value)).map(r => r.key.slice(5));
+      /* one prize each: the most improved is left out of the draw */
+      const most = ((await getSetting('chalprize').catch(() => null)) || {}).most || '';
+      const pool = rows.filter(r => r.value && chEligible(r.value)).map(r => r.key.slice(5)).filter(e => e !== most);
       const pick = [];
       while (pool.length && pick.length < CH_PRIZE.drawN) {
         const i = crypto.getRandomValues(new Uint32Array(1))[0] % pool.length;
@@ -12826,6 +12832,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { draw: { at: Date.now(), winners: pick, from: pick.length + pool.length } }));
     }
     if (typeof body.most === 'string') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { most: norm(body.most) }));
+    /* a class winner booked in (or not), so the dashboard can tick them off */
+    if (typeof body.classDone === 'string') {
+      const e = norm(body.classDone);
+      await changeSetting('chalprize', cur => { const x = Object.assign({}, cur || {}), m = Object.assign({}, x.classDone || {});
+        if (m[e]) delete m[e]; else m[e] = Date.now(); x.classDone = m; return x; });
+    }
     if (typeof body.announced === 'boolean') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { announced: body.announced }));
     if (body.give) {
       const e = norm(body.give); let fresh = false;
