@@ -12708,8 +12708,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   if (path === '/challenge/week' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
-    const cfg = await chCfg(), wk = Math.ceil(Math.max(1, chDay(cfg)) / 7), w = Number(body.w), val = Number(body.v);
-    if (!Number.isInteger(w) || w < 1 || w > Math.min(wk, 5)) return json({ error: 'That week has not come yet' }, 400);
+    const cfg = await chCfg(), day = chDay(cfg), wk = Math.ceil(Math.max(1, day) / 7), w = Number(body.w), val = Number(body.v);
+    /* week 0 is their starting point (Elliott, 25 Nov: "make sure they log
+       their stage point at the beginning"): from joining, up to day 7, or
+       within three days of joining late, the same as the start film */
+    if (w === 0) {
+      const m0 = await getSetting(`chal:${who}`).catch(() => null);
+      if (!m0) return json({ error: 'Join the challenge first' }, 400);
+      if (!(day <= cfg.days - 3 && (day <= 7 || Date.now() - (Number(m0.at) || 0) < 3 * 864e5))) return json({ error: 'Starting points closed on day 7' }, 400);
+    } else if (!Number.isInteger(w) || w < 1 || w > Math.min(wk, 5)) return json({ error: 'That week has not come yet' }, 400);
     if (!Number.isFinite(val) || val < 0 || val > 999) return json({ error: 'That number does not look right' }, 400);
     const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { wk: Object.assign({}, cur.wk || {}, { [w]: Math.round(val * 10) / 10 }) }) : undefined);
     if (!v) return json({ error: 'Join the challenge first' }, 400);
