@@ -31129,6 +31129,7 @@ function chBuy(){
 function chLog(day, k, m){
   chPost('/log',{day, k, m: Number(m) || (k==='m' ? 5 : 0), stage:chLevel()})
     .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; st.chAsk=0; st.chJust=day; track('challog', chLevel());
+      if(!CH_D.me.film1 && chStartOpen()) st.chFirst=1;
       toast((day===CH_D.day ? 'Door '+day+' open' : 'Day '+day+' logged')+(m?', '+chMinsTxt(m):'')+'.'); render(); chLoad(true); })
     .catch(e=>toast(e.message));
 }
@@ -31216,8 +31217,8 @@ function chalCardHTML(){
     + `<button class="btn" style="margin-top:12px;padding:15px" onclick="chOpen()">See the challenge</button>`,
     `<button aria-label="Hide the challenge" onclick="st.chalHide=1;save();render()" style="position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;background:none;cursor:pointer;color:var(--grey2);font:400 20px/1 var(--sans)">&times;</button>`);
   if(n<1) return wrap(kick('YOU ARE IN') + head('Day 1 is '+chEm(esc(chWeekday(1))+'.'))
-    + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${(1-n)===1?'Tomorrow':'In '+(1-n)+' days'}. ${chStartDone()?'Your starting point is in.':'Log your starting point first.'}</div>`
-    + `<button class="${chStartDone()?'btn2':'btn'}" style="width:100%;margin-top:12px${chStartDone()?'':';padding:15px'}" onclick="chOpen()">${chStartDone()?'The challenge':'Log my starting point'}</button>`);
+    + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${(1-n)===1?'Tomorrow':'In '+(1-n)+' days'}. On day 1 you film your first clip.</div>`
+    + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">The challenge</button>`);
   if(n>days) return wrap(kick('ADVENT IS DONE') + head(chGot()+' of '+days+' '+chEm('doors open.'))
     + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">See how it went</button>`);
   const did=me.d[n], fl=me.fl[n];
@@ -31260,7 +31261,7 @@ function screenChallenge(){
 const chSteps = () => `<div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">${[
     ['Practise every day', 'Any practice counts: your own, a class, or the app. Ill, injured or away? Flag the day.'],
     ['Log it, open a door', 'Each day you log opens a door on your advent calendar. Everyone\'s are on the board.'],
-    ['Film your start and your end', 'Any handstand you like, when you join and on the last days, so you can see how far you came.']
+    ['Film your start and your end', 'Any handstand you like, on day 1 and on the last days, so you can see how far you came.']
   ].map(([t,d],i)=>`<div style="display:flex;gap:12px;align-items:flex-start"><span style="flex:none;width:26px;height:26px;border-radius:50%;background:var(--forest);color:var(--on-primary);font:700 12px/26px var(--sans);text-align:center">${i+1}</span>
     <span><b style="display:block;font:600 15px/1.3 var(--sans)">${t}</b><span style="display:block;font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:2px">${d}</span></span></div>`).join('')}</div>`;
 function chJoinHTML(){
@@ -31286,13 +31287,16 @@ function chPageHTML(){
   const intro = n<1 ? `<div class="card" style="margin-top:14px">
       <div class="kick2" style="color:var(--forest)">YOU ARE IN</div>
       <div style="font:400 22px/1.15 var(--serif);margin-top:6px">Door 1 opens ${chEm(esc(chDayName(1))+'.')}</div>
-      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${chStartDone()?'Your starting point is in. Practise as normal until door 1.':'First, your starting point, just below. Then practise as normal until door 1.'}</div>
+      <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Practise as normal until then. On day 1 you film your first clip, so you can see how far you come.</div>
       <button class="btn2" style="width:100%;margin-top:14px" onclick="chShare('in')">${me.group?'Tell the group you are in':'Share that you are in'}</button></div>` : '';
   const start = (chStartOpen() && (n<1 || !chStartDone())) ? chStartHTML() : '';
   const film = (n>=days-2 && n<=days+3) ? chFilmHTML(days) : '';
   /* the starting point comes first until it is done; then the calendar leads */
-  return n<1 ? chCalHTML()+intro+start+chEveryoneHTML()+chTryHTML()+chMoreHTML()
-             : chCalHTML()+(chFinale()?chFinaleHTML():'')+start+film+chEveryoneHTML()+chTryHTML()+chMoreHTML();
+  /* two tabs (Elliott, 25 Nov: "maybe we should have a tab for leader board"):
+     the calendar, which is where it opens, and the leaderboard */
+  if(st.chTab==='board') return chTabsHTML()+chBoardHTML(false);
+  return chTabsHTML() + (n<1 ? chCalHTML()+intro+start+chBoardHTML(true)+chTryHTML()+chMoreHTML()
+             : chCalHTML()+(chFinale()?chFinaleHTML():'')+start+film+chBoardHTML(true)+chTryHTML()+chMoreHTML());
 }
 /* ── the end (25 Nov 2026): the whole picture, a picture of their calendar
    to share, and their own start and end films side by side ─────────── */
@@ -31340,33 +31344,56 @@ async function chShareCal(){
 }
 /* everyone's progress, under the calendar: the group chat, how many have
    opened today's door, and each person's 24 doors as a row */
-function chEveryoneHTML(){
-  const b=CH_D.board||[], n=CH_D.day, days=CH_D.cfg.days, others=b.filter(r=>!r.me);
+function chTabsHTML(){
+  const on=st.chTab==='board'?'board':'cal';
+  return `<div class="seg" role="tablist" aria-label="The challenge" style="margin-top:14px">${[['cal','Calendar'],['board','Leaderboard']].map(([k,l])=>
+    `<button role="tab" aria-selected="${on===k}" class="${on===k?'on':''}" onclick="chTabGo('${k}')">${l}</button>`).join('')}</div>`;
+}
+function chTabGo(k){
+  st.chTab=k; save(); render(); track('chaltab', k==='board'?1:0);
+  try{ const sc=document.querySelector('#app .scroll'); if(sc) sc.scrollTop=0; window.scrollTo(0,0); }catch(e){}
+}
+/* the leaderboard: everyone ranked by doors opened (or minutes), ties share a
+   place, the top three in gold, silver and bronze, your own row picked out.
+   peek: the calendar tab's short version, the top three and you */
+function chBoardHTML(peek){
+  const b=CH_D.board||[], n=CH_D.day, days=CH_D.cfg.days, others=b.filter(r=>!r.me), by=st.chBy==='mins'?'mins':'doors';
   const chat=chGroupBtn('btn2');
   const kt=b.filter(r=>n>=1 && n<=days && /[smfco]/.test(r.d[n-1]||'')).length;
   const line = !others.length ? 'Just '+chEm('you')+' so far.'
     : n<1 ? b.length+' '+chEm(b.length===1?'person is in.':'people are in.')
     : n>days ? b.length+' '+chEm('took part.')
     : kt+' of '+b.length+' '+chEm('opened door '+n+'.');
-  /* the group's hours together, against a target (Elliott, 25 Nov) */
   const tm=(CH_D.team&&CH_D.team.mins)||0, goal=((CH_D.team&&CH_D.team.goalH)||100)*60, tp=Math.min(100,Math.round(tm/goal*100));
-  const team = (others.length && tm) ? `<div style="margin-top:12px;padding:12px 14px;border-radius:14px;background:rgba(35,127,149,.07)">
+  const team = (!peek && others.length && tm) ? `<div style="margin-top:12px;padding:12px 14px;border-radius:14px;background:rgba(35,127,149,.07)">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><b style="font:600 13.5px/1.3 var(--sans)">Together: ${esc(chMinsTxt(tm))}</b>
         <span style="font:400 12.5px/1 var(--sans);color:var(--grey)">target ${Math.round(goal/60)} hours</span></div>
       <div style="height:8px;border-radius:99px;background:rgba(29,85,102,.10);margin-top:8px;overflow:hidden"><i style="display:block;height:100%;width:${tp}%;background:var(--forest);border-radius:99px"></i></div></div>` : '';
-  const rows = others.length ? b.map(r=>{ const got=(r.d.match(/[smfco]/g)||[]).length;
-    return `<div style="padding:11px 0;border-top:1px solid rgba(29,85,102,.08)">
-      <div style="display:flex;align-items:baseline;gap:8px"><b style="font:600 14px/1.2 var(--sans)">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
-        <span style="margin-left:auto;font:400 12px/1 var(--sans);color:var(--grey);font-variant-numeric:tabular-nums">${r.mins?esc(chMinsTxt(r.mins)):''}</span>
-        <span style="font:600 12.5px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums;min-width:38px;text-align:right">${got}/${days}</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px">${r.d.split('').map((c,i)=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.08)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'box-shadow:0 0 0 1.5px var(--amber);':''}"></i>`).join('')}</div></div>`; }).join('') : '';
-  return `<div class="card" id="chEveryone" style="margin-top:12px;padding:16px 18px 8px">
-    <div class="kick2" style="color:var(--forest)">EVERYONE</div>
+  const ranked=b.map(r=>({r, doors:(r.d.match(/[smfco]/g)||[]).length, mins:r.mins||0}))
+    .sort((x,y)=> by==='mins' ? (y.mins-x.mins)||(y.doors-x.doors) : (y.doors-x.doors)||(y.mins-x.mins));
+  let place=0, prev=null;
+  ranked.forEach((x,i)=>{ const v=by==='mins'?x.mins:x.doors; if(v!==prev){ place=i+1; prev=v; } x.place=place; });
+  const medal=['#f3c77a','#cfd8dc','#e2a878'];
+  const rowHTML=x=>{ const r=x.r, big=by==='mins'?(x.mins?chMinsTxt(x.mins):'0 min'):x.doors+'/'+days, small=by==='mins'?x.doors+'/'+days+' doors':(x.mins?chMinsTxt(x.mins):'');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px ${r.me?'10px':'2px'};margin:0 ${r.me?'-8px':'0'};border-top:1px solid rgba(29,85,102,.08);${r.me?'background:rgba(35,127,149,.08);border-radius:12px;border-top-color:transparent':''}">
+      <span style="flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 13px/1 var(--sans);font-variant-numeric:tabular-nums;${x.place<=3 && x.doors+x.mins>0?'background:'+medal[x.place-1]+';color:#3b2a08':'color:var(--grey)'}">${x.place}</span>
+      <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
+        ${peek?'':`<span style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${r.d.split('').map((c,i)=>`<i style="width:7px;height:7px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.10)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'outline:1.5px solid #f3a949;outline-offset:1px;':''}"></i>`).join('')}</span>`}</span>
+      <span style="flex:none;text-align:right"><b style="display:block;font:600 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${esc(big)}</b>${small?`<span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey);margin-top:4px;font-variant-numeric:tabular-nums">${esc(small)}</span>`:''}</span></div>`; };
+  const mine=ranked.find(x=>x.r.me);
+  const list = peek ? ranked.slice(0,3).concat(mine && ranked.indexOf(mine)>2 ? [mine] : []) : ranked;
+  const sortSeg = (!peek && others.length) ? `<div class="seg" role="radiogroup" aria-label="Rank by" style="margin-top:12px">${[['doors','Doors opened'],['mins','Minutes']].map(([k,l])=>
+      `<button role="radio" aria-checked="${by===k}" class="${by===k?'on':''}" onclick="st.chBy='${k}';save();render()">${l}</button>`).join('')}</div>` : '';
+  return `<div class="card" id="chEveryone" style="margin-top:12px;padding:16px 18px ${peek&&others.length?'14px':'8px'}">
+    <div class="kick2" style="color:var(--forest)">LEADERBOARD</div>
     <div style="font:400 22px/1.15 var(--serif);margin-top:6px">${line}</div>
     ${team}
     ${chat?`<div style="margin-top:12px">${chat}</div>`:''}
-    ${others.length?`<div style="margin-top:12px">${rows}</div>`
+    ${sortSeg}
+    ${others.length?`<div style="margin-top:10px">${list.map(rowHTML).join('')}</div>`
       :`<button class="btn2" style="width:100%;margin:12px 0 10px" onclick="chShare('in')">Invite someone</button>`}
+    ${peek && others.length ? `<button class="btn2" style="width:100%;margin-top:10px" onclick="chTabGo('board')">See the leaderboard</button>` : ''}
+    ${!peek && others.length ? `<button onclick="chShare('in')" style="display:block;margin:6px auto 4px;border:0;background:none;color:var(--forest);font:600 13px/1.4 var(--sans);cursor:pointer;min-height:40px">Invite someone</button>` : ''}
   </div>`;
 }
 /* the 7pm reminder: notifications on this phone first, then the switch */
@@ -31466,13 +31493,25 @@ function chCalHTML(){
     const label='Door '+i+', '+chDate(i).toLocaleDateString('en-GB',{day:'numeric',month:'long',timeZone:'UTC'})+(x?', open':f?', flagged':today?', today, tap to open':missed?', missed, tap to log it':', opens '+chDayName(i));
     return `<button class="${cls}" aria-label="${label}" onclick="chDoorTap(${i})">${inner}</button>`; }).join('');
   if(st.chJust) setTimeout(()=>{ st.chJust=0; save(); }, 1600);
+  /* the first clip, asked for over the calendar as soon as a door is opened */
+  if(st.chFirst && (me.film1 || !chStartOpen())) st.chFirst=0;
+  const first = (st.chFirst && !st.chAsk) ? `<div class="chask" role="dialog" aria-label="Your first clip">
+      <div class="chaskin">
+        <button onclick="st.chFirst=0;save();render()" aria-label="Later" class="chaskx">&times;</button>
+        <div class="kick2" style="color:var(--forest)">DOOR OPEN · NOW YOUR FIRST CLIP</div>
+        <div style="font:400 24px/1.1 var(--serif);margin-top:6px">Film where you ${chEm('start.')}</div>
+        <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Your best handstand, or what you are working on. Your whole body in the frame, 30 seconds at most. Only Elliott sees it, and it is how the most improved is picked.</div>
+        <button class="btn" style="margin-top:14px" onclick="chFilmUp(1)">Upload your first clip</button>
+        <div id="chfu-1" role="status" style="font:600 13px/1.4 var(--sans);color:var(--forest);margin-top:8px;text-align:center"></div>
+        <button onclick="st.chFirst=0;save();render()" style="display:block;margin:2px auto 0;border:0;background:none;color:var(--forest);font:600 13px/1.4 var(--sans);cursor:pointer;min-height:40px">Later</button>
+      </div></div>` : '';
   /* the question, over the calendar, for the door tapped */
-  const k=st.chAsk, ask = (k && k<=n && !me.d[k] && canLog) ? `<div class="chask" role="dialog" aria-label="Door ${k}">
+  const k=st.chAsk, ask = first || ((k && k<=n && !me.d[k] && canLog) ? `<div class="chask" role="dialog" aria-label="Door ${k}">
       <div class="chaskin">
         <button onclick="st.chAsk=0;save();render()" aria-label="Not now" class="chaskx">&times;</button>
         <div class="kick2" style="color:var(--forest)">DOOR ${k} · ${esc(chDate(k).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'}).toUpperCase())}</div>
         ${chLogHTML(k, k!==n)}
-      </div></div>` : '';
+      </div></div>` : '');
   /* under the calendar: what to do today, or today done */
   const did=n>=1&&n<=days?me.d[n]:null, fl=n>=1&&n<=days?me.fl[n]:null;
   let log='';
@@ -31528,7 +31567,8 @@ function chStartHTML(){
 }
 /* the start film goes in when they start: from joining, up to day 7, or
    within three days of joining for anybody who joins later */
-const chStartOpen = () => !!(CH_D && CH_D.me) && CH_D.day <= CH_D.cfg.days-3 && (CH_D.day <= 7 || Date.now()-(CH_D.me.at||0) < 3*864e5);
+/* from door 1 (Elliott, 25 Nov: "on day 1 they are asked for their first clip") */
+const chStartOpen = () => !!(CH_D && CH_D.me) && CH_D.day >= 1 && CH_D.day <= CH_D.cfg.days-3 && (CH_D.day <= 7 || Date.now()-(CH_D.me.at||0) < 3*864e5);
 function chFilmHTML(which){
   const T=chTest(), paid=chPaid(), me=CH_D.me, inn=!!(which===1 ? me.film1 : me.filmEnd);
   return `<div class="card" style="margin-top:12px">
@@ -31616,7 +31656,7 @@ function chPrizesHTML(sheet){
     <details style="margin-top:12px"><summary style="cursor:pointer;font:600 13px/1.4 var(--sans);color:var(--forest);min-height:32px">The rules</summary>
       <ul class="chlist" style="font-size:13px;color:var(--grey)">
         <li>Joining is your entry. It is free, and paying for help does not change anybody's chances.</li>
-        <li>Most improved: Elliott picks from your start and end films. The start film goes in when you join, by day 7 (or within three days of joining late). The end film goes in from day ${days-2} to ${esc(closes)}. His pick is final.</li>
+        <li>Most improved: Elliott picks from your start and end films. The start film goes in on day 1, by day 7 (or within three days of joining late). The end film goes in from day ${days-2} to ${esc(closes)}. His pick is final.</li>
         <li>The draw: log ${CH_D.cfg.need||20} of the ${days} days. Flag a day as ill, injured or away and you need one fewer, down to ${CH_D.cfg.floor||12}. Four winners, picked at random: the first gets three months of the app, the other three a free class in January at OverGravity, Shadwell. Can't get to London? A form check from Elliott instead.</li>
         <li>Winners shown here on ${esc(told)} and told by email. One prize each. Parallettes go to a UK address. The 1-2-1 is in London or on a video call. No cash instead.</li>
       </ul></details></div>`;
