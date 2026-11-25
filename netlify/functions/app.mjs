@@ -30,7 +30,7 @@ import * as supa from './supa.mjs';
 import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail, fcLinkEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
-import { EB_API, EB_ACTIONS, ebVenueKey, ebVenueBody, ebEventBody, ebDescHTML, ebHash, ebTicketPlan, ebOrderPlace, ebHookTarget } from './eventbrite.mjs';
+import { EB_API, EB_ACTIONS, ebVenueKey, ebVenueBody, ebEventBody, ebDescHTML, ebHash, ebTicketPlan, ebOrderPlace, ebHookTarget, ebPhotos, ebCrop, ebModules } from './eventbrite.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { X509Certificate, verify as nodeVerify } from 'node:crypto';
 import vm from 'node:vm';
@@ -761,11 +761,32 @@ async function ebVenue(w, conf) {
 }
 const ebWhere = w => w && w.place && !/overgravity/i.test(w.place) ? String(w.place)
   : `OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1 0DB`;
-async function ebDescribe(id, html) {
+async function ebDescribe(id, modules) {
   let v = 1;
   try { const cur = await ebApi(`/events/${id}/structured_content/`); v = (Number(cur.page_version_number) || 0) + 1; } catch {}
-  await ebApi(`/events/${id}/structured_content/${v}/`, { modules: [{ type: 'text', data: { body: { type: 'text', text: html, alignment: 'left' } } }],
-    publish: true, purpose: 'listing' });
+  await ebApi(`/events/${id}/structured_content/${v}/`, { modules, publish: true, purpose: 'listing' });
+}
+/* A photo from the site, uploaded to Eventbrite once and remembered: ask
+   for an upload slot, post the file to where it says, then hand the token
+   back (with the 2:1 crop for a main image). Eventbrite's own steps, from
+   its image upload guide. type: image-event-logo or image-structured-content */
+async function ebMedia(file, type) {
+  const key = type + ':' + file, have = ((await ebConf()).media || {})[key];
+  if (have) return have;
+  const ins = await ebApi(`/media/upload/?type=${enc(type)}`);
+  const img = await fetch(`${SITE}/assets/site/${enc(file)}`);
+  if (!img.ok) throw new Error(`the photo ${file} did not load`);
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(ins.upload_data || {})) fd.append(k, String(v));
+  fd.append(ins.file_parameter_name || 'file', new Blob([await img.arrayBuffer()], { type: 'image/jpeg' }), file);
+  const up = await fetch(String(ins.upload_url || ''), { method: ins.upload_method || 'POST', body: fd });
+  if (!up.ok) throw new Error(`the photo upload said ${up.status}`);
+  const crop = type === 'image-event-logo' ? ebCrop(file) : null;
+  const done = await ebApi('/media/upload/', { upload_token: ins.upload_token, ...(crop ? { crop_mask: crop } : {}) });
+  const id = String((done && done.id) || '');
+  if (!id) throw new Error('Eventbrite gave no id for the photo');
+  await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.media = Object.assign({}, c.media, { [key]: id }); return c; });
+  return id;
 }
 /* Set what each ticket may sell from what is left here. Reads Eventbrite's
    own sold counts first, so an order it has taken and not yet sent us is
@@ -824,10 +845,25 @@ async function ebSync(slug, opts = {}) {
         const ev = await ebApi(`/events/${eb.id}/`, body);
         if (ev.url) eb.url = ev.url;
       }
-      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html);
+      /* the main photo, from the class page by the date's room; set once
+         for each photo, so one Elliott puts on Eventbrite himself stays */
+      const ph = ebPhotos(w, wsRoomOf(w));
+      if (ph.cover && eb.logoFile !== ph.cover) {
+        try { const id = await ebMedia(ph.cover, 'image-event-logo');
+          await ebApi(`/events/${eb.id}/`, { event: { logo_id: id } }); eb.logo = id; eb.logoFile = ph.cover; }
+        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err) + '.'); }
+      }
+      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html + '|' + ph.more.join(','));
       if (h !== eb.descH) {
-        try { await ebDescribe(eb.id, html); eb.descH = h; }
-        catch (err) { warn.push('The description did not go: ' + String(err.message || err)); }
+        const ids = [];
+        for (const f of ph.more) { try { ids.push(await ebMedia(f, 'image-structured-content')); } catch {} }
+        /* the photos under the words; if Eventbrite will not take them there,
+           the words alone, so a photo never costs the description */
+        try { await ebDescribe(eb.id, ebModules(html, ids)); eb.descH = h; }
+        catch (err) {
+          try { await ebDescribe(eb.id, ebModules(html, [])); eb.descH = h; if (ids.length) warn.push('The photos in the description did not go: ' + String(err.message || err) + '.'); }
+          catch (err2) { warn.push('The description did not go: ' + String(err2.message || err2) + '.'); }
+        }
       }
     }
     await ebTickets(slug, w, eb);

@@ -40,11 +40,64 @@ export function ebVenueBody(w) {
   return { venue: { name: p.slice(0, 80), address: { address_1: p.slice(0, 120), city: 'London', country: 'GB' } } };
 }
 
+/* ── the class page's own words and photos ─────────────────────────
+   The All Levels and Calisthenics dates are written once, on the class
+   page (handstand-class.html), not date by date in the dashboard, so their
+   listings take the page's words and photos (Elliott, 25 Nov 2026): the
+   level, who teaches it, the stations, two of the reviews. These are the
+   page's own lines; change them there and here together. A date's own
+   description or topic, when it has one, is added on top. Anything else
+   (a workshop) is described by its own fields alone. */
+export const ebKind = w => { const t = String((w && w.title) || '');
+  return /all levels|handstand and calisthenics/i.test(t) ? 'handstand' : /calisthenics/i.test(t) ? 'cali' : ''; };
+export const EB_PAGE = {
+  handstand: {
+    summary: 'An hour of handstands, grouped by level: from your first kick up to a press or one arm. A small group at OverGravity, Shadwell.',
+    intro: 'An hour of handstands, grouped by level: from your first kick up to a press or one arm. A small group, so you get seen.',
+    coach: 'Taught by Elliott Staley: nearly a decade of handstand practice, from yoga, calisthenics and movement coaching. He coaches complete beginners through to one arm work.',
+  },
+  cali: {
+    summary: 'An hour of calisthenics: pull ups to muscle ups and handstand push ups, on the bars and rings. A small group at OverGravity, Shadwell.',
+    intro: 'An hour of calisthenics: pull ups to muscle ups and handstand push ups, on the bars and rings. A small group, so you get seen.',
+    coach: 'Taught by Suryava: over eight years in gymnastics, training it and coaching it. A gymnast\'s discipline: proper progressions and honest assessment.',
+  },
+};
+export const EB_REVIEWS = [
+  ['Kate', 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches.'],
+  ['Anna', 'Both great teachers with a lot of experience. Their advice was great for all levels as they adjusted depending on the student. Also felt very safe in class.'],
+];
+/* The photos, from the class page (assets/site), with their sizes for the
+   2:1 crop Eventbrite's main image needs; y is where the crop starts, so a
+   tall photo keeps the people rather than the ceiling. */
+export const EB_PHOTOS = {
+  'class-upside-down-wide.jpg': { w: 995, h: 800, y: 150 },
+  'arch2-group-kick-ups.jpg': { w: 900, h: 1600, y: 640 },
+  'arch2-coach-spot-rig.jpg': { w: 900, h: 1600, y: 300 },
+  'class-group-overgravity.jpg': { w: 1000, h: 957 },
+  'arch2-spotted-handstand.jpg': { w: 900, h: 1600 },
+};
+/* the cover by the date's room: the purple room for a handstand date in
+   Arch 1, the group kicking up in Arch 2, the rig for calisthenics; then
+   the group after class and a spotted handstand under the words */
+export function ebPhotos(w, room) {
+  const k = ebKind(w);
+  if (!k) return { cover: '', more: [] };
+  const cover = k === 'cali' ? 'arch2-coach-spot-rig.jpg' : room === 'Arch 2' ? 'arch2-group-kick-ups.jpg' : 'class-upside-down-wide.jpg';
+  return { cover, more: ['class-group-overgravity.jpg', 'arch2-spotted-handstand.jpg'] };
+}
+export function ebCrop(file) {
+  const p = EB_PHOTOS[file]; if (!p) return null;
+  const h = Math.floor(p.w / 2), y = p.y != null ? p.y : Math.round((p.h - h) / 2);
+  /* exactly 2:1, so an odd width loses its last pixel */
+  return { top_left: { x: 0, y: Math.max(0, Math.min(p.h - h, y)) }, width: 2 * h, height: h };
+}
+
 /* ── the event ─────────────────────────────────────────────────────
    Eventbrite's line under the title is 140 characters at most: the one
    line on who it is for, else the first sentence of the description. */
 export function ebSummary(w) {
-  const pick = String((w && w.who) || '').trim() || String((w && w.desc) || '').trim().split(/(?<=[.!?])\s+/)[0] || '';
+  const pick = String((w && w.who) || '').trim() || String((w && w.desc) || '').trim().split(/(?<=[.!?])\s+/)[0]
+    || (EB_PAGE[ebKind(w)] || {}).summary || '';
   const s = pick.replace(/\s+/g, ' ');
   return s.length <= 140 ? s : s.slice(0, 139).replace(/\s+\S*$/, '') + '.';
 }
@@ -66,19 +119,30 @@ export function ebEventBody(w, { venueId, mins }) {
    own fields, so the dashboard stays the place they are written. parts:
    { mins, where, coachLine, waiver } worked out by app.mjs. */
 export function ebDescHTML(w, parts) {
-  const p = parts || {};
+  const p = parts || {}, pg = EB_PAGE[ebKind(w)];
   const para = t => t ? `<p>${t}</p>` : '';
+  const og = !w.place || /overgravity/i.test(w.place);
   return [
+    pg ? para(escH(pg.intro)) : '',
     para(escH(String(w.desc || '').trim())),
     w.topic ? para(`<strong>This week:</strong> ${escH(w.topic)}.`) : '',
     w.who ? para(`<strong>Who it is for:</strong> ${escH(w.who)}`) : '',
-    para(`<strong>How long:</strong> ${escH(String(p.mins || 60))} minutes. ${escH(p.coachLine || '')}`.trim()),
-    para(`<strong>Where:</strong> ${escH(p.where || 'OverGravity, Arches 160 to 163, Sutton Street, London E1 0DB')}.`),
+    /* the page names who teaches each class; a date with its own coach says so instead */
+    para(`<strong>How long:</strong> ${escH(String(p.mins || 60))} minutes.${w.coach || !pg ? ' ' + escH(p.coachLine || '') : ''}`.trim()),
+    pg && !w.coach ? para(escH(pg.coach)) : '',
+    para(`<strong>Where:</strong> ${escH(p.where || 'OverGravity, Arches 160 to 163, Sutton Street, London E1 0DB')}.${og ? ' Nearest stations: Shadwell (Overground and DLR) and Wapping. Changing rooms and a caf\u00e9 to wait in.' : ''}`),
     para('<strong>What to bring:</strong> normal training kit you can move in, and a water bottle. Bare feet or socks, no shoes on the mats. Arrive ten minutes early so we start on time.'),
+    pg ? '<p><strong>What people say</strong></p>' + EB_REVIEWS.map(([n, q]) => para(`<em>"${escH(q)}"</em> ${escH(n)}`)).join('') : '',
     para(`<strong>Can't make it?</strong> Reply to your reminder email up to 24 hours before and we will move your place to another date, free. Refunds follow the refund policy on this page.`),
     p.waiver ? para(`Everyone trains under our participation waiver: <a href="${escH(p.waiver)}">${escH(p.waiver.replace(/^https?:\/\//, ''))}</a>. Please read it before the day.`) : '',
     para('London Handstand Academy will email you a reminder the day before with everything you need.'),
   ].filter(Boolean).join('');
+}
+/* the description as Eventbrite takes it: the words, then any photos */
+export function ebModules(html, imageIds) {
+  const mods = [{ type: 'text', data: { body: { text: html, alignment: 'left' } } }];
+  for (const id of imageIds || []) if (id) mods.push({ type: 'image', data: { image: { image_id: String(id) } } });
+  return mods;
 }
 /* a short fingerprint, so the words are only sent again when they change
    (and anything Elliott adds on Eventbrite itself is left alone otherwise) */
