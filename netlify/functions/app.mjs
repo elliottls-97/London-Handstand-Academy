@@ -851,17 +851,20 @@ async function ebSync(slug, opts = {}) {
       if (ph.cover && eb.logoFile !== ph.cover) {
         try { const id = await ebMedia(ph.cover, 'image-event-logo');
           await ebApi(`/events/${eb.id}/`, { event: { logo_id: id } }); eb.logo = id; eb.logoFile = ph.cover; }
-        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err) + '.'); }
+        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err) + '.'); console.error('eventbrite photo', String(err && err.message || err)); }
       }
-      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html + '|' + ph.more.join(','));
+      /* the description's photos first (each uploaded once, then remembered),
+         so a photo that goes later is a change and the words are sent again */
+      const ids = []; let photoErr = '';
+      for (const f of ph.more) { try { ids.push(await ebMedia(f, 'image-structured-content')); } catch (err) { photoErr = photoErr || String(err.message || err); } }
+      if (photoErr) { warn.push('A photo for the description did not go: ' + photoErr + '.'); console.error('eventbrite photo', photoErr); }
+      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html + '|' + ids.join(','));
       if (h !== eb.descH) {
-        const ids = [];
-        for (const f of ph.more) { try { ids.push(await ebMedia(f, 'image-structured-content')); } catch {} }
         /* the photos under the words; if Eventbrite will not take them there,
            the words alone, so a photo never costs the description */
         try { await ebDescribe(eb.id, ebModules(html, ids)); eb.descH = h; }
         catch (err) {
-          try { await ebDescribe(eb.id, ebModules(html, [])); eb.descH = h; if (ids.length) warn.push('The photos in the description did not go: ' + String(err.message || err) + '.'); }
+          try { await ebDescribe(eb.id, ebModules(html, [])); eb.descH = ebHash(html + '|'); if (ids.length) warn.push('The photos in the description did not go: ' + String(err.message || err) + '.'); }
           catch (err2) { warn.push('The description did not go: ' + String(err2.message || err2) + '.'); }
         }
       }
@@ -873,7 +876,9 @@ async function ebSync(slug, opts = {}) {
     }
     eb.err = warn.join(' '); eb.at = Date.now(); eb.on = true;
   } catch (err) {
-    eb.err = String(err.message || err).slice(0, 300); eb.at = Date.now();
+    /* what went wrong, and anything that went wrong before it: the first
+       real draft's photo message was lost under its ticket error */
+    eb.err = [String(err.message || err)].concat(warn).join(' ').slice(0, 600); eb.at = Date.now();
     await ebSave(slug, eb);
     return { error: 'Eventbrite: ' + eb.err, status: 502, eb };
   }

@@ -190,7 +190,10 @@ export function ebTicketPlan(w, { left, open, now, tcs, filed, sold, stdStart })
     return q > 0 ? { quantity_total: q, hidden: false } : { quantity_total: 1, hidden: true };
   };
   const cost = p => p > 0 ? { free: false, cost: 'GBP,' + p } : { free: true };
-  const common = { include_fee: false, split_fee_with_organizer: false, minimum_quantity: 1, maximum_quantity: 1, sales_end: ebUtc(start) };
+  /* include_fee false: the fees go on top for the buyer. Eventbrite has no
+     split_fee_with_organizer on a ticket and refused the first real one
+     for it (25 Nov 2026). */
+  const common = { include_fee: false, minimum_quantity: 1, maximum_quantity: 1, sales_end: ebUtc(start) };
   const out = [];
   /* the early one first, so a new event lists it at the top */
   if (early || T.early) {
