@@ -115,7 +115,10 @@ export function ebTicketPlan(w, { left, open, now, tcs, filed, sold, stdStart })
   const price = Math.max(0, Math.round(Number(w.price) || 0));
   const until = w.early ? ms(w.early.until) : 0;
   const early = !!(w.early && until > t && until < start && Math.round(Number(w.early.then) || 0) > price);
-  const stdPrice = early ? Math.round(Number(w.early.then)) : price;
+  /* the later price as soon as the early bird is over, before the site
+     has written it in as the price (app.mjs wsRoll does that on its next
+     request), or "Place" would drop back to the early price */
+  const stdPrice = w.early && Math.round(Number(w.early.then) || 0) > price ? Math.round(Number(w.early.then)) : price;
   const room = id => Math.max(S[id] || 0, (F[id] || 0) + Math.max(0, Number(left) || 0));
   const qty = (id, on) => {
     if (!on) return { quantity_total: Math.max(1, S[id] || 0), hidden: true };
