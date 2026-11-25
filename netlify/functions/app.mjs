@@ -773,16 +773,21 @@ async function ebDescribe(id, modules) {
 async function ebMedia(file, type) {
   const key = type + ':' + file, have = ((await ebConf()).media || {})[key];
   if (have) return have;
-  const ins = await ebApi(`/media/upload/?type=${enc(type)}`);
+  /* each step says which it was when it fails: the first real try came
+     back "type: this field is required" with no way to tell where */
+  const step = async (what, fn) => { try { return await fn(); } catch (err) { throw new Error(`${what}: ${String(err.message || err).replace(/\.+$/, '')}`); } };
+  const ins = await step('asking for an upload', () => ebApi(`/media/upload/?type=${enc(type)}`));
   const img = await fetch(`${SITE}/assets/site/${enc(file)}`);
   if (!img.ok) throw new Error(`the photo ${file} did not load`);
   const fd = new FormData();
   for (const [k, v] of Object.entries(ins.upload_data || {})) fd.append(k, String(v));
   fd.append(ins.file_parameter_name || 'file', new Blob([await img.arrayBuffer()], { type: 'image/jpeg' }), file);
   const up = await fetch(String(ins.upload_url || ''), { method: ins.upload_method || 'POST', body: fd });
-  if (!up.ok) throw new Error(`the photo upload said ${up.status}`);
+  if (!up.ok) throw new Error(`sending the photo: the upload said ${up.status}`);
   const crop = type === 'image-event-logo' ? ebCrop(file) : null;
-  const done = await ebApi('/media/upload/', { upload_token: ins.upload_token, ...(crop ? { crop_mask: crop } : {}) });
+  /* Eventbrite's guide sends the type only when asking; the live API wants
+     it again here (25 Nov 2026: "type - This field is required") */
+  const done = await step('finishing the upload', () => ebApi('/media/upload/', { upload_token: ins.upload_token, type, ...(crop ? { crop_mask: crop } : {}) }));
   const id = String((done && done.id) || '');
   if (!id) throw new Error('Eventbrite gave no id for the photo');
   await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.media = Object.assign({}, c.media, { [key]: id }); return c; });
@@ -851,13 +856,13 @@ async function ebSync(slug, opts = {}) {
       if (ph.cover && eb.logoFile !== ph.cover) {
         try { const id = await ebMedia(ph.cover, 'image-event-logo');
           await ebApi(`/events/${eb.id}/`, { event: { logo_id: id } }); eb.logo = id; eb.logoFile = ph.cover; }
-        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err) + '.'); console.error('eventbrite photo', String(err && err.message || err)); }
+        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err).replace(/\.+$/, '') + '.'); console.error('eventbrite photo', String(err && err.message || err)); }
       }
       /* the description's photos first (each uploaded once, then remembered),
          so a photo that goes later is a change and the words are sent again */
       const ids = []; let photoErr = '';
       for (const f of ph.more) { try { ids.push(await ebMedia(f, 'image-structured-content')); } catch (err) { photoErr = photoErr || String(err.message || err); } }
-      if (photoErr) { warn.push('A photo for the description did not go: ' + photoErr + '.'); console.error('eventbrite photo', photoErr); }
+      if (photoErr) { warn.push('A photo for the description did not go: ' + photoErr.replace(/\.+$/, '') + '.'); console.error('eventbrite photo', photoErr); }
       const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html + '|' + ids.join(','));
       if (h !== eb.descH) {
         /* the photos under the words; if Eventbrite will not take them there,
@@ -878,7 +883,7 @@ async function ebSync(slug, opts = {}) {
   } catch (err) {
     /* what went wrong, and anything that went wrong before it: the first
        real draft's photo message was lost under its ticket error */
-    eb.err = [String(err.message || err)].concat(warn).join(' ').slice(0, 600); eb.at = Date.now();
+    eb.err = [String(err.message || err).replace(/\.*$/, '.')].concat(warn).join(' ').slice(0, 600); eb.at = Date.now();
     await ebSave(slug, eb);
     return { error: 'Eventbrite: ' + eb.err, status: 502, eb };
   }
