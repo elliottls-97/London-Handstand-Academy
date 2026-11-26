@@ -15827,7 +15827,7 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', chprize:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', morehelp:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='chprize'){ body=(typeof CH_D!=='undefined' && CH_D) ? chPrizesHTML(true) : ''; }
   else if(st.ov==='limiter'){ body=limiterBody(); }
@@ -15835,6 +15835,7 @@ function drawOv(){
   else if(st.ov==='pmuscle'){ body=pressMuscleBody(); }
   else if(st.ov==='pkit'){ body=pressKitBody(); }
   else if(st.ov==='goal'){ body=goalSheetHTML(); }
+  else if(st.ov==='morehelp'){ body=`<div style="padding:2px">${mhHTML()}</div>`; }
   else if(st.ov==='callbook' && st.callHere){ body=`<div style="padding:2px">${callHereHTML()}</div>`; }
   else if(st.ov==='callbook'){ body=`<div style="padding:2px">
       <div class="kick2">YOUR WELCOME CALL</div>
@@ -17740,6 +17741,99 @@ function callHereBook(){
       if(e&&e.off){ st.callHere=false; save(); closeOv(); callPick(); return; }
       if(e&&e.gone){ WC.sel=''; WC.msg=String(e.error||'That time has just gone.'); callHereLoad(); return; }
       WC.msg=String((e&&e.error)||'That did not go through. Try again.'); drawOv(); });
+}
+/* ── more help, in the iPhone app (26 Nov 2026) ──────────────────────
+   Elliott: "want more help register here / book a free call". Coaching is
+   not sold in the iPhone app, so nothing here names a price, a plan or a
+   link out: an enquiry that reaches the dashboard as an application, and
+   the free intro call booked in the app. Anything to pay is arranged by
+   email after the call, outside the app (App Store 3.1.1 and 3.1.3). */
+const MH={mode:'', name:'', email:'', note:'', busy:false, msg:'', done:false, slots:null, day:'', sel:'', booked:''};
+function moreHelpCardHTML(){
+  return `<div class="card" style="padding:18px 18px 16px">
+    <div class="kick2" style="color:var(--forest)">MORE HELP</div>
+    <div style="font:400 24px/1.15 var(--serif);margin-top:6px">Want more <em style="color:var(--forest);font-style:normal">help?</em></div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">Coaching with Elliott, built around your handstand.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="btn" style="flex:1 1 150px;min-height:48px;font-size:15px" onclick="mhOpen('call')">Book a free call</button>
+      <button class="btn2" style="flex:1 1 150px;min-height:48px" onclick="mhOpen('interest')">${st.helpAsked?'Sent, thank you':'Register your interest'}</button>
+    </div></div>`;
+}
+function mhOpen(mode){
+  MH.mode=mode; MH.msg=''; MH.busy=false; MH.done=false; MH.booked='';
+  MH.name=MH.name||st.client||st.name||''; MH.email=MH.email||st.email||'';
+  if(mode==='call'){ MH.slots=null; MH.sel=''; mhLoad(); }
+  if(st.ov==='morehelp') drawOv(); else openOv('morehelp');
+}
+function mhLoad(){
+  fetch('/api/app/call/slots').then(r=>r.json()).then(d=>{
+    if(!d || !d.open){ MH.slots=[]; MH.msg='Booking a call here is closed just now. Register your interest and Elliott will find a time.'; }
+    else { MH.slots=d.slots||[]; if(!MH.slots.some(t=>wcDay(t)===MH.day)) MH.day=MH.slots.length?wcDay(MH.slots[0]):''; }
+    if(st.ov==='morehelp') drawOv();
+  }).catch(()=>{ MH.slots=[]; MH.msg='The times would not load. Try again in a moment.'; if(st.ov==='morehelp') drawOv(); });
+}
+function mhOk(){
+  const nm=String(MH.name||'').trim(), em=String(MH.email||'').trim();
+  if(!nm){ MH.msg='Your first name, so Elliott knows who it is.'; return false; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ MH.msg='An email address Elliott can reply to.'; return false; }
+  return true;
+}
+function mhSend(){
+  if(MH.busy) return;
+  if(!mhOk()){ drawOv(); return; }
+  MH.busy=true; MH.msg=''; drawOv();
+  const lvl=(st.intake && st.intake.level!=null) ? String((STAGES[st.intake.level]||{}).n||st.intake.level) : '';
+  fetch('/api/app/application',{method:'POST',headers:authed(),body:JSON.stringify({name:MH.name.trim(), email:MH.email.trim(),
+      answers:{notes:String(MH.note||'').trim(), level:lvl, source:'iPhone app', plan:'More help (iPhone app)'}})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+    .then(()=>{ MH.busy=false; MH.done=true; st.helpAsked=Date.now(); save(); try{ track('helpask'); }catch(e){} drawOv(); render(); })
+    .catch(e=>{ MH.busy=false; MH.msg=String((e&&e.error)||'That did not go through. Try again.'); drawOv(); });
+}
+function mhBook(){
+  if(MH.busy || !MH.sel) return;
+  if(!mhOk()){ drawOv(); return; }
+  MH.busy=true; MH.msg=''; drawOv();
+  fetch('/api/app/call/book',{method:'POST',headers:authed(),body:JSON.stringify({kind:'intro', slot:MH.sel, name:MH.name.trim(), email:MH.email.trim(),
+      note:String(MH.note||'').trim(), tz:wcTZ, src:'iphone', about:'More help, in the iPhone app'})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d)))
+    .then(d=>{ MH.busy=false; MH.booked=(d.call&&d.call.when)||MH.sel; try{ track('helpcall'); }catch(e){} drawOv(); toast('Booked: '+wcWhen(MH.booked)); })
+    .catch(e=>{ MH.busy=false;
+      if(e&&e.gone){ MH.sel=''; MH.msg=String(e.error||'That time has just gone.'); mhLoad(); return; }
+      MH.msg=String((e&&e.error)||'That did not go through. Try again.'); drawOv(); });
+}
+function mhHTML(){
+  const head=(k,h,sub)=>`<div class="kick2">${k}</div><div style="font:400 28px/1.05 var(--serif);margin-top:9px">${h}</div>${sub?`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${sub}</div>`:''}`;
+  const inp='display:block;width:100%;min-height:46px;padding:11px 13px;border:1px solid rgba(29,85,102,.16);border-radius:14px;font:400 15px/1.3 var(--sans);background:#fff;margin-top:8px;box-sizing:border-box';
+  const fields=`<input id="mhName" value="${esc(MH.name)}" oninput="MH.name=this.value" placeholder="First name" autocomplete="given-name" style="${inp};margin-top:16px">
+    <input id="mhEmail" type="email" value="${esc(MH.email)}" oninput="MH.email=this.value" placeholder="Email" autocomplete="email" inputmode="email" style="${inp}">`;
+  const note=ph=>`<textarea id="mhNote" oninput="MH.note=this.value" placeholder="${ph}" style="${inp};min-height:${MH.mode==='call'?70:110}px;resize:vertical">${esc(MH.note)}</textarea>`;
+  const err=MH.msg?`<div style="font:500 13.5px/1.5 var(--sans);color:var(--terra);margin-top:10px">${esc(MH.msg)}</div>`:'';
+  if(MH.mode==='interest'){
+    if(MH.done) return head('MORE HELP','Thank <em style="color:var(--forest);font-style:normal">you.</em>','Elliott will reply by email within 48 hours.')
+      +`<button class="btn" style="width:100%;margin-top:16px" onclick="mhOpen('call')">Book a free call</button>
+        <button class="btn2" style="width:100%;margin-top:8px" onclick="closeOv()">Done</button>`;
+    return head('MORE HELP','Register your <em style="color:var(--forest);font-style:normal">interest.</em>','Tell Elliott what you are working on and he will come back to you.')
+      +fields+note('What would you like help with?')
+      +`<button class="btn" style="width:100%;margin-top:12px" ${MH.busy?'disabled':''} onclick="mhSend()">${MH.busy?'Sending…':'Send'}</button>`+err;
+  }
+  if(MH.booked) return head('FREE CALL','You are <em style="color:var(--forest);font-style:normal">booked.</em>',esc(wcWhen(MH.booked))+'. The link to join comes by email.')
+    +`<button class="btn2" style="width:100%;margin-top:16px" onclick="closeOv()">Done</button>`;
+  const h=head('FREE CALL','Book a free <em style="color:var(--forest);font-style:normal">call.</em>','Fifteen minutes on video with Elliott, to talk through what would help.');
+  if(MH.slots===null) return h+`<div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:16px">Finding the free times…</div>`;
+  if(!MH.slots.length) return h+`<div style="font:400 14px/1.5 var(--sans);color:var(--ink);margin-top:16px">${esc(MH.msg||'No free times in the next few weeks.')}</div>
+    <button class="btn2" style="width:100%;margin-top:14px" onclick="mhOpen('interest')">Register your interest</button>`;
+  const b='border:1.5px solid rgba(29,85,102,.16);background:#fff;cursor:pointer;font:inherit;color:var(--ink)';
+  const days=[...new Set(MH.slots.map(wcDay))], times=MH.slots.filter(t=>wcDay(t)===MH.day);
+  return h+`<div style="display:flex;gap:8px;overflow-x:auto;margin-top:16px;padding-bottom:6px">${days.map(k=>{ const t=MH.slots.find(x=>wcDay(x)===k), on=k===MH.day;
+      return `<button onclick="MH.day=${jsq(k)};MH.sel='';drawOv()" style="${b};flex:none;min-width:62px;padding:9px 8px;border-radius:14px;text-align:center;${on?'border-color:var(--forest);background:rgba(35,127,149,.07)':''}">
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:${on?'var(--forest)':'var(--grey2)'}">${esc(new Date(t).toLocaleDateString('en-GB',{weekday:'short',timeZone:wcTZ}).toUpperCase())}</div>
+        <div style="font:400 21px/1.1 var(--serif);margin-top:4px">${esc(new Date(t).toLocaleDateString('en-GB',{day:'numeric',timeZone:wcTZ}))}</div>
+        <div style="font:600 10.5px/1 var(--sans);letter-spacing:.1em;color:var(--grey2);margin-top:4px">${esc(new Date(t).toLocaleDateString('en-GB',{month:'short',timeZone:wcTZ}).toUpperCase())}</div></button>`; }).join('')}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;margin-top:8px">${times.map(t=>{ const on=t===MH.sel;
+      return `<button onclick="MH.sel=${jsq(t)};drawOv()" style="${b};min-height:44px;border-radius:12px;font:600 15px/1 var(--sans);${on?'background:var(--forest);border-color:var(--forest);color:#fff':''}">${esc(wcClock(t))}</button>`; }).join('')}</div>
+    <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">Times in your time zone${wcTZ==='Europe/London'?' (London)':', '+esc(wcTZ.replace(/_/g,' ').split('/').pop())+'. Elliott is in London'}.</div>
+    ${fields}${note('Anything you want to cover, if you like')}
+    <button class="btn" style="width:100%;margin-top:12px" ${MH.sel&&!MH.busy?'':'disabled'} onclick="mhBook()">${MH.busy?'Booking…':MH.sel?'Book '+esc(new Date(MH.sel).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:wcTZ}))+', '+esc(wcClock(MH.sel)):'Pick a time'}</button>${err}`;
 }
 /* by: 'calendly' when its own booked message said so, else they did. The
    dashboard shows which, so a booking taken on their word gets checked in
@@ -23647,6 +23741,7 @@ function screenHome(){
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
     ${/* first visit too: a class is a way in, not a distraction (28 Oct 2026) */''}
+    ${(IOS_APP && !W && !st.in) ? `<div class="rise rise-4" style="padding:18px 20px 0">${moreHelpCardHTML()}</div>` : ''}
     ${W ? '' : (()=>{ const c=classesCardHTML(3); return c?`<div class="rise rise-4" style="padding:18px 20px 0">${c}</div>`:''; })()}
 
 
@@ -28062,6 +28157,7 @@ function screenCoaching(){
         <div style="padding:20px 16px 0;display:flex;flex-direction:column;gap:11px">
           <div data-tour="formcheck">${checkCard}</div>
           ${steps3}
+          ${(IOS_APP && !st.in) ? moreHelpCardHTML() : ''}
         </div>
         <div class="kick2" style="padding:26px 20px 0;color:var(--forest)">OR ASK ME ANYTHING</div>
       </div>${thread}</div>${box}`;
@@ -28183,6 +28279,7 @@ function screenCoaching(){
       ${clips}
       ${applied}
       ${(sells() && !st.in && !st.applied) ? threeWaysHTML() : ''}
+      ${(IOS_APP && !st.in) ? moreHelpCardHTML() : ''}
       ${st.token?'':`<button class="btn2" style="width:100%"
         onclick="st.tab='signin';save();render()">Already have an account? Sign in</button>`}
     </div></div>`;
