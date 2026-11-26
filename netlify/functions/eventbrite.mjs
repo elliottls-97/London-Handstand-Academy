@@ -123,7 +123,9 @@ export function ebDescHTML(w, parts) {
   const para = t => t ? `<p>${t}</p>` : '';
   const og = !w.place || /overgravity/i.test(w.place);
   return [
-    pg ? para(escH(pg.intro)) : '',
+    /* Eventbrite prints the summary above the words, so the page's opening
+       line is only repeated here when the summary is a different line */
+    pg && ebSummary(w) !== pg.summary ? para(escH(pg.intro)) : '',
     para(escH(String(w.desc || '').trim())),
     w.topic ? para(`<strong>This week:</strong> ${escH(w.topic)}.`) : '',
     w.who ? para(`<strong>Who it is for:</strong> ${escH(w.who)}`) : '',
