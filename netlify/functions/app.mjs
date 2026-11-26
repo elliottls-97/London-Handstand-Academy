@@ -789,9 +789,14 @@ async function ebMedia(file, type) {
   const up = await fetch(String(ins.upload_url || ''), { method: ins.upload_method || 'POST', body: fd });
   if (!up.ok) throw new Error(`sending the photo: the upload said ${up.status}`);
   const crop = type === 'image-event-logo' ? ebCrop(file) : null;
-  /* Eventbrite's guide sends the type only when asking; the live API wants
-     it again here (25 Nov 2026: "type - This field is required") */
-  const done = await step('finishing the upload', () => ebApi('/media/upload/', { upload_token: ins.upload_token, type, ...(crop ? { crop_mask: crop } : {}) }));
+  /* As Eventbrite's guide has it: the token and the crop, no type. The
+     "type is required" of 25 Nov came from the first step (see ebApi), and
+     sending the type here was then refused as unknown. Should Eventbrite
+     ever ask for it here after all, it is sent on a second try. */
+  const finish = withType => ebApi('/media/upload/', { upload_token: ins.upload_token, ...(withType ? { type } : {}), ...(crop ? { crop_mask: crop } : {}) });
+  const done = await step('finishing the upload', () => finish(false).catch(err => {
+    if (/\btype\b.*required/i.test(String(err && err.message))) return finish(true);
+    throw err; }));
   const id = String((done && done.id) || '');
   if (!id) throw new Error('Eventbrite gave no id for the photo');
   await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.media = Object.assign({}, c.media, { [key]: id }); return c; });
