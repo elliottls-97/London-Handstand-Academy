@@ -448,6 +448,45 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
 .hcps-p{position:relative;background:#fff;border:1px solid rgba(29,85,102,.10);border-radius:24px;padding:18px 8px 6px;
  box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
 .hcps.unfold{animation:hcpsIn .28s cubic-bezier(.2,.8,.2,1) both;transform-origin:50% 0}
+/* the pill and its check points as one card, opening down out of the pill */
+/* the rest chip between drills: tap and the pill travels the line */
+.rchip{display:flex;align-items:center;gap:10px;width:100%;padding:2px 4px;border:0;background:none;cursor:pointer;text-align:left;--p:0}
+.rtrack{position:relative;flex:1;height:34px;min-width:0}
+.rtrack::before{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(17,17,17,.08)}
+.rfill{position:absolute;left:0;top:calc(50% - 1.5px);height:3px;border-radius:3px;background:var(--forest);width:calc(var(--p) * (100% - 58px) + 29px);opacity:0;transition:width 0s linear}
+.rpill{position:absolute;top:0;left:calc(var(--p) * (100% - 58px));width:58px;height:34px;border-radius:12px;background:rgba(29,85,102,.07);color:var(--deep);
+  display:flex;align-items:center;justify-content:center;font:700 13px/1 var(--sans);font-variant-numeric:tabular-nums;transition:left 0s linear}
+.rlab{flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;color:var(--grey2)}
+.rchip.on .rfill{opacity:1}
+.rchip.on .rpill{background:var(--forest);color:var(--on-primary);box-shadow:0 4px 12px rgba(35,127,149,.28)}
+.rchip.on .rlab{color:var(--forest)}
+.rchip.done .rfill{opacity:1}
+.rchip.done .rpill{background:var(--amber);color:var(--ink)}
+.rchip.done .rlab{color:var(--forest)}
+@media (prefers-reduced-motion:reduce){ .rpill,.rfill{transition:none!important} }
+/* three cues on each drill row; gone while the row is open, where all of them are */
+.cuepv{margin:9px 2px 0;padding-left:17px;display:flex;flex-direction:column;gap:3px;font:400 13px/1.45 var(--sans);color:var(--grey)}
+.cuepv li::marker{color:var(--forest)}
+.lrow:has(> [id^="more-"]:not([hidden])) > .cuepv{display:none}
+/* the still is landscape, as most films are, wider at the same height so
+   the card does not grow (Elliott, 26 Nov 2026: "bigger without making the
+   box taller", "not all vertical"); a portrait film shows whole inside it */
+.lrow:has(> .lthumb){display:grid;grid-template-columns:108px minmax(0,1fr);column-gap:10px;align-items:center}
+.lrow:has(> .lthumb) > *{grid-column:1 / -1}
+.lrow > .lthumb{grid-column:1;grid-row:1;width:auto;height:76px}
+.lrow:has(> .lthumb) > .lrow-top{grid-column:2;grid-row:1;gap:10px!important}
+.hexp{margin-top:22px;background:#fff;border:1px solid rgba(29,85,102,.10);border-radius:32px;
+ box-shadow:0 1px 2px rgba(29,85,102,.05),0 10px 26px rgba(29,85,102,.09)}
+.hexp>.hcap{margin-top:0;border-color:transparent;box-shadow:none}
+.hexp>.hcap.hcap-stick{box-shadow:0 6px 16px rgba(29,85,102,.10)}
+.hexp .hcps{margin-top:0}
+.hexp .hcps::before{display:none}
+.hexp .hcps-p{background:none;border:0;box-shadow:none;border-radius:0;padding:12px 8px 6px}
+.hexp.unfold{animation:hexpIn .34s cubic-bezier(.2,.8,.2,1)}
+.hexp.unfold .hcps.unfold{animation:hcpsFade .3s ease-out both}
+@keyframes hexpIn{from{clip-path:inset(0 0 calc(100% - 70px) 0 round 32px)}to{clip-path:inset(0 0 0 0 round 32px)}}
+@keyframes hcpsFade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){ .hexp.unfold,.hexp.unfold .hcps.unfold{animation:none} }
 @keyframes hcpsIn{from{opacity:0;transform:translateY(-10px) scaleY(.94)}to{opacity:1;transform:none}}
 .hcps .lc.cl .lc-body{gap:0}
 .hcps .lc.cl .lc-p{border:0;border-top:1px solid rgba(29,85,102,.08);border-radius:0;box-shadow:none;background:transparent}
@@ -1148,7 +1187,8 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 /* drill by drill on the smallest phones: a smaller still and buttons, so the
    amount between them still reads on one line */
 @media (max-width:359px){
-  .lrow .lthumb{width:58px!important;height:58px!important}
+  .lrow:has(> .lthumb){grid-template-columns:84px minmax(0,1fr)!important;column-gap:8px!important}
+  .lrow > .lthumb{height:58px!important}
   .lrow .lrow-top{gap:8px!important}
   .lrow .stp{width:32px!important;height:32px!important;font-size:18px!important}
   .lrow .stp-hold{width:32px!important}
@@ -15185,6 +15225,54 @@ function rowClock(k){
   paint();
   rowT.raf=setInterval(paint,200);
 }
+/* ── the rest between drills, on the list (26 Nov 2026) ─────────────
+   One at a time, as the row clock is. The pill's travel is a CSS transition
+   over the seconds left, so it is smooth; the number is read off the wall
+   clock. The list is redrawn often, so each tick finds the chip again by id
+   and puts it back where it should be if it was replaced. Tap again to stop. */
+let restT=null;   /* {id, secs, ends, iv} */
+function restPlace(el){
+  if(!restT) return;
+  const pill=el.querySelector('.rpill'), fill=el.querySelector('.rfill'), lab=el.querySelector('.rlab');
+  const left=Math.max(0,(restT.ends-Date.now())/1000), p=1-left/restT.secs;
+  if(el.dataset.run!==String(restT.ends)){
+    el.dataset.run=String(restT.ends); el.classList.add('on'); el.classList.remove('done');
+    [pill,fill].forEach(x=>{ x.style.transition='none'; });
+    el.style.setProperty('--p', p.toFixed(4)); void el.offsetWidth;
+    [pill,fill].forEach(x=>{ x.style.transition=''; x.style.transitionDuration=left.toFixed(2)+'s'; });
+    el.style.setProperty('--p','1');
+    if(lab) lab.textContent='TAP TO STOP';
+    el.setAttribute('aria-label','Resting. Press to stop');
+  }
+  pill.textContent=Math.ceil(left)+'s';
+}
+function restEnd(done){
+  if(!restT) return;
+  clearInterval(restT.iv);
+  const el=document.getElementById('rst-'+restT.id), secs=restT.secs; restT=null;
+  if(!el) return;
+  const pill=el.querySelector('.rpill'), fill=el.querySelector('.rfill'), lab=el.querySelector('.rlab');
+  delete el.dataset.run; el.classList.remove('on');
+  [pill,fill].forEach(x=>{ x.style.transition='none'; x.style.transitionDuration=''; });
+  if(done){ el.classList.add('done'); el.style.setProperty('--p','1'); pill.textContent='Go'; if(lab) lab.textContent='REST DONE'; cue(); }
+  else { el.style.setProperty('--p','0'); pill.textContent=secs+'s'; if(lab) lab.textContent='REST'; }
+  el.setAttribute('aria-label','Rest '+secs+' seconds. Press to start the timer');
+}
+function restRun(id){
+  try{ beepWake(); }catch(e){}
+  if(restT && restT.id===String(id)) return restEnd(false);
+  if(restT) restEnd(false);
+  const el=document.getElementById('rst-'+id); if(!el) return;
+  const secs=Number(el.dataset.secs)||0; if(secs<=0) return;
+  el.classList.remove('done');
+  restT={id:String(id), secs, ends:Date.now()+secs*1000, iv:0};
+  const tick=()=>{ if(!restT) return;
+    const e=document.getElementById('rst-'+restT.id);
+    if(!e){ clearInterval(restT.iv); restT=null; return; }
+    if(Date.now()>=restT.ends) return restEnd(true);
+    restPlace(e); };
+  tick(); restT.iv=setInterval(tick,200);
+}
 /* ── the cue at the end of a set ───────────────────────────────────
    One switch used to mute the films and silence the timer together, so
    the combination everybody actually wants, a silent demo and a loud
@@ -16059,16 +16147,14 @@ function drawOv(){
        drills of thirty seconds is not twenty nine minutes, and the missing
        eleven were the part you spend standing still. Rest is a step now,
        drawn between the rows as the thing it is. */
-    const restChip=(secs,label)=>!secs?'':`<div style="display:flex;align-items:center;gap:10px;
-        padding:2px 4px" aria-label="${esc(label||('Rest '+secs+' seconds'))}">
-        <span style="flex:none;min-width:46px;height:34px;border-radius:12px;
-          background:rgba(29,85,102,.07);color:var(--deep);display:flex;align-items:center;
-          justify-content:center;font:700 13px/1 var(--sans);
-          font-variant-numeric:tabular-nums;padding:0 10px">${secs}s</span>
-        <span style="flex:1;height:1px;background:rgba(17,17,17,.08)"></span>
-        <span style="flex:none;font:600 10px/1 var(--sans);letter-spacing:.14em;
-          color:var(--grey2)">${esc(label||'REST')}</span>
-      </div>`;
+    /* a tap runs the rest: the pill travels the line as it counts down and
+       says Go at the end (Elliott, 26 Nov 2026: "if i click on the rest time
+       then i want it to move across and complete a timer for the rest") */
+    const restChip=(secs,label,id)=>!secs?'':`<button class="rchip" id="rst-${id}" data-secs="${secs}" onclick="restRun('${id}')"
+        aria-label="${esc((label?label+', ':'')+'rest '+secs+' seconds. Press to start the timer')}">
+        <span class="rtrack"><i class="rfill"></i><b class="rpill">${secs}s</b></span>
+        <span class="rlab">${esc(label||'REST')}</span>
+      </button>`;
     const rowsArr=groups.map((grp,gi)=>{
       const q=grp.q, it=q.it, k=grp.keys[0];
       const nSets=grp.keys.length;
@@ -16099,20 +16185,22 @@ function drawOv(){
         <!-- the tick on the right, as on the check points, and the still
              takes the room it left (Elliott, 15 Nov 2026); the arrow went,
              the still and the name open the row as they did -->
-        <div class="lrow-top" style="display:flex;gap:12px;align-items:center">
-          ${it.url?`<button class="lthumb" style="flex:none;padding:0;width:76px;height:76px;
+        ${/* the still runs down the card beside the name, the amount and the cues,
+             bigger without the card getting taller (Elliott, 26 Nov 2026) */''}
+        ${it.url?`<button class="lthumb" style="flex:none;padding:0;
             border-radius:13px;overflow:hidden;position:relative;background:#000;border:0;cursor:pointer"
             aria-label="${openD?'Hide the demo':'Watch the demo'}"
             onclick="toggleRowMore('${k}')" data-url="${esc(it.url)}"
             data-v="${esc(it.v||'')}">
-            <img src="${esc(streamThumb(uidOfUrl(it.url)))}" alt="" loading="lazy"
+            <img src="${esc(streamThumb(uidOfUrl(it.url)))}" alt="" loading="lazy" onload="if(this.naturalHeight>this.naturalWidth)this.style.objectFit='contain'"
               style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none">
             <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;
               border-radius:50%;display:grid;place-items:center;color:#fff;
               background:rgba(0,0,0,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
               font:600 ${openD?'11':'10'}px/1 var(--sans);padding-left:${openD?'0':'2'}px">${
               openD?'✕':'▶'}</span></button>`:''}
-          <div role="button" tabindex="0" onclick="toggleRowMore('${k}')" style="flex:1;min-width:0;cursor:pointer">
+        <div class="lrow-top" style="display:flex;gap:12px;align-items:center">
+                    <div role="button" tabindex="0" onclick="toggleRowMore('${k}')" style="flex:1;min-width:0;cursor:pointer">
             <div id="name-${k}" style="font:600 15px/1.25 var(--sans);${
               on?'color:var(--grey2);text-decoration:line-through':''}">${esc(it.n)}</div>
             ${cpRow(it)}
@@ -16121,6 +16209,9 @@ function drawOv(){
           <button class="box-hit" aria-label="${on?'Done: '+esc(it.n)+'. Press to untick':'Tick '+esc(it.n)+' as done'}"
             onclick="qTickAll('${keysJson}',this.firstElementChild)"><span class="box ${on?'on':''}${(gi===0 && !(Q||[]).some((_,i)=>(st.qTick||{})['q'+i]))?' nudge':''}" id="box-${k}">✓</span></button>
         </div>
+        ${/* the first three cues on the row itself, the rest when it opens (Elliott,
+             26 Nov 2026: "on the drill by drill maybe we should show some of the
+             cues by default", then a third: "another line of cues to make it make sense") */(it.cues&&it.cues.length)?`<ul class="cuepv">${it.cues.slice(0,3).map(c=>`<li>${esc(c)}</li>`).join('')}</ul>`:''}
         <div id="more-${k}" ${moreOpen?'':'hidden'} style="padding:2px 2px 4px">
             ${between?`<div style="margin-top:8px;font:500 12.5px/1.4 var(--sans);color:var(--grey)">${between}s rest between sets</div>`:''}
             <div id="step-${k}" ${editing?'':'hidden'}
@@ -16198,7 +16289,7 @@ function drawOv(){
             ${(st.in&&levelLine(it.v))?`<div id="lvl-${k}" style="margin-top:8px;
               font:600 12px/1.4 var(--sans);color:var(--forest)">${esc(levelLine(it.v))}</div>`:''}
         </div>
-      </div>${restChip(after)}`;});
+      </div>${restChip(after,'',gi)}`;});
     /* ── the warm-up as one line (23 Nov 2026) ──────────────────────
        The list opened on six warm-up rows, about five minutes, before
        anything that looked like a handstand, and most people left from
@@ -16250,8 +16341,11 @@ function drawOv(){
            rather than an alternative to it. -->
       ${dkOn() ? '' : `<button class="btn" style="width:100%;margin-bottom:14px;min-height:60px;font-size:18px"
         onclick="closeOv();startQueue(0)">Start, ${mins} min</button>
-        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center;margin:-8px 0 14px">I talk you through every drill and rest. Or scroll down and tick them off as you go.${
-          (rerollOk() && !ticked) ? ` <button onclick="rerollSession()" style="background:none;border:0;padding:0;cursor:pointer;color:var(--forest);font:600 12.5px/1.4 var(--sans);text-decoration:underline">I want a different workout</button>` : ''}</div>`}
+        <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);text-align:center;margin:-8px 0 ${(rerollOk() && !ticked)?4:14}px">I talk you through every drill and rest. Or scroll down and tick them off as you go.</div>
+        ${(rerollOk() && !ticked) ? `<button class="rrl" style="margin:0 0 12px" onclick="rerollSession()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>I want a different workout</button>` : ''}`}
+      ${(dkOn() && rerollOk() && !ticked) ? `<button class="rrl" style="justify-content:flex-start;width:auto;margin:-8px 0 10px" onclick="rerollSession()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>I want a different workout</button>` : ''}
       <!-- Keep it for another day, or keep it for no signal as well. The
            free session at a paid stage had neither: the row was hidden, so
            the one workout somebody was given at their stage could not be
@@ -21695,7 +21789,12 @@ function capsuleHTML(go, label, pillOnly){
   const fbN=coachedView() ? cpFbNew().length : 0;
   /* held under the top bar while the check points are open below it, so
      the count stays in sight as you scroll the list (Elliott, 19 Oct 2026) */
-  return `<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
+  /* open, the pill grows into one card with the check points inside it,
+     rather than a bubble pointing up at it (Elliott, 26 Nov 2026: "maybe
+     checkpoints expands the checkpoints and start session pill instead of
+     being a speech bubble") */
+  const exp=on && !pillOnly, grow=exp && Date.now()-(window._hcpsAt||0)<600;
+  return `${exp?`<div class="hexp${grow?' unfold':''}">`:''}<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
         style="background:${(P.of&&P.met>=P.of)?'#fef3d4':'#fdf8f0'}">
@@ -21704,7 +21803,7 @@ function capsuleHTML(go, label, pillOnly){
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${(on && !pillOnly)?homeCpsHTML():''}`;
+    </div>${exp?homeCpsHTML()+'</div>':''}`;
 }
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
@@ -23372,17 +23471,16 @@ function screenHome(){
     : (cpFor(curStage())||[]).length ? 'Start session<small class="hcap-gsub">Trains you for them</small>' : 'Start session';
   /* on a laptop the check points pill goes: the list itself is on the page,
      so it moves up under the ladder and Start sits over Learn (Elliott, 13 Nov 2026) */
-  /* a different workout, from Train itself (Elliott, 23 Nov 2026) */
-  const reroll = (!coachedView() && !isMU() && !(typeof tasting==='function' && tasting()))
-    ? `<button class="rrl" onclick="rerollHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>I want a different workout</button>` : '';
+  /* "I want a different workout" lives on the workout itself now, not on
+     Train (Elliott, 26 Nov 2026: "should be on the workout page not on the
+     main page") */
   const homeRow = trialPending() ? '' : W ? (cpDayCardHTML(true) || '<span hidden></span>')
     : (()=>{ const cap=capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W), k=cap.indexOf('<div class="hcps');
         /* straight under Start session, above the check points when they are open */
-        return (k>-1 ? cap.slice(0,k)+reroll+cap.slice(k) : cap+reroll)+cpDayCardHTML(true); })();
+        return cap+cpDayCardHTML(true); })();
   const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
       <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
-      <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>${reroll}` : '';
+      <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>` : '';
   const sessIds = _rest ? ((typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills) || []) : (((_day && dayDrills(_day, curStage())) || S.drillIds || []));
   const deskPick = (W && !_rest) ? deskPickHTML() : '';
 
@@ -26256,7 +26354,6 @@ function rerollBump(){
 }
 /* from the start sheet: Go builds the new one */
 function rerollPick(){ rerollBump(); try{ repaintMode(); }catch(e){} toast('A different workout is ready. Press Go.'); }
-function rerollHome(){ rerollBump(); toast('A different workout is ready. Press Start session.'); }
 function rerollSession(){
   rerollBump();
   closeOv(); buildFreeSession(false, true, lastBuildDay);
