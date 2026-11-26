@@ -1737,6 +1737,17 @@ button{color:var(--ink)}
   -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);box-shadow:0 2px 8px rgba(0,0,0,.18)}
 /* a solid round button: a thin cross at 70% read as one more snowflake (Elliott, 26 Nov: "still no way to dismiss the advent ad") */
 .chban-x:hover{background:rgba(255,255,255,.3)}
+/* once they are in (Elliott, 26 Nov: "the ad for advent challenge on the train page no
+   longer looks xmasy"): the cards on Train keep the night, the lights, the snow and the
+   drift, a little smaller, with gold where the app would use teal */
+.chban.chban-s{padding:48px 18px 76px}
+.chban-s .chban-x{top:44px;right:10px;width:34px;height:34px;font-size:19px}
+.chban-s em{color:#f3c77a!important}
+.chban-s .chsub{font:400 13.5px/1.45 var(--sans);color:rgba(255,255,255,.82);margin-top:5px}
+.chban-s .chrow{display:flex;gap:8px;margin-top:14px}
+.chban-b1,.chban-b2{flex:1;min-height:50px;border-radius:14px;cursor:pointer;font:700 15px/1.2 var(--sans);padding:0 12px}
+.chban-b1{border:0;background:#fff;color:#123c48;box-shadow:0 10px 24px -10px rgba(0,0,0,.45)}
+.chban-b2{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.4);color:#fff;font-weight:600}
 .chcap{position:absolute;left:-4px;top:-3px;z-index:2;filter:drop-shadow(0 1px 1px rgba(11,33,41,.25));pointer-events:none;display:block;width:calc(100% + 8px);height:auto}
 .chground{position:absolute;left:-14px;bottom:-60px;z-index:2;pointer-events:none;display:block;width:calc(100% + 28px);height:auto;overflow:visible}
 .chlights .bb{animation:chSwing 3.2s ease-in-out infinite;animation-delay:var(--now,0s)}.chlights .bb:nth-of-type(2n){animation-delay:calc(var(--now,0s) - 1.6s);animation-duration:3.8s}
@@ -31562,9 +31573,11 @@ function chalCardHTML(){
   /* in it: the cross hides the card for the day, or until door 1 opens (Elliott,
      25 Nov: "the ad is not dismissable at the top") */
   if(me && st.chCardHide!=null && (st.chCardHide===n || (n<1 && st.chCardHide<1))) return '';
-  const shut=`<button aria-label="Hide for ${n<1?'now':'today'}" onclick="st.chCardHide=CH_D.day;save();render()" style="position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;background:none;cursor:pointer;color:var(--grey2);font:400 20px/1 var(--sans)">&times;</button>`;
-  const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="card chcard" style="position:relative;padding:16px 18px">${x||shut}${inner}</div></div>`;
-  const kick=t=>`<div class="kick2" style="color:var(--forest)">${esc(t)}</div>`;
+  const shut=`<button aria-label="Hide for ${n<1?'now':'today'}" title="Hide for ${n<1?'now':'today'}" onclick="st.chCardHide=CH_D.day;save();render()" class="chban-x">&times;</button>`;
+  const wrap=(inner, x)=>`<div class="rise rise-1" style="padding:12px 20px 0"><div class="chban chban-s" style="--now:${-(performance.now()/1000).toFixed(2)}s">
+      ${CH_LIGHTS}${CH_SNOW}${CH_GROUND}${x||shut}<div class="chban-in">${inner}</div></div></div>`;
+  const kick=t=>`<div class="kick2" style="color:#f3c77a">${esc(t)}</div>`;
+  const sub=t=>`<div class="chsub">${t}</div>`;
   const head=h=>`<div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${h}</div>`;
   /* not in yet: a Christmas banner to sign up (Elliott, 25 Nov: "a sign up for the
      advent challenge button so people know about it on the app (banner is xmasy)") */
@@ -31579,27 +31592,29 @@ function chalCardHTML(){
         <button class="chban-go" onclick="track('chalbanner',chLevel());chOpen()">Sign up for the advent challenge</button>
       </div></div></div>`;
   if(n<1) return wrap(kick('YOU ARE IN · ADVENT CHALLENGE') + head('Starts '+chEm(esc(chDayName(1))+'.'))
-    + `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:5px">${(1-n)===1?'Tomorrow':'In '+(1-n)+' days'}. On day 1 you film your first clip.</div>`
-    + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">The challenge</button>`);
+    + sub(((1-n)===1?'Tomorrow':'In '+(1-n)+' days')+'. '+(me.film1?'Your start film is in.':'Your start film can go in now.'))
+    + `<div class="chrow"><button class="chban-b1" onclick="chOpen()">${me.film1?'The challenge':'Film my start'}</button></div>`);
   if(n>days) return wrap(kick('ADVENT IS DONE') + head(chGot()+' of '+days+' '+chEm('doors open.'))
-    + `<button class="btn2" style="width:100%;margin-top:12px" onclick="chOpen()">See how it went</button>`);
+    + `<div class="chrow"><button class="chban-b1" onclick="chOpen()">See how it went</button></div>`);
   const did=me.d[n], fl=me.fl[n];
   const bd=CH_D.board||[], kt=bd.filter(r=>/[smfco]/.test(r.d[n-1]||'')).length;
-  const who = bd.length>1 ? `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">${kt} of ${bd.length} have opened door ${n} today.</div>` : '';
+  const who = bd.length>1 ? sub(kt+' of '+bd.length+' have opened door '+n+' today.') : '';
   if(did || fl) return wrap(kick('DOOR '+n+' OF '+days) + head(did ? 'Door '+n+' is '+chEm('open.') : 'Today is '+chEm('flagged.'))
-    + who + chDotsHTML(me, 9)
-    + `<div style="display:flex;gap:8px;margin-top:12px">${did?`<button class="btn" style="flex:1;padding:14px" onclick="chShare()">Share my day</button>`:''}
-       <button class="btn2" style="flex:1" onclick="chOpen()">The challenge</button></div>`);
+    + who + chDotsHTML(me, 9, true)
+    + `<div class="chrow">${did?`<button class="chban-b1" onclick="chShare()">Share my day</button>`:''}
+       <button class="${did?'chban-b2':'chban-b1'}" onclick="chOpen()">The challenge</button></div>`);
   return wrap(kick('DOOR '+n+' OF '+days) + head('Did you practise '+chEm('today?'))
-    + `<div style="font:400 13px/1.4 var(--sans);color:var(--grey);margin-top:5px">Any practice counts. Logging it opens door ${n}.${bd.length>1?' '+kt+' of '+bd.length+' have opened theirs today.':''}</div>`
-    + `<div style="display:flex;gap:8px;margin-top:12px"><button class="btn" style="flex:1.3;padding:14px" onclick="st.chAsk=${n};st.chKind='o';save();chOpen()">Yes, open door ${n}</button>
-       <button class="btn2" style="flex:1" onclick="chOpen()">Other options</button></div>`);
+    + sub('Any practice counts. Logging it opens door '+n+'.'+(bd.length>1?' '+kt+' of '+bd.length+' have opened theirs today.':''))
+    + `<div class="chrow"><button class="chban-b1" style="flex:1.3" onclick="st.chAsk=${n};st.chKind='o';save();chOpen()">Yes, open door ${n}</button>
+       <button class="chban-b2" onclick="chOpen()">Other options</button></div>`);
 }
 /* a small dot a day */
-function chDotsHTML(me, sz){
+function chDotsHTML(me, sz, night){
   const days=CH_D.cfg.days, n=CH_D.day; let h='';
+  /* night: on the Christmas card, gold for a day done on the dark ground */
+  const on=night?'#f3c77a':'var(--forest)', off=night?'rgba(255,255,255,.18)':'rgba(29,85,102,.08)', ring=night?'#123c48':'#fff';
   for(let i=1;i<=days;i++){ const x=me.d?me.d[i]:null, f=me.fl?me.fl[i]:null;
-    h+=`<i title="Day ${i}" style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${x?'var(--forest)':'rgba(29,85,102,.08)'};${f?'border:1.5px dashed var(--grey2);background:transparent;':''}${i===n?'box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--amber);':''}"></i>`; }
+    h+=`<i title="Day ${i}" style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${x?on:off};${f?'border:1.5px dashed '+(night?'rgba(255,255,255,.6)':'var(--grey2)')+';background:transparent;':''}${i===n?'box-shadow:0 0 0 2px '+ring+',0 0 0 3.5px var(--amber);':''}"></i>`; }
   return `<div style="display:flex;flex-wrap:wrap;gap:${Math.round(sz/2)}px;margin-top:12px" aria-label="${chGot()} of ${days} days logged">${h}</div>`;
 }
 /* ── the Challenge screen ──────────────────────────────────────────── */
