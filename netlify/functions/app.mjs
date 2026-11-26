@@ -1154,6 +1154,15 @@ async function journeyReport(days, full) {
     step('sitefitsend', 'Sent a coaching application', n(cur, 'sitefitsend'), n(prev, 'sitefitsend')),
     step('sessionbook', 'Started booking a 1-2-1', n(cur, 'sessionbook'), n(prev, 'sessionbook')),
   ];
+  /* the Advent challenge, in the app (26 Nov 2026) */
+  const advent = [
+    step('chaljoin', 'Joined Advent', n(cur, 'chaljoin'), n(prev, 'chaljoin')),
+    step('challog', 'Opened a door', n(cur, 'challog'), n(prev, 'challog')),
+    step('chalfilm', 'Sent a start or end film', n(cur, 'chalfilm'), n(prev, 'chalfilm')),
+    step('chalplan', 'Saw the plan card', n(cur, 'chalplan'), n(prev, 'chalplan')),
+    step('chalplango', 'Tapped the plan card', n(cur, 'chalplango'), n(prev, 'chalplango')),
+    step('chalbuy', 'Started Help from me', n(cur, 'chalbuy'), n(prev, 'chalbuy')),
+  ];
   const top = (m, k) => Object.entries(m || {}).sort((a, b) => b[1] - a[1]).slice(0, k).map(([key, c]) => ({ key, n: c }));
   /* where it was put down, against how often each screen was seen */
   const leaves = top(cur.leaveAt, 15).map(x => ({ ...x, seen: (cur.scrAt && cur.scrAt[x.key]) || 0 }));
@@ -1247,7 +1256,7 @@ async function journeyReport(days, full) {
     open: n(x.r, 'open'), quiz: n(x.r, 'quiz'), start: n(x.r, 'start'), finish: n(x.r, 'finish'),
     signup: n(x.r, 'signup'), paywall: n(x.r, 'paywall'), subscribed: n(x.r, 'subscribed'), leave: n(x.r, 'leave'),
     site: pv(x.r), workshoppaid: n(x.r, 'workshoppaid'), sitefitsend: n(x.r, 'sitefitsend') }));
-  return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit, stories,
+  return { at: new Date(now).toISOString(), days, app, site, advent, leaves, quiz, quit, stories,
     paywall: top(cur.paywallAt, 10), errs, films, stalled, daily, skips,
     sources: { accounts: srcAccounts, events: srcEvents },
     /* the screen, step and drill counts start on the day these went live */
@@ -12651,7 +12660,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* why a session was stopped, by the reason picked */
                   'why',
                   /* a drill skipped in the follow along, by which (30 Oct 2026) */
-                  'skip'];
+                  'skip',
+                  /* the Advent challenge (26 Nov 2026): the app sent these from the
+                     start but they were not on this list, so none was ever counted.
+                     chalplan* is the plan card under the calendar: seen once a
+                     visit, its button, and its cross */
+                  'chaljoin', 'challog', 'chalfilm', 'chalbuy', 'chalshare', 'chalsharecal',
+                  'chalchat', 'chaltab', 'chalbanner', 'chaltrain', 'chalprizes',
+                  'chalplan', 'chalplango', 'chalplanx'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });

@@ -31555,6 +31555,43 @@ function chTryHTML(){
     ${locked && d.url ? `<button class="btn2" style="width:100%;margin-top:10px" onclick="openTrial(${T.L})">Watch it: the app free for 7 days</button>` : ''}
     <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey2);margin-top:10px">One of the check points for ${esc(STAGES[T.L].n)}. ${CH_D && CH_D.day>=1 && CH_D.day<CH_D.cfg.days ? 'A new one behind tomorrow\'s door.' : 'Try it this week.'}</div></div>`;
 }
+/* the plan card under the calendar (Elliott, 26 Nov 2026: "should we have an
+   ad for the full app on the advent calendar page?", then "yes build it").
+   One card, only once today's door is open, because that is when a plan for
+   tomorrow means something, and only for somebody it can help: past
+   Foundations and not paying, the Ladder with its free week; on Foundations,
+   whose sessions are free already, today's session instead, since finishing
+   one opens the door by itself. Never for Ladder, coached or Help people,
+   never before the level is known (the level card asks first), never while
+   the start film is still being asked for, and the cross hides it for a week.
+   In the iPhone app it buys through Apple, like every Ladder button. */
+function chPlanHTML(){
+  const n=CH_D.day, days=CH_D.cfg.days, me=CH_D.me;
+  if(!me || st.preview || n<1 || n>days || !me.d[n]) return '';
+  if(chPaid() || isPlus() || !chPlaced()) return '';
+  if((st.chPlanHide||0) > Date.now()) return '';
+  const L=chLevel(), locked=stageLocked(L);
+  if(locked && !sellsLadder()) return '';
+  trackOnce('chalplan', L);
+  const x=`<button onclick="chPlanX()" aria-label="Hide this for a week" title="Hide for a week" style="position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(0,64,61,.06);color:var(--grey);font:400 18px/1 var(--sans);cursor:pointer">&times;</button>`;
+  if(!locked) return `<div class="card" style="margin-top:12px;position:relative">${x}
+    <div class="kick2" style="color:var(--forest)">TOMORROW</div>
+    <div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:36px">Your sessions are ${chEm('free.')}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">${esc(STAGES[L].n)} is free in the app: a session for each day, every drill filmed. Finish one and it opens the day's door for you.</div>
+    <button class="btn2" style="width:100%;margin-top:14px" onclick="chPlanGo()">See your sessions</button></div>`;
+  const price=PRICE('plus'), trial=trialLine();
+  return `<div class="card" style="margin-top:12px;position:relative">${x}
+    <div class="kick2" style="color:var(--forest)">TOMORROW</div>
+    <div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:36px">Want a plan for each ${chEm('day?')}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:6px">A session for ${esc(STAGES[L].n)} every day, every drill filmed, and the check points to climb to the next stage. ${trial?'First week free, then '+esc(price)+' a month.':esc(price)+' a month.'} Cancel any time.</div>
+    <button class="btn" style="width:100%;margin-top:14px;padding:14px" onclick="chPlanGo()">${trial?'Start your free week':'See the full app'}</button></div>`;
+}
+function chPlanGo(){
+  const L=chLevel(); track('chalplango', L);
+  if(!stageLocked(L)){ chTrain(); return; }
+  if(trialLine()) beginTrial(L); else openPaywall();
+}
+function chPlanX(){ track('chalplanx', chLevel()); st.chPlanHide=Date.now()+7*864e5; save(); render(); toast('Hidden for a week.'); }
 /* ── the card on Train ─────────────────────────────────────────────── */
 /* the banner's cross hides it for a couple of days, and it is always back when
    door 1 opens (Elliott, 25 Nov: "allow people to dismiss the handstand advent
@@ -31657,7 +31694,7 @@ function chPageHTML(){
   /* two tabs (Elliott, 25 Nov: "maybe we should have a tab for leader board"):
      the calendar, which is where it opens, and the leaderboard */
   if(st.chTab==='board') return wide() ? `<div class="chone">${chBoardHTML(false)}</div>` : chBoardHTML(false);
-  const left = n<1 ? chCalHTML()+intro+start : chCalHTML()+(chFinale()?chFinaleHTML():'')+start+film;
+  const left = n<1 ? chCalHTML()+intro+start : chCalHTML()+(chFinale()?chFinaleHTML():'')+start+film+(start?'':chPlanHTML());
   const right = chBoardHTML(true)+chTryHTML()+chMoreHTML();
   /* a laptop: the calendar on the left, everyone and the rest beside it */
   if(wide()) return `<div class="chcols"><div>${left}${chQuizCardHTML()}</div><div>${right}</div></div>`;
