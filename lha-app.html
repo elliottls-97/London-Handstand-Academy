@@ -30569,7 +30569,7 @@ function iapTrialDays(){
    session. It is asked again a few times, and when the app comes back. */
 let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='';
 async function iapInit(){
-  const P=iapPlugin(); if(!P || iapLoading || iapProduct) return; iapLoading=true; iapStarted=true;
+  const P=iapPlugin(); if(!P || iapLoading || (iapProduct && iapChecks)) return; iapLoading=true; iapStarted=true;
   try{ const r=await P.products({ids:[IAP_LADDER, IAP_CHECKS]}), ps=(r&&r.products)||[];
     iapProduct=ps.find(x=>x.id===IAP_LADDER)||null; iapChecks=ps.find(x=>x.id===IAP_CHECKS)||null; }catch(e){ iapProduct=null; }
   if(!iapListening){ iapListening=true;
@@ -30578,10 +30578,12 @@ async function iapInit(){
       if(v.productId===IAP_CHECKS){ loadEntitlement(); toast('Form checks are on. Send your clip when you are ready.'); } else toast('The whole Ladder is open.'); } }); }); }catch(e){} }
   await iapSync();
   iapLoading=false;
-  if(!iapProduct && iapTries<3){ const wait=[5000,20000,60000][iapTries++]; setTimeout(iapInit, wait); }
+  /* form checks too (26 Nov 2026): the Ladder came back on TestFlight and form
+     checks did not, and nothing asked again, so they could not be bought */
+  if((!iapProduct || !iapChecks) && iapTries<3){ const wait=[5000,20000,60000][iapTries++]; setTimeout(iapInit, wait); }
   if(!st.ov) render(); else if(st.ov==='members' && iapProduct){ openOv('iap'); }
 }
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && IOS_APP && !iapProduct) iapInit(); });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && IOS_APP && (!iapProduct || !iapChecks)) iapInit(); });
 async function iapSend(jws){
   const r=await fetch('/api/app/iap/verify',{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
     body:JSON.stringify({jws})}).then(x=>x.json()).catch(()=>null);
