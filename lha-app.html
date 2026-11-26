@@ -2570,6 +2570,22 @@ button.px-step{cursor:pointer}
   #side .vb,#side video{border-radius:16px}
   #side .calcard{max-width:none}
 }
+/* held upright: the check points and the side column's cards side by side
+   on Train, and Learn's films two across */
+@media (min-width:600px) and (max-width:819px) and (min-height:560px){
+  .otduo{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;align-items:start;padding:18px 20px 0}
+  .otduo>*{min-width:0}
+  .otduo .hcps{margin-top:0}
+  .otduo .hcps::before{display:none}
+  .otduo .hcps-fold{display:none}
+  .otside{display:flex;flex-direction:column;gap:14px}
+  .otside .sidecard{border-radius:22px;padding:18px 19px;box-shadow:0 1px 2px rgba(29,85,102,.05)}
+  .otside .calcard{max-width:none;margin:0}
+  .lrn-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px}
+  /* the camera alone in the narrower column, as on the smallest phones, so the names read */
+  .otduo .lc-camb{width:34px;padding:0}
+  .otduo .lc-camb span{display:none}
+}
 /* folded shut before the page has redrawn: the column it no longer has
    room for goes, rather than landing in the middle of the page */
 @media (max-width:819px), (max-width:1079px) and (max-height:559px){
@@ -21785,7 +21801,7 @@ function cpCountWords(met, of){
 function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
   const cs=clearShowing()!=null ? clearShowing() : curStage();
-  const P=coachedView() ? cpProgress() : cpProgress(cs), on=!!st.homeCps;
+  const P=coachedView() ? cpProgress() : cpProgress(cs), on=!!st.homeCps && !(openTall() && !coachedView());
   const fbN=coachedView() ? cpFbNew().length : 0;
   /* held under the top bar while the check points are open below it, so
      the count stays in sight as you scroll the list (Elliott, 19 Oct 2026) */
@@ -21829,6 +21845,8 @@ function showCps(){
   setTimeout(()=>{ const el=document.querySelector('.hcps'); if(el) el.scrollIntoView({behavior:'smooth',block:wide()?'center':'start'}); }, 150);
 }
 function homeCps(){
+  if(openTall() && !coachedView() && st.tab==='home'){ const el=document.querySelector('.otduo'), sc=document.querySelector('#app .scroll');
+    if(el && sc) sc.scrollTo({top:el.getBoundingClientRect().top-sc.getBoundingClientRect().top+sc.scrollTop-96, behavior:'smooth'}); return; }
   if(wide() && !coachedView() && st.tab==='home'){ const el=document.querySelector('.hduo .hcps'); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); return; }
   st.homeCps=!st.homeCps; st.homeCpsShut=!st.homeCps; if(st.homeCps){ window._hcpsAt=Date.now(); if(coachedView()) try{ cpOpenNews(); }catch(e){} } save(); render(); }
 /* the check points out of the capsule: the list, the finished stage's
@@ -23527,6 +23545,7 @@ function screenHome(){
     ${skipCheckHTML()}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
+    ${(!W && openTall() && !trialPending()) ? otHomeHTML() : ''}
     ${(W && !trialPending()) ? `<div class="hduo hduo2 hduo3 rise rise-2${needsLevel()?' lvlwait':''}"><div class="hcol">${deskPick ? `<div class="dsess">${deskPick}${deskStart}</div>` : deskStart}${learnListHTML()}</div>${homeCpsHTML()}</div>` : ''}
 
     <!-- ── build today's session ──────────────────────────────────
@@ -23635,6 +23654,13 @@ function screenHome(){
 }
 /* the session beside the check points on a laptop: the one in progress, or
    today's, with what is in it */
+/* the open Duo's Train: the check points always open beside the side column's
+   cards (the stage note, the month, the free form check), filling a screen a
+   phone's Train leaves half empty (26 Nov 2026) */
+function otHomeHTML(){
+  const side=sideBitsHTML();
+  return `<div class="otduo rise rise-2"><div class="otcps">${homeCpsHTML()}</div>${side?`<div class="otside">${side}</div>`:''}</div>`;
+}
 function hduoSessHTML(title, ids, rest, cellIdx){
   const h=listHeldNow();
   if(h && !heldSaved()){
@@ -29132,10 +29158,18 @@ if(WIDEQ && WIDEQ.addEventListener) WIDEQ.addEventListener('change', ()=>{ try{ 
 const OPENQ = (typeof matchMedia==='function') ? matchMedia('(min-width:820px) and (max-width:1079px) and (min-height:560px)') : null;
 const openSide = () => !!(OPENQ && OPENQ.matches);
 if(OPENQ && OPENQ.addEventListener) OPENQ.addEventListener('change', ()=>{ try{ render(); }catch(e){} });
+/* the iPhone Duo open and held upright, about 626 by 890, which is how a
+   portrait only app always sits on it: too narrow for a column down the
+   side, so the side column's cards sit beside the check points on Train
+   instead, and Learn's films go two across (Elliott, 26 Nov 2026: "do a
+   proper iphone duo layout for app") */
+const OPENTQ = (typeof matchMedia==='function') ? matchMedia('(min-width:600px) and (max-width:1079px) and (min-height:560px)') : null;
+const openTall = () => !!(OPENTQ && OPENTQ.matches) && !openSide();
+if(OPENTQ && OPENTQ.addEventListener) OPENTQ.addEventListener('change', ()=>{ try{ render(); }catch(e){} });
 /* Opening or closing the Duo is a resize. The two queries above redraw
    when they change; this redraws if a web view resizes without telling
    them, and only when the page has crossed from one shape to another. */
-const shapeNow = () => (wide()?'w':'')+(openSide()?'o':'');
+const shapeNow = () => (wide()?'w':'')+(openSide()?'o':'')+(openTall()?'t':'');
 let shapeDrawn=shapeNow();
 if(typeof addEventListener==='function') addEventListener('resize', ()=>{
   const sh=shapeNow(); if(sh===shapeDrawn) return; shapeDrawn=sh; try{ render(); }catch(e){} });
@@ -29588,6 +29622,11 @@ function sideBookingsHTML(){
 }
 function sideHTML(){
   if(!wide() && !openSide()) return '';
+  const h=sideBitsHTML();
+  return h ? `<aside id="side">${h}</aside>` : '';
+}
+/* the column's cards on their own, so the open Duo can put them on the page */
+function sideBitsHTML(){
   const t=st.tab, co=coachedView();
   const bits=[sideVideoCard()];
   if(t==='home'||t==='ladder'||t==='today'||t==='plan'){
@@ -29630,8 +29669,7 @@ function sideHTML(){
   if(t==='classes' && wide() && st.classHello && nextClassBooking()) return '';
   if(t==='classes' && wide()){ bits.length=0; bits.push(sideBookingsHTML()); }
   if(sideChatOn()) return '';
-  const h=bits.filter(Boolean).join('');
-  return h ? `<aside id="side">${h}</aside>` : '';
+  return bits.filter(Boolean).join('');
 }
 
 
