@@ -1693,6 +1693,15 @@ button{color:var(--ink)}
 .chpg.chw,.scroll.s>.chpg.chw{max-width:1140px;padding-left:32px;padding-right:32px;box-sizing:border-box}
 .chcols{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr);gap:28px;align-items:start}
 .chcols .chbox{max-width:520px}
+/* a phone: the calendar is only as big as leaves today's row (Share my day,
+   or Open door) on screen above the bottom bar (Elliott, 26 Nov 2026: "make
+   the calendar very slightly shorter so the share my day fits on the
+   screen"). Everything else on that screen is about 398px plus the phone's
+   own bars, and the doors are 4 by 6, so the box is one and a half times its
+   inner width tall. It shrinks evenly, so the picture is never squashed,
+   never below 250px wide and never above what it was. */
+.chpg:not(.chw) .chbox{margin-top:22px;
+ max-width:clamp(250px, calc((100dvh - 410px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)) / 1.5 + 12px), 420px)}
 .chone{max-width:720px;margin:0 auto}
 /* the rest of the page, lightly (Elliott, 25 Nov: "the light Christmas touches
    on the rest of the advent page. yes"): a frosty ground, slow snow behind
@@ -5321,7 +5330,8 @@ function openPress(view, i){
   const sc=document.querySelector('#app .scroll'); if(sc) sc.scrollTop=0; window.scrollTo(0,0);
 }
 function pressBack(){ openPress('home'); }
-function pxFilm(){ const u=(typeof stageIntroUid==='function') ? stageIntroUid(5) : ''; if(!u) return; st.pFilm=u; save(); openOv('pfilm'); }
+function pxFilm(){ const u=(typeof stageIntroUid==='function') ? stageIntroUid(5) : ''; if(!u) return; st.pFilm=u; st.pFilmT=''; save(); openOv('pfilm'); }
+function stageFilmOpen(i){ const u=lwFilmUid(i); if(!u) return; st.pFilm=u; st.pFilmT=((STAGES[i]||{}).n||'The stage')+', explained'; save(); openOv('pfilm'); }
 function pgDrill(v){ const it=drillById(v); if(!it) return;
   if(typeof drillLocked==='function' && drillLocked(it.v)){ openStage(FREE_STAGES); return; }
   st.ovDrill=it; openOv('drill'); }
@@ -15864,7 +15874,7 @@ function drawOv(){
               it is the session */
            mode:'',list:(st.ovList?'Mobility day':'Your session'),explainer:'',locked:'',intro:'',
            daystart:'', ladderswitch:'', chprize:'', cpday:'', install:'', youin:'',
-           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', morehelp:'', pbendy:'', pressdone:'', pfilm:'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
+           checkin:'Your fortnight', feedback:'', limiter:'', pmuscle:'', pkit:'', goal:'', callbook:'', morehelp:'', pbendy:'', pressdone:'', pfilm:st.pFilmT||'The whole press', paid:'', paywall:'', fcask:'', streak:'', drillhist:'', wsbook:'', wsbooked:''};
   let body='';
   if(st.ov==='chprize'){ body=(typeof CH_D!=='undefined' && CH_D) ? chPrizesHTML(true) : ''; }
   else if(st.ov==='limiter'){ body=limiterBody(); }
@@ -20500,13 +20510,18 @@ const stageExplainers = P => (explainersFor(P)||[]).filter(filmed)
   .map(x=>({x, i:FAQS.findIndex(f=>(x.uid && f.uid===x.uid) || f.id===x.id)}));
 const stageFixes = P => isMU() ? [] : fixList().filter(f=>f && f.live!==false && Number(f.stage)===P);
 const fixSub = f => f.tag || ((f.weeks||4)+' weeks, '+(f.perWeek||3)+' sessions a week');
+/* the stage's own film leads the rail and plays for anybody (Elliott, 26 Nov
+   2026: "the pushing more intro preview is not shown here"): it is the film
+   that says what the stage is, and it already plays free on the ladder's
+   figures. The explainers after it stay with the trial. */
 function trialPreviewHTML(){
   const P=placedStage(), PS=STAGES[P];
-  const ex=stageExplainers(P), fx=stageFixes(P);
-  if(!ex.length && !fx.length) return '';
+  const ex=stageExplainers(P), fx=stageFixes(P), iu=P>0 ? lwFilmUid(P) : '';
+  if(!ex.length && !fx.length && !iu) return '';
   const lock='WITH THE TRIAL';
-  return (ex.length?railHTML('Explainers at '+esc(PS.n), EX_SUB,
-      ex.map(({x})=>railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'', go:'openTrial()', lock})).join('')):'')
+  const intro = iu ? railTile({img:streamThumb(iu), title:PS.n+', explained', sub:'Free to watch', go:`stageFilmOpen(${P})`}) : '';
+  return ((ex.length||intro)?railHTML('Explainers at '+esc(PS.n), EX_SUB,
+      intro+ex.map(({x})=>railTile({img:x.uid?streamThumb(x.uid):'', title:x.q, sub:x.dur||'', go:'openTrial()', lock})).join('')):'')
     + (fx.length?railHTML('Fixes at '+esc(PS.n), FX_SUB,
       fx.map(f=>railTile({img:fixCover(f), title:f.name, sub:fixSub(f), go:'openTrial()', lock})).join('')):'');
 }
