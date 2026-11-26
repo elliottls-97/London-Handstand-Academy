@@ -5331,7 +5331,11 @@ function openPress(view, i){
 }
 function pressBack(){ openPress('home'); }
 function pxFilm(){ const u=(typeof stageIntroUid==='function') ? stageIntroUid(5) : ''; if(!u) return; st.pFilm=u; st.pFilmT=''; save(); openOv('pfilm'); }
-function stageFilmOpen(i){ const u=lwFilmUid(i); if(!u) return; st.pFilm=u; st.pFilmT=((STAGES[i]||{}).n||'The stage')+', explained'; save(); openOv('pfilm'); }
+/* the theatre, as Train's phase film opens, not the sheet that slides up
+   (Elliott, 26 Nov 2026: "proper player not the wipe up!") */
+function stageFilmOpen(i){ const u=lwFilmUid(i); if(!u) return;
+  if(sideFilmOk()) return openSideVid({k:'film', u, t:((STAGES[i]||{}).n||'The stage')+', explained'});
+  openTheatreFilm(u); }
 function pgDrill(v){ const it=drillById(v); if(!it) return;
   if(typeof drillLocked==='function' && drillLocked(it.v)){ openStage(FREE_STAGES); return; }
   st.ovDrill=it; openOv('drill'); }
@@ -31798,6 +31802,9 @@ function chJoinCardHTML(){
   const n=CH_D.day, days=CH_D.cfg.days, inp='background:#fff;border:1px solid rgba(17,17,17,.1);border-radius:14px;padding:16px;font:400 16px/1 var(--sans);color:var(--ink);outline:none;min-height:52px;width:100%;box-sizing:border-box';
   if(n>days) return `<div class="card" style="margin-top:12px"><div style="font:400 22px/1.15 var(--serif)">The challenge has ${chEm('finished.')}</div></div>`;
   const head = n<1 ? 'Join, and door 1 opens '+esc(chDayName(1))+'.' : 'Join, and open door '+n+' today.';
+  /* initials only is there for whoever wants it, not offered to everybody
+     (Elliott, 26 Nov 2026: "make the option to just have initials less clear") */
+  const quiet = (id,label,on) => `<label style="display:flex;align-items:center;gap:8px;min-height:32px;font:400 12px/1.3 var(--sans);color:var(--grey2)"><input id="${id}" type="checkbox"${on?' checked':''} style="width:15px;height:15px;accent-color:var(--grey2);margin:0;flex:none">${label}</label>`;
   const tick = (id,label,on) => `<label style="display:flex;align-items:flex-start;gap:10px;min-height:40px;font:400 13.5px/1.4 var(--sans);color:var(--grey)"><input id="${id}" type="checkbox"${on?' checked':''} style="width:20px;height:20px;accent-color:var(--forest);margin:0;flex:none">${label}</label>`;
   if(!st.token){
     if(joinCodeFor) return `<div class="card" id="chJoinCard" style="margin-top:12px">
@@ -31815,8 +31822,8 @@ function chJoinCardHTML(){
       <form onsubmit="chSignup(event)" style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
         <input id="joinNm" type="text" autocomplete="given-name" autocapitalize="words" maxlength="40" placeholder="First name" aria-label="Your first name" value="${esc(st.firstName||'')}" style="${inp}">
         <input id="joinEm" type="email" inputmode="email" autocomplete="email" required placeholder="you@example.com" aria-label="Your email address" style="${inp}">
-        ${tick('chIni','Show my initials on the leaderboard instead', st.chShowIni)}
         ${tick('joinMk','Send me handstand tips and workshop dates. No more than twice a month.', false)}
+        ${quiet('chIni','Initials only on the leaderboard', st.chShowIni)}
         <div id="joinMsg" role="alert" style="font:500 12.5px/1.5 var(--sans);color:var(--red)">${esc(joinErr)}</div>
         <button class="btn" type="submit">Join the challenge</button>
       </form>
@@ -31830,8 +31837,8 @@ function chJoinCardHTML(){
     <div style="font:400 22px/1.15 var(--serif);margin-top:6px">${head}</div>
     <label for="chName" style="display:block;font:600 12px/1 var(--sans);color:var(--grey);margin-top:16px">Your first name, for the leaderboard</label>
     <input id="chName" value="${esc(first)}" autocomplete="given-name" maxlength="40" style="${inp};margin-top:8px">
-    ${tick('chIni','Show my initials instead', false)}
-    <button class="btn" style="margin-top:10px" ${chBusy?'disabled':''} onclick="chJoin()">Join the challenge</button>
+    <button class="btn" style="margin-top:12px" ${chBusy?'disabled':''} onclick="chJoin()">Join the challenge</button>
+    <div style="margin-top:6px">${quiet('chIni','Initials only on the leaderboard', false)}</div>
   </div>`;
 }
 function chTabGo(k){
