@@ -107,7 +107,7 @@ const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_E
    month free ends on its own without a job to end it. */
 /* the shipped check point names, so an email can say "Crow pose" rather
    than "crow" when the key is the ladder's rather than a client's */
-const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort':'Falling off the wall',
+const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort':'Cartwheels',
   'wall-45':'45-degree wall hold', plank:'Plank pose', crow:'Crow pose', chaturanga:'Chaturanga push-ups',
   'kickup-rate':'Kick up to the wall','ctw-hold':'Chest-to-wall handstand','scap-shrugs':'Wall scapula shrugs',
   'sl-tuck':'Single-leg tuck slides','pike-neg':'Pike push-up negatives','pike-full':'Pike push-ups, full reps',

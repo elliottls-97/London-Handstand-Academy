@@ -10,8 +10,8 @@
 
 const CHECKPOINTS={
   0:[
-    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'chair-assisted-knee-lifts', note:'Stacked? How long did you hold it?', why:'Your first time with your weight on your hands, the chair taking the rest. Stacked here is the shape every stage builds on.'},
-    {k:'fall-comfort',n:'Falling off the wall',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable'], why:'Fear of falling holds more people back than strength. Once bailing feels normal you kick up properly and train freely.'},
+    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'p-l-handstand', note:'Stacked? How long did you hold it?', why:'Your first time with your weight on your hands, the chair taking the rest. Stacked here is the shape every stage builds on.'},
+    {k:'fall-comfort',n:'Cartwheels',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable'], why:'Fear of falling holds more people back than strength. Once bailing feels normal you kick up properly and train freely.'},
     {k:'wall-45',     n:'45-degree wall hold',      kind:'secs',  target:30, demo:'45-degree-wall-hold', note:'Alignment held, not just time on the clock.', why:'The straight line and the push through the shoulders, at a gentler angle, before you go all the way up.'},
     {k:'plank',       n:'Plank pose',               kind:'secs',  target:60, demo:'plank-pose', why:'Straight arm strength and a braced middle. A handstand is a plank turned upside down.'},
     {k:'crow',        n:'Crow pose',                kind:'secs',  target:10, demo:'crow-pose', why:'Your first balance on your hands, using your fingers to save it, close to the floor where a fall is nothing.'},
@@ -97,7 +97,7 @@ const CP_SUPPORT={
   /* Foundations */
   'ch-assist':['chair-assisted-handstand-walks','chair-assisted-step-ups','chair-assisted-knee-lifts','chair-assisted-handstand-shoulder-adjustments'],
   'fall-comfort':['fear-of-falling-cartwheel','proper-cartwheel','basic-bail-outs','chest-to-wall-bailouts'],
-  'wall-45':['chair-assisted-handstand-walks','chair-assisted-handstand-extensions'],
+  'wall-45':['p-l-handstand','chair-assisted-handstand-walks','chair-assisted-handstand-extensions'],   /* L-shaped first: the hardest in Foundations (Elliott, 27 Nov 2026) */
   /* the plank film itself covers the variations (Elliott, 27 Nov 2026); ex: points at a drill's
      explainer in DRILL_EXPLAIN, so a plank explainer shows here the day it is added there */
   'plank':['ex:plank-pose'],
