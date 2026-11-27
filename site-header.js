@@ -52,6 +52,10 @@
   var items = coached
     ? [['co', 'Your programme'], ['hs', 'Training'], ['classes', 'Classes']]
     : [['hs', 'Training'], ['classes', 'Classes'], ['co', 'Coaching']];
+  /* the Advent challenge, while it runs, as in the app's own header (27 Nov 2026,
+     Elliott: "on the website there isn't an advent option on the header"): the
+     page about it when signed out, the calendar in the app when signed in */
+  if (!coached && Date.now() < Date.parse('2026-12-29T00:00:00Z')) items.splice(1, 0, ['adv', 'Advent']);
   var site = [['learn', 'Learn', '/learn/'], ['about', 'About', '/#story']];
 
   var css = ''
@@ -103,7 +107,8 @@
      "classes main landing page has gone when im not signed in") */
   /* and Coaching is the coaching page (25 Nov 2026, launched; it was the free
      form check page from 14 Nov, which the coaching page now links to) */
-  var hrefOf = function (k) { return (!signed && k === 'classes') ? '/handstand-class' : (!signed && k === 'co') ? '/coaching' : APP + k; };
+  var hrefOf = function (k) { return k === 'adv' ? (signed ? '/lha-app.html?chal=join' : '/advent')
+    : (!signed && k === 'classes') ? '/handstand-class' : (!signed && k === 'co') ? '/coaching' : APP + k; };
   var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + hrefOf(x[0]) + '">' + esc(x[1]) + '</a>'; }).join('')
     + '<span class="lsh-sep" aria-hidden="true"></span>'
     + site.map(function (x) { return '<a class="lsh-a s' + (on === x[0] ? ' on' : '') + '" href="' + x[2] + '"' + (on === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</a>'; }).join('');
