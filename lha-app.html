@@ -57,9 +57,16 @@
 @keyframes tPop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion: reduce){.box.tpop{animation:none}}
 .hcap-cp .cpr2{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;transform-origin:50% 50%}
-.cpr-spk{transform-box:fill-box;transform-origin:center;opacity:0;filter:drop-shadow(0 0 4px rgba(245,184,61,.95));animation:cprSpk 3.2s ease-in-out infinite both}
-@keyframes cprSpk{0%,40%,100%{opacity:0;transform:scale(.2) rotate(0deg)}58%{opacity:1;transform:scale(1.1) rotate(25deg)}70%{opacity:1;transform:scale(.9) rotate(40deg)}86%{opacity:0;transform:scale(.3) rotate(70deg)}}
-@media (prefers-reduced-motion: reduce){.cpr-spk{animation:none;opacity:0}}
+.cpr-spkl{filter:drop-shadow(0 0 3px rgba(255,200,80,.95)) drop-shadow(0 0 7px rgba(245,166,35,.6))}
+.cpr-glow{filter:blur(4px);animation:cprGlow 2.4s ease-in-out infinite alternate}
+@keyframes cprGlow{from{opacity:.25}to{opacity:.8}}
+.cpr-shim{opacity:.85;stroke-dashoffset:18px;animation:cprShim 2.6s cubic-bezier(.4,0,.3,1) infinite}
+@keyframes cprShim{0%{stroke-dashoffset:18px;opacity:0}15%{opacity:.9}80%{opacity:.9}100%{stroke-dashoffset:var(--L);opacity:0}}
+.cpr-sk{opacity:0;animation:cprSk .6s linear infinite}
+@keyframes cprSk{0%{opacity:0;transform:translateY(0)}12%{opacity:1}70%{opacity:.9}100%{opacity:0;transform:translateY(var(--d,-12px))}}
+.cpr-core{animation:cprCore .22s ease-in-out infinite alternate}
+@keyframes cprCore{from{opacity:.75;r:2.6px}to{opacity:1;r:3.6px}}
+@media (prefers-reduced-motion: reduce){.cpr-sk,.cpr-core,.cpr-glow,.cpr-shim{animation:none}.cpr-sk,.cpr-shim{opacity:0}.cpr-glow{opacity:.4}}
 .hcap-cp>span{position:relative;padding-left:6px}
 .hcap-cp b{font:600 16px/1.1 var(--sans);color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
 .hcap-cp small{display:flex;align-items:center;gap:6px;margin-top:3px;font:500 14px/1.1 var(--sans);color:var(--grey);white-space:nowrap}
@@ -22020,13 +22027,22 @@ function cpRingRun(el){
        reached, twinkling one after another every few seconds (Elliott, 27
        Nov 2026: "maybe the checkpoints yellow circle can sparkle"). Not
        while it sweeps or bursts, which have their own light. */
-    /* brighter and always there (same day: "no sparkle showing"): gold
-       stars with a white heart, and along the top of the pill before
-       anything is reached */
+    /* a sparkler, not sparkles (Elliott, same day: "almost like sparklers"):
+       the end of the yellow burns, a white-hot point throwing short sparks
+       every way, each on its own beat so it never repeats in step */
     if(!moving && swellT<=0.02 && !sparksOn && !coachedView()){
-      const STAR='M0 -8 L1.9 -1.9 L8 0 L1.9 1.9 L0 8 L-1.9 1.9 L-8 0 L-1.9 -1.9Z', span=Math.max(reached, P*0.2);
-      [.25,.62,1].forEach((q,i)=>{ const p=pt(Math.max(1,span*q));
-        out+=`<g transform="translate(${f1(p[0])} ${f1(p[1])})"><g class="cpr-spk" style="animation-delay:${(i*0.5).toFixed(2)}s"><path d="${STAR}" fill="#f5b83d"/><path d="${STAR}" fill="#fffdf2" transform="scale(.5)"/></g></g>`; });
+      const p=pt(Math.max(1,reached)), COL=['#fff6d0','#ffd66b','#f5a623','#fffdf2'];
+      let sk='';
+      for(let i=0;i<14;i++){ const ang=(i*137.5+((i*53)%29))%360, len=3+((i*7)%5), dur=(0.45+((i*37)%50)/100).toFixed(2), del=(((i*61)%90)/100).toFixed(2);
+        sk+=`<g transform="rotate(${ang})"><line class="cpr-sk" x1="0" y1="-3" x2="0" y2="${-3-len}" stroke="${COL[i%4]}" stroke-width="${i%3?1.3:1.8}" stroke-linecap="round" style="animation-duration:${dur}s;animation-delay:${del}s;--d:${-(9+((i*11)%9))}px"/></g>`; }
+      /* and the yellow itself glows and shimmers (same day: "shimmering and
+         glowing"): a soft gold halo that breathes, and a band of light that
+         runs along it to the sparkler */
+      if(reached>6){ const n=Math.max(6,Math.ceil(reached/4)), q=[]; for(let k=0;k<=n;k++){ const z=pt(reached*k/n); q.push(f1(z[0])+' '+f1(z[1])); }
+        const d='M '+q.join(' L '), L=Math.round(reached);
+        out=out.replace('<path d="M ', `<path class="cpr-glow" d="${d}" stroke="#f7c04a" stroke-width="10" stroke-linecap="round" fill="none"/><path d="M `)
+          + `<path class="cpr-shim" d="${d}" stroke="#fffdf2" stroke-width="3" stroke-linecap="round" fill="none" stroke-dasharray="18 ${L+40}" style="--L:${-(L+20)}px"/>`; }
+      out+=`<g class="cpr-spkl" transform="translate(${f1(p[0])} ${f1(p[1])})">${sk}<circle class="cpr-core" r="3.2" fill="#fffdf2"/></g>`;
     }
     svg.innerHTML=out;
     let track=[253,248,240];
