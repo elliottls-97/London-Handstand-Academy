@@ -57,6 +57,9 @@
 @keyframes tPop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion: reduce){.box.tpop{animation:none}}
 .hcap-cp .cpr2{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;transform-origin:50% 50%}
+.cpr-spk{transform-box:fill-box;transform-origin:center;opacity:0;filter:drop-shadow(0 0 3px rgba(243,169,73,.95));animation:cprSpk 5.2s ease-in-out infinite both}
+@keyframes cprSpk{0%,62%,100%{opacity:0;transform:scale(.2) rotate(0deg)}72%{opacity:1;transform:scale(1.15) rotate(25deg)}84%{opacity:0;transform:scale(.3) rotate(60deg)}}
+@media (prefers-reduced-motion: reduce){.cpr-spk{animation:none;opacity:0}}
 .hcap-cp>span{position:relative;padding-left:6px}
 .hcap-cp b{font:600 16px/1.1 var(--sans);color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
 .hcap-cp small{display:flex;align-items:center;gap:6px;margin-top:3px;font:500 14px/1.1 var(--sans);color:var(--grey);white-space:nowrap}
@@ -10584,7 +10587,7 @@ function trackAskHTML(inSheet){
       onclick="${inSheet?'closeOv();':''}goJoin('track')">Track my progress</button>
   </div>`;
 }
-function cpListHTML(si){
+function cpListHTML(si, peek){
   const S=climbState(si);
   if(!S.n) return '';
   const use='log';
@@ -10593,7 +10596,11 @@ function cpListHTML(si){
      the film option to get a form check, but it just asks people to pay if
      they have already had their free one"): cpCam sends it, or asks. */
   const film = true;
-  const ord=cpListOrder(S), first=ord.findIndex(r=>!r.done);
+  /* peek: only the next few not reached, the lowest rungs, as the Train
+     page shows them under the pill when the list is folded (27 Nov 2026) */
+  let ord=cpListOrder(S);
+  if(peek){ const todo=ord.filter(r=>!r.done && !r.c.extra); ord=todo.slice(-peek); if(!ord.length) return ''; }
+  const first=ord.findIndex(r=>!r.done);
   const rows=ord.map((r,ri)=>{
     const th=climbThumb(r.c, false);
     const kind=r.c.kind==='secs'?'secs':r.c.kind==='face'?'face':'count';
@@ -10622,7 +10629,7 @@ function cpListHTML(si){
     </div>`;
   }).join('');
   /* the ladder's next stage means nothing on a coached block */
-  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${coachedView()?'':cpNextRow(si, S)}</div>`;
+  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${(coachedView()||peek)?'':cpNextRow(si, S)}</div>`;
 }
 /* The build waits until most of the ladder is on screen, because it
    starts at the foot: watching for any of it set it off with only the top
@@ -22004,6 +22011,15 @@ function cpRingRun(el){
     if(sparksOn){ const travel=6+36*sparkT;
       SP.forEach((b,i)=>{ out+=`<circle cx="${f1(b[0]*W+b[2]*travel)}" cy="${f1(b[1]*H+b[3]*travel)}" r="${b[4]/2}"
         fill="${i%2?'#f3a949':'#ffd98a'}" opacity="${(1-sparkT).toFixed(2)}"/>`; }); }
+    /* at rest the yellow sparkles: three small stars along what has been
+       reached, twinkling one after another every few seconds (Elliott, 27
+       Nov 2026: "maybe the checkpoints yellow circle can sparkle"). Not
+       while it sweeps or bursts, which have their own light. */
+    if(!moving && swellT<=0.02 && !sparksOn && !coachedView() && reached>0.5){
+      const STAR='M0 -5.5 L1.3 -1.3 L5.5 0 L1.3 1.3 L0 5.5 L-1.3 1.3 L-5.5 0 L-1.3 -1.3Z';
+      [.28,.66,1].forEach((q,i)=>{ const p=pt(Math.max(1,reached*q));
+        out+=`<g transform="translate(${f1(p[0])} ${f1(p[1])})"><path class="cpr-spk" d="${STAR}" fill="#fffbe9" style="animation-delay:${(i*0.55).toFixed(2)}s"/></g>`; });
+    }
     svg.innerHTML=out;
     let track=[253,248,240];
     if(done) track=lerp([253,245,232],[254,243,212],doneMix);
@@ -22115,7 +22131,13 @@ function capsuleHTML(go, label, pillOnly){
      checkpoints expands the checkpoints and start session pill instead of
      being a speech bubble") */
   const exp=on && !pillOnly, grow=exp && Date.now()-(window._hcpsAt||0)<600;
-  return `${exp?`<div class="hexp${grow?' unfold':''}">`:''}<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
+  /* folded, the next two check points stay in sight under the pill, so what
+     a check point is never has to be opened to be seen, and the whole list
+     never has to be open to say it (Elliott, 27 Nov 2026: "have a
+     checkpoint or 2 open so its always clear without everything being open") */
+  const pk = (!on && !pillOnly && !coachedView() && !wide() && !openTall() && clearShowing()==null
+      && !(typeof needsLevel==='function' && needsLevel()) && P.of>0 && P.met<P.of) ? cpListHTML(cs, 2) : '';
+  return `${(exp||pk)?`<div class="hexp${pk?' hexp-pk':''}${grow?' unfold':''}">`:''}<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
         style="background:${(P.of&&P.met>=P.of)?'#fef3d4':'#fdf8f0'}">
@@ -22124,7 +22146,9 @@ function capsuleHTML(go, label, pillOnly){
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
-    </div>${exp?homeCpsHTML()+'</div>':''}`;
+    </div>${exp?homeCpsHTML()+'</div>' : pk?`<div class="hcps"><div class="hcps-p"><div data-tour="checkpoints">${pk}</div>
+      <button class="hcps-fold" onclick="homeCps()">See all ${P.of} check points <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div></div></div>`:''}`;
 }
 /* everything that sent people to the check points lands on Train with
    them open (18 Oct 2026) */
@@ -23783,8 +23807,8 @@ function screenHome(){
   /* the check points open by themselves the first time, so the list that
      moves you up is seen before anyone has to think to press it (Elliott,
      15 Nov 2026). Once only; after that it stays as they leave it. */
-  if(!coachedView() && !wide() && !st.cpAutoOpened && !trialPending() && !needsLevel() && (cpFor(curStage())||[]).length){
-    st.cpAutoOpened=1; if(!st.homeCpsShut){ st.homeCps=true; window._hcpsAt=Date.now(); } save(); }
+  /* not any more (27 Nov 2026): the next two sit under the pill whenever the
+     list is folded, so the first screen keeps to one screen */
   const S=STAGES[curStage()]||STAGES[0];
   const done=sessionsThisWeek(), target=weekTarget();
   const ex=explainerToday();
