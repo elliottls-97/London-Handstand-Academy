@@ -1750,6 +1750,14 @@ button{color:var(--ink)}
    longer looks xmasy"): the cards on Train keep the night, the lights, the snow and the
    drift, a little smaller, with gold where the app would use teal */
 .chban.chban-s{padding:48px 18px 76px}
+/* the slim banner: every day but 1 to 5 December (27 Nov 2026) */
+.chban.chban-mini{padding:13px 52px 13px 16px;border-radius:18px}
+.chban-mini .chsnow{border-radius:18px}
+.chban-mini .chban-x{top:50%;right:10px;transform:translateY(-50%);width:30px;height:30px;font-size:17px}
+.chmini{position:relative;z-index:3;display:flex;align-items:center;gap:12px;width:100%;padding:0;border:0;background:none;color:#fff;text-align:left;cursor:pointer}
+.chmini-t{flex:1;min-width:0}
+.chmini-t b{display:block;margin-top:5px;font:400 19px/1.15 var(--serif);font-weight:400}
+.chmini-go{flex:none;padding:10px 16px;border-radius:999px;background:#fff;color:#123c48;font:700 14px/1 var(--sans);box-shadow:0 6px 16px -8px rgba(0,0,0,.45)}
 .chban-s .chban-x{top:44px;right:10px;width:34px;height:34px;font-size:19px}
 .chban-s em{color:#f3c77a!important}
 .chban-s .chsub{font:400 13.5px/1.45 var(--sans);color:rgba(255,255,255,.82);margin-top:5px}
@@ -30341,7 +30349,7 @@ const TOURS = {
          for the questions on the way */
       {t:'stagelist', h:'Climb the ladder', always:true,
        pre:()=>{ if(st.homeCps){ st.homeCps=false; save(); render(); } },
-       b:()=>'Six stages, from your first wall hold to a press. Yours is in amber. '+tapWord(true)+' any of them to see what it asks for.'},
+       b:()=>'Six stages, from your first wall hold to a press. You are on '+((STAGES[curStage()]||{}).n||'the first')+', in amber. '+tapWord(true)+' any of them to see what it asks for.'},
       {t:'checkpoints', h:'Reach the check points', always:true,
        pre:()=>{ if(!st.homeCps){ st.homeCps=true; save(); render(); } },
        b:()=>'Each stage has a handful. Tick one off when you can do it, any order, any day. '+(!coachedView() && STAGES[curStage()+1] && stageLocked(curStage()+1)
@@ -31871,7 +31879,6 @@ function chalCardHTML(){
   chLoad(); setTimeout(chAuto, 0);
   if(!CH_D || !chLive()) return '';
   const n=CH_D.day, me=CH_D.me, days=CH_D.cfg.days;
-  if(!me && chBanHidden()) return '';
   /* in it: the cross hides the card for the day, or until door 1 opens (Elliott,
      25 Nov: "the ad is not dismissable at the top") */
   if(me && st.chCardHide!=null && (st.chCardHide===n || (n<1 && st.chCardHide<1))) return '';
@@ -31883,9 +31890,23 @@ function chalCardHTML(){
   const head=h=>`<div style="font:400 22px/1.15 var(--serif);margin-top:6px;padding-right:30px">${h}</div>`;
   /* not in yet: a Christmas banner to sign up (Elliott, 25 Nov: "a sign up for the
      advent challenge button so people know about it on the app (banner is xmasy)") */
+  /* the full card only on 1 to 5 December, until its cross; every other
+     day, and after that cross, one slim banner, whose own cross hides it
+     for two days (Elliott, 27 Nov 2026: "make it smaller apart from on
+     December 1st to 5th") */
+  if(!me && !(n>=1 && n<=5 && !st.chalBigX)){
+    if(chBanHidden()) return '';
+    return `<div class="rise rise-1" style="padding:12px 20px 0"><div class="chban chban-mini" style="--now:${-(performance.now()/1000).toFixed(2)}s">
+      ${CH_SNOW}
+      <button aria-label="Hide the challenge for now" title="Hide for two days" onclick="st.chalHideAt=Date.now();st.chalHideDay=CH_D.day;save();render();toast('Hidden for two days.')" class="chban-x">&times;</button>
+      <button class="chmini" onclick="track('chalbanner',chLevel());chOpen()">
+        <span class="chmini-t"><span class="kick2" style="color:#f3c77a">${n<1 ? 'FROM '+chDate(1).getUTCDate()+' '+chDate(1).toLocaleDateString('en-GB',{month:'short',timeZone:'UTC'}).toUpperCase()+' · FREE' : 'DOOR '+n+' OF '+days+' · JOIN FREE'}</span>
+          <b>Advent <em style="font-style:normal;color:#f3c77a">Challenge</em></b></span>
+        <span class="chmini-go">Join</span></button></div></div>`;
+  }
   if(!me) return `<div class="rise rise-1" style="padding:12px 20px 0"><div class="chban" style="--now:${-(performance.now()/1000).toFixed(2)}s">
       ${CH_LIGHTS}${CH_SNOW}${CH_GROUND}
-      <button aria-label="Hide the challenge for now" title="Hide for two days" onclick="st.chalHideAt=Date.now();st.chalHideDay=CH_D.day;save();render();toast('Hidden for two days.')" class="chban-x">&times;</button>
+      <button aria-label="Make the challenge smaller" title="Make it smaller" onclick="st.chalBigX=1;save();render()" class="chban-x">&times;</button>
       <div class="chban-in">
         ${n<1 ? `<div class="chban-when">Starts ${esc(chDayName(1))}</div>` : ''}
         <div class="kick2" style="color:#f3c77a">${n<1 ? chDate(1).getUTCDate()+' TO '+chDate(days).getUTCDate()+' '+chDate(days).toLocaleDateString('en-GB',{month:'long',timeZone:'UTC'}).toUpperCase()+' · FREE' : 'DOOR '+n+' OF '+days+' · JOIN ANY TIME · FREE'}</div>
@@ -32711,7 +32732,15 @@ function render(){
   if(st.chalNext && st.quizDone && !st.oriented && !st.in){
     st.oriented=true; if(trialPending()){ st.freeChoice=true; st.stage=0; st.wantUpgrade=null; } save(); try{ sendIntake(); }catch(e){} }
   if(st.quizDone && !st.oriented && !st.in && st.intake && st.intake.level!=null && !awaitingBlock()){
-    swap(screenOriented()); return; }
+    /* placed where they can train: straight to Train, where the tour says
+       what the ladder and the check points are (Elliott, 27 Nov 2026: "get
+       rid of the intro page after the quiz"). Placed above what is free
+       keeps the page, which is where the free trial is offered. */
+    const pl=placedStage();
+    if(isMU() || (pl>stageCap() && !!STAGES[pl])){ swap(screenOriented()); return; }
+    st.oriented=true; st.tab='home';
+    if(st.guideNext){ delete st.guideNext; if(!st.token) st.tourNext=1; }
+    save(); }
   if(st.tab==='joinFree' && !st.in){ swap(screenJoin()); return; }
   if(st.tab==='clipq' && !st.in){ if(st.token){ swap(screenClipQ()); return; } st.tab='coaching'; }
   /* ── one workout first, then the address ─────────────────────────
