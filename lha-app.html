@@ -1186,6 +1186,17 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  /* Sign in keeps its word (Elliott, 15 Nov 2026), a little tighter */
  .tb-signin{padding:0 12px!important;font-size:13px!important}
 }
+/* on a phone the sections fill the bar, each the same width with its name
+   under its icon, in place of one wide pill and three small ones (Elliott,
+   27 Nov 2026: "rework the top tabs so they fill the top") */
+@media (max-width:699px){
+ .lglass.g3{flex:1 1 auto;display:flex}
+ .lglass.g3 button:not(.on),.lglass.g3 button.on{flex:1 1 0;width:auto;min-width:0;flex-direction:column;gap:2px}
+ .lglass.g3 button svg,.lglass.g3 button:not(.on) svg{height:16px;width:auto}
+ .lglass.g3 button>span:last-child,.lglass.g3 button:not(.on)>span:last-child,.lglass.g3 button.on>span:last-child{display:block;font:600 9.5px/1 var(--sans);letter-spacing:0}
+ .lglass.g3 button.on>span:last-child{font-weight:700}
+ .lglass.g3 .lglass-th{width:calc((100% - 6px) / var(--n,4));transform:translateX(calc(var(--i,0) * 100%))}
+}
 /* the oldest small phones: the ladder pill keeps its room, the week gives way */
 @media (max-width:340px){ .wk-squeeze{display:none!important} }
 /* drill by drill on the smallest phones: a smaller still and buttons, so the
@@ -21749,7 +21760,7 @@ function topSwitchHTML(){
     .concat([['classes','Classes and 1-2-1s','Classes',CLASS_FIG],['co',coWord()+(dot?', something new':''),coWord(),coIco]]);
   const cur = st.tab==='chal' ? 'adv' : sec==='classes' ? 'classes' : sec==='co' ? 'co' : isMU() ? 'mu' : 'hs';
   const i = Math.max(0, opts.findIndex(o=>o[0]===cur));
-  return `<div class="lglass g3" style="--i:${i}" role="radiogroup" aria-label="Handstand, classes or coaching" ontouchstart="lgTouch(event)" ontouchend="lgSwipe(event)">
+  return `<div class="lglass g3" style="--i:${i};--n:${opts.length}" role="radiogroup" aria-label="Handstand, classes or coaching" ontouchstart="lgTouch(event)" ontouchend="lgSwipe(event)">
     <i class="lglass-th" aria-hidden="true"></i>
     ${opts.map(([k,lab,word,ico],n)=>`<button role="radio" class="${n===i?'on':''}" aria-checked="${n===i}" aria-label="${lab}" title="${lab}" onclick="topGo(this,'${k}',${n})">${ico}<span>${word}</span></button>`).join('')}</div>`;
 }
@@ -23691,6 +23702,35 @@ function appStoreBanner(){
           padding:6px 0;font:600 12.5px/1 var(--sans);color:var(--grey)">Not now</button>
       </div></div></div></div>`;
 }
+/* ── one extra at a time on Train (Elliott, 27 Nov 2026) ────────────
+   The ladder, the check points, Start and the way to form checks are the
+   page. Save your progress, the Home Screen and App Store cards, the
+   notification nudge, Want more help and the classes each sat under them,
+   and together were half the screen. The first that applies shows and the
+   rest wait their turn; the classes are on the Classes tab at the top. */
+function saveProgressHTML(later){
+  return `<section class="rise rise-3" style="padding:16px 20px 0">
+      <div style="border-radius:22px;padding:18px;background:rgba(35,127,149,.055);
+        border:1px solid rgba(35,127,149,.09)">
+        <p style="margin:0;font:400 19px/1.3 var(--serif)">Save your <em style="color:var(--forest);font-style:normal">progress.</em></p>
+        <p style="margin:6px 0 0;font:400 14px/1.5 var(--sans);color:#444">A free account keeps your stage, sessions and check points on any phone,
+          so you never answer the questions again.</p>
+        <button class="btn" style="width:100%;margin-top:14px"
+          onclick="goJoin()">Save my progress</button>
+        ${later?`<button onclick="st.saveLater=Date.now();save();render()" style="display:block;width:100%;min-height:44px;margin-top:4px;border:0;background:none;cursor:pointer;
+          font:600 13px/1 var(--sans);color:var(--grey)">Not now</button>`:''}
+      </div>
+    </section>`;
+}
+function homeExtraHTML(){
+  /* no account: saving comes first, unless put off, and not while the check
+     points are open (the list asks the same at its foot) */
+  if(!st.token && !(st.saveLater && Date.now()-st.saveLater < 3*864e5)) return st.homeCps ? '' : saveProgressHTML(true);
+  const nudge = firstVisit() ? homeScreenCard() : (installNudge() || pushNudge());
+  if(nudge) return firstVisit() ? nudge : `<div class="homenudge">${nudge}</div>`;
+  if(IOS_APP && !st.in) return `<div class="rise rise-4" style="padding:18px 20px 0">${moreHelpCardHTML()}</div>`;
+  return '';
+}
 function homeScreenCard(){
   { let ios=false; try{ ios=isIOS(); }catch(e){} if(ios && !IOS_APP) return appStoreBanner(); }
   if(st.preview || isStandalone()) return '';
@@ -23897,19 +23937,9 @@ function screenHome(){
          stage and the answers live in this browser only, and a new phone
          means the questions again (Elliott, 4 Nov 2026). It replaced the
          create-an-account button that used to sit in the explainer card. -->
-    ${/* not while the check points are open: the list asks the same at its foot (15 Nov 2026) */''}
-    ${(st.token || (st.homeCps && !W))?'':`<section class="rise rise-3" style="padding:16px 20px 0">
-      <div style="border-radius:22px;padding:18px;background:rgba(35,127,149,.055);
-        border:1px solid rgba(35,127,149,.09)">
-        <p style="margin:0;font:400 19px/1.3 var(--serif)">Save your <em style="color:var(--forest);font-style:normal">progress.</em></p>
-        <p style="margin:6px 0 0;font:400 14px/1.5 var(--sans);color:#444">A free account keeps your stage, sessions and check points on any phone,
-          so you never answer the questions again.</p>
-        <button class="btn" style="width:100%;margin-top:14px"
-          onclick="goJoin()">Save my progress</button>
-      </div>
-    </section>`}
+    ${/* one extra at a time, under the essentials (Elliott, 27 Nov 2026) */''}
+    ${W ? (st.token?'':saveProgressHTML()) : homeExtraHTML()}
     ${trialPending() ? howCardHTML() : ''}
-    ${W ? '' : firstVisit() ? homeScreenCard() : `<div class="homenudge">${installNudge()+pushNudge()}</div>`}
 
 
     <!-- the explainers, as the design has them: one question box, then a rail
@@ -23941,8 +23971,8 @@ function screenHome(){
     <!-- the workshop after the explainers, where the design puts it: it is an
          offer, and an offer belongs after the thing they came for -->
     ${/* first visit too: a class is a way in, not a distraction (28 Oct 2026) */''}
-    ${(IOS_APP && !W && !st.in) ? `<div class="rise rise-4" style="padding:18px 20px 0">${moreHelpCardHTML()}</div>` : ''}
-    ${W ? '' : (()=>{ const c=classesCardHTML(3); return c?`<div class="rise rise-4" style="padding:18px 20px 0">${c}</div>`:''; })()}
+    ${/* Want more help is one of the extras above, and the classes are on the
+         Classes tab at the top (Elliott, 27 Nov 2026) */''}
 
 
     <div style="height:26px"></div></div>`;
