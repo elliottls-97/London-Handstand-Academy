@@ -103,7 +103,7 @@ const CP_SUPPORT={
   'plank':['ex:plank-pose'],
   'crow':['ex:crow-pose'],   /* the crow pose breakdown, not drills (Elliott, 27 Nov 2026) */
   'chaturanga':['plank-pose','floor-scapula-push-ups','chaturganga-push-ups'],
-  'kickup-rate':['kick-up-bounces','bunny-hops','knee-to-chest-kick-ups','knee-to-chest-entry-foam-block'],
+  'kickup-rate':['wall-kick-ups-progressions','kick-up-bounces','bunny-hops','knee-to-chest-kick-ups','knee-to-chest-entry-foam-block'],   /* the progressions film first (Elliott, 27 Nov 2026) */
   /* Wall Work */
   'nose-toes':['chest-to-wall-handstand','wall-scapula-shrugs','lying-back-engagements'],
   'wall-steps':['chest-to-wall-handstand','chair-assisted-step-ups','wall-walks'],
