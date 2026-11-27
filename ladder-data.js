@@ -97,9 +97,11 @@ const CP_SUPPORT={
   /* Foundations */
   'ch-assist':['chair-assisted-handstand-walks','chair-assisted-step-ups','chair-assisted-knee-lifts','chair-assisted-handstand-shoulder-adjustments'],
   'fall-comfort':['fear-of-falling-cartwheel','proper-cartwheel','basic-bail-outs','chest-to-wall-bailouts'],
-  'wall-45':['wall-walks','plank-pose','wall-scapula-shrugs','floor-scapula-push-ups'],
-  'plank':['plank-fingertip-lifts','floor-scapula-push-ups','downward-dog-pulses','p-dd-toe-taps'],
-  'crow':['palm-lifts-table-top','plank-fingertip-lifts','dd-float-drills'],
+  'wall-45':['chair-assisted-handstand-walks','chair-assisted-handstand-extensions'],
+  /* the plank film itself covers the variations (Elliott, 27 Nov 2026); ex: points at a drill's
+     explainer in DRILL_EXPLAIN, so a plank explainer shows here the day it is added there */
+  'plank':['ex:plank-pose'],
+  'crow':['ex:crow-pose'],   /* the crow pose breakdown, not drills (Elliott, 27 Nov 2026) */
   'chaturanga':['plank-pose','floor-scapula-push-ups','chaturganga-push-ups'],
   'kickup-rate':['kick-up-bounces','bunny-hops','knee-to-chest-kick-ups','knee-to-chest-entry-foam-block'],
   /* Wall Work */

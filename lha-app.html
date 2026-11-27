@@ -9201,14 +9201,19 @@ function cpCardTop(c, i, total){
 /* ── the drills that build towards it (27 Nov 2026) ───────────────
    CP_SUPPORT in ladder-data.js, or the coach's own list on the check point.
    A row of small films under the card; a tap opens the drill. */
-function cpSupport(c){
+function cpSupportIds(c){
   if(!c) return [];
-  const ids = Array.isArray(c.support) ? c.support : ((typeof CP_SUPPORT!=='undefined' && CP_SUPPORT[c.k]) || []);
-  return ids.filter((v,i,a)=>a.indexOf(v)===i && drillById(v));
+  return Array.isArray(c.support) ? c.support : ((typeof CP_SUPPORT!=='undefined' && CP_SUPPORT[c.k]) || []);
 }
+function cpSupport(c){
+  return cpSupportIds(c).filter((v,i,a)=>a.indexOf(v)===i && !/^ex:/.test(v) && drillById(v));
+}
+/* 'ex:crow-pose' is a drill's own explainer film in place of drills (crow
+   pose, 27 Nov 2026): the same Watch it here line the drill page has */
 function cpSupportHTML(c){
-  const list=cpSupport(c); if(!list.length) return '';
-  return `<div style="margin-top:12px">
+  const exs=cpSupportIds(c).filter(v=>/^ex:/.test(v)).map(v=>drillExHTML(v.slice(3))).join('');
+  const list=cpSupport(c); if(!list.length) return exs ? `<div style="margin-top:4px">${exs}</div>` : '';
+  return `${exs}<div style="margin-top:12px">
     <div style="font:600 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">BUILDS TOWARDS IT</div>
     <div style="display:flex;gap:8px;overflow-x:auto;margin:8px -2px 0;padding:0 2px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch">${list.map(v=>{
       const d=drillById(v), uid=uidOfUrl(d.url||'');
@@ -28170,6 +28175,17 @@ function screenCoaching(){
         <div style="font:400 12px/1.5 var(--sans);color:var(--grey2);text-align:center;margin-top:8px">
           A photo of a held position works too.</div></div>`;
 
+  /* the iPhone app: what comes after the free one, under it. It was only
+     shown once the free one was used, so an account that had not sent one
+     had no way to find the subscription, and App Review could not
+     (27 Nov 2026). The website keeps the free one as the whole offer. */
+  const afterOffer = (IOS_APP && !sells() && signedIn && canCheck && !st.coached && !coachedView()
+      && !(st.checks && st.checks.on) && !(st.checkCredits>0)) ? iosChecksOfferHTML() : '';
+  const iosAfterFree = afterOffer
+    ? `<div class="card" style="padding:22px">
+        <div class="kick2" style="display:flex;align-items:center;gap:7px">${IC_FORMCHECK}AFTER YOUR FREE ONE</div>
+        <div class="h-md" style="font-size:24px;margin-top:8px">Form checks, every fortnight.</div>
+        ${afterOffer}</div>` : '';
   /* the same thread the coached app uses, so a question here reaches the
      same place a client's does */
   /* the chat, as its own tab. It was a card two folds down a screen that
@@ -28268,6 +28284,7 @@ function screenCoaching(){
         </div>
         <div style="padding:20px 16px 0;display:flex;flex-direction:column;gap:11px">
           <div data-tour="formcheck">${checkCard}</div>
+          ${iosAfterFree}
           ${steps3}
           ${(IOS_APP && !st.in) ? moreHelpCardHTML() : ''}
         </div>
@@ -28342,6 +28359,7 @@ function screenCoaching(){
       <div class="cocol">
         ${head}
         <div data-tour="formcheck">${checkCard}</div>
+        ${iosAfterFree}
         ${steps}
         ${fcPlan}
         ${clips2}
@@ -28376,6 +28394,7 @@ function screenCoaching(){
     <div style="padding:20px 16px 30px;display:flex;flex-direction:column;gap:11px">
       ${nextSession()?nextSessionHTML():''}
       <div data-tour="formcheck">${checkCard}</div>
+      ${iosAfterFree}
       ${fcQuizCardHTML()}
       <!-- what happens, for somebody who has not had one, in one row. Once
            they have, they have been through it. -->
@@ -28413,7 +28432,17 @@ function iapPerCheck(){
   return cur+Math.ceil(iapChecks.price*12/26);
 }
 function iosChecksOfferHTML(){
-  if(sells() || !IOS_APP || !iapChecks) return '';
+  if(sells() || !IOS_APP) return '';
+  /* Apple's sheet needs the product from StoreKit, and until it came this
+     returned nothing, so the screen said "That is your free one used" with
+     no way on: App Review could not find form checks at all (27 Nov 2026) */
+  if(!iapChecks) return !st.token ? '' : `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Form checks are
+      bought through the App Store: up to 3 clips reviewed every fortnight, with the whole Ladder included. The price has not
+      come through from the App Store yet.</div>
+    <button class="btn" id="iapChecksLoad" style="width:100%;margin-top:16px" onclick="iapChecksRetry()">Load form checks</button>
+    <div id="iapMsgChecks" role="status" style="font:500 13px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:8px"></div>
+    <button onclick="iapRestore()" style="width:100%;background:none;border:0;cursor:pointer;padding:10px;margin-top:4px;
+      color:var(--forest);font:600 13px/1 var(--sans)">Restore purchases</button>`;
   const p=esc(iapChecks.displayPrice||''), per=esc(iapPerCheck()), appleLadder=Number(st.appleUntil)>Date.now();
   if(st.checksAddon && !appleLadder) return '';
   if(!st.token) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Up to 3 clips reviewed every fortnight,
@@ -29493,6 +29522,14 @@ function sideWeekCard(){
 }
 
 function sideCheckCard(){
+  /* once the free one is used it is not one free any more (27 Nov 2026) */
+  if(st.freeCheckUsed && !st.coached && !(st.checks && st.checks.on) && !(st.checkCredits>0)) return `<div class="card sidecard">
+    <span class="kick2" style="display:inline-flex;align-items:center;gap:7px;color:var(--forest)">${IC_FORMCHECK}FORM CHECKS</span>
+    <div style="font:400 21px/1.12 var(--serif);margin-top:9px">Your handstand, every fortnight.</div>
+    <div style="font:400 14px/1.55 var(--sans);color:var(--grey);margin-top:9px">
+      Up to 3 clips a fortnight, each answered on video${checksPrice()?', '+esc(checksPrice())+' a month':''}.</div>
+    <button class="btn2" style="width:100%;margin-top:13px" onclick="go('coaching')">See form checks</button>
+  </div>`;
   return `<div class="card sidecard" style="border:1.5px solid var(--amber)">
     <span class="kick2" style="color:#a86b16">ONE FREE FORM CHECK</span>
     <div style="font:400 21px/1.12 var(--serif);margin-top:9px">Want Elliott&rsquo;s eyes on it?</div>
@@ -30720,7 +30757,7 @@ function iapTrialDays(){
 /* StoreKit was asked for the product once: if that one answer did not
    come, every lock said "for members" with no way to buy, for the whole
    session. It is asked again a few times, and when the app comes back. */
-let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='';
+let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='', iapCounted=false;
 async function iapInit(){
   const P=iapPlugin(); if(!P || iapLoading || (iapProduct && iapChecks)) return; iapLoading=true; iapStarted=true;
   try{ const r=await P.products({ids:[IAP_LADDER, IAP_CHECKS]}), ps=(r&&r.products)||[];
@@ -30734,9 +30771,20 @@ async function iapInit(){
   /* form checks too (26 Nov 2026): the Ladder came back on TestFlight and form
      checks did not, and nothing asked again, so they could not be bought */
   if((!iapProduct || !iapChecks) && iapTries<3){ const wait=[5000,20000,60000][iapTries++]; setTimeout(iapInit, wait); }
+  /* whether StoreKit sent form checks, counted once a visit (27 Nov 2026,
+     after App Review could not find them) */
+  else if(!iapCounted){ iapCounted=true; track(iapChecks?'iapchecksok':'iapchecksnone'); }
   if(!st.ov) render(); else if(st.ov==='members' && iapProduct){ openOv('iap'); }
 }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden && IOS_APP && (!iapProduct || !iapChecks)) iapInit(); });
+async function iapChecksRetry(){
+  const b=document.getElementById('iapChecksLoad'), m=document.getElementById('iapMsgChecks');
+  if(b){ b.disabled=true; b.textContent='Asking the App Store'; }
+  iapTries=3; iapLoading=false; await iapInit();
+  if(iapChecks){ if(st.ov) drawOv(); else render(); return; }
+  if(b){ b.disabled=false; b.textContent='Load form checks'; }
+  if(m) m.textContent='The App Store has not answered. Check your connection and try again.';
+}
 async function iapSend(jws){
   const r=await fetch('/api/app/iap/verify',{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
     body:JSON.stringify({jws})}).then(x=>x.json()).catch(()=>null);

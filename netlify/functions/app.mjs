@@ -12703,7 +12703,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      visit, its button, and its cross */
                   'chaljoin', 'challog', 'chalfilm', 'chalbuy', 'chalshare', 'chalsharecal',
                   'chalchat', 'chaltab', 'chalbanner', 'chaltrain', 'chalprizes',
-                  'chalplan', 'chalplango', 'chalplanx', 'chalsharefilm', 'chalfilmshow', 'chalfilmplay'];
+                  'chalplan', 'chalplango', 'chalplanx', 'chalsharefilm', 'chalfilmshow', 'chalfilmplay',
+                  /* whether StoreKit sent the form checks product to the iPhone app (27 Nov 2026) */
+                  'iapchecksok', 'iapchecksnone'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
