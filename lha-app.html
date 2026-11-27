@@ -9181,6 +9181,7 @@ function cpCardTop(c, i, total){
     </div>
     <div id="cpdemo-${c.k}">${cpDemoHTML(c)}</div>
     </div>`}
+    ${cpSupportHTML(c)}
     <!-- the faces and the yes or no carry an id so a tap redraws them: under
          an open sheet only the parts with an id are repainted, and these had
          none, so the answer was saved and the buttons never showed it -->
@@ -9196,6 +9197,52 @@ function cpCardTop(c, i, total){
          story is the block under it. -->
     <div id="cpup-${c.k}" style="margin-top:9px;font:500 12px/1.4 var(--sans);color:var(--grey)"></div>
     <div id="cpclip-${c.k}">${c.video===false?'':cpClipHTML(c,sent)}</div>`;
+}
+/* ── the drills that build towards it (27 Nov 2026) ───────────────
+   CP_SUPPORT in ladder-data.js, or the coach's own list on the check point.
+   A row of small films under the card; a tap opens the drill. */
+function cpSupport(c){
+  if(!c) return [];
+  const ids = Array.isArray(c.support) ? c.support : ((typeof CP_SUPPORT!=='undefined' && CP_SUPPORT[c.k]) || []);
+  return ids.filter((v,i,a)=>a.indexOf(v)===i && drillById(v));
+}
+function cpSupportHTML(c){
+  const list=cpSupport(c); if(!list.length) return '';
+  return `<div style="margin-top:12px">
+    <div style="font:600 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">BUILDS TOWARDS IT</div>
+    <div style="display:flex;gap:8px;overflow-x:auto;margin:8px -2px 0;padding:0 2px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch">${list.map(v=>{
+      const d=drillById(v), uid=uidOfUrl(d.url||'');
+      return `<button onclick="event.stopPropagation();pgDrill(${jsq(v)})" style="flex:none;width:118px;padding:0;border:1px solid rgba(0,64,61,.10);border-radius:12px;background:#fff;overflow:hidden;cursor:pointer;text-align:left">
+        <span style="display:block;position:relative;aspect-ratio:16/10;background:linear-gradient(145deg,#237f95,#1d5566)">${uid?`<img src="${esc(streamThumb(uid))}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">`:''}</span>
+        <span style="display:block;padding:6px 8px 7px;font:600 11.5px/1.25 var(--sans);color:var(--ink)">${esc(d.n)}</span></button>`; }).join('')}</div></div>`;
+}
+/* a session leans towards them: the first two check points not reached yet
+   each put their drills in, in place of a drill of the same level, so the
+   band's shares and the session's length are as they were. A quarter of
+   the session at most, so the day's own theme still holds. */
+function cpSteer(picked, cands, stage, lvlOf, wantN, seed){
+  let todo=[];
+  try{ todo=(cpFor(stage)||[]).filter(c=>c && !c.off && !cpMet(c)).slice(0,2); }catch(e){ return picked; }
+  if(!todo.length) return picked;
+  const byV={}; (cands||[]).forEach(it=>{ if(it && it.v && !byV[it.v]) byV[it.v]=it; });
+  /* each session starts one further along each list, so they all come up in turn */
+  const turn=l=>{ const n=Math.abs(Number(seed)||0)%(l.length||1); return l.slice(n).concat(l.slice(0,n)); };
+  const lists=todo.map(c=>turn(cpSupport(c).filter(v=>byV[v])));
+  const sup=new Set(lists.flat()); if(!sup.size) return picked;
+  const want=[]; for(let i=0;i<6;i++) lists.forEach(l=>{ if(l[i] && want.indexOf(l[i])<0) want.push(l[i]); });
+  const cap=Math.max(1, Math.round(wantN/4));
+  const out=picked.slice();
+  let have=out.filter(it=>it && sup.has(it.v)).length;
+  for(const v of want){
+    if(have>=cap) break;
+    if(out.some(it=>it && it.v===v)) continue;
+    const L=lvlOf(v);
+    let j=-1;
+    for(let k=out.length-1;k>=0;k--){ const it=out[k]; if(!it || it.back || sup.has(it.v)) continue; if(!L || lvlOf(it.v)===L){ j=k; break; } }
+    if(j<0) continue;
+    out[j]=byV[v]; have++;
+  }
+  return out;
 }
 /* ── the demo, without seven video players ────────────────────────
    Showing the film on every check point meant seven <video> elements,
@@ -10623,7 +10670,9 @@ function rungBody(c, i, total, use, noteFirst){
     : one ? (one.indexOf('lc-none')>-1 ? one : `<div class="lc-film">${one}</div>`) : '';
   const note=(c.note ? `<div class="lc-note">${esc(c.note)}</div>` : '')
     /* why it is on the ladder (Elliott, 23 Nov 2026: "each checkpoint needs a bit of why they are included") */
-    + (c.why ? `<div class="cp-why"><b>Why</b> ${esc(c.why)}</div>` : '');
+    + (c.why ? `<div class="cp-why"><b>Why</b> ${esc(c.why)}</div>` : '')
+    /* the drills that build towards it (27 Nov 2026) */
+    + cpSupportHTML(c);
   if(use!=='log') return `<div class="lc-xi">${film}${note}</div>`;
   /* the parts repaintCp swaps keep their ids, so logging redraws the
      numbers and never the film */
@@ -26890,6 +26939,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
       if(!grew) break;
     }
   }
+  /* the check points not reached yet bring their own drills in (27 Nov 2026) */
+  if(!wristDay && !scripted && Array.isArray(picked) && picked.length) picked = cpSteer(picked, cands, stage, lvlOf, wantN, rot);
   /* Easiest first where the shares built it, so the session ramps. A written
      list is in the coach's order and re-sorting it would quietly undo the
      thing they came here to set. */
