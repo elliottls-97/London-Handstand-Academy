@@ -16722,15 +16722,16 @@ function drawOv(){
     if(!st.prefs) loadPrefs();
     body=`<div class="card" style="padding:18px">
         <div style="display:flex;align-items:center;gap:11px">
-          <span style="width:42px;height:42px;border-radius:999px;background:${tier.c};flex:none;
+          <span style="width:42px;height:42px;border-radius:999px;background:${tier.c};flex:none;overflow:hidden;
             display:grid;place-items:center;font:700 16px/1 var(--sans);
-            color:${st.plus||st.in?'#fff':'var(--ink)'}">${esc(nameInitials())}</span>
+            color:${st.plus||st.in?'#fff':'var(--ink)'}">${st.avatar?avImg():esc(nameInitials())}</span>
           <span style="flex:1;min-width:0">
             <span style="display:block;font:600 15px/1.2 var(--sans)">${esc(st.client||'Signed in')}</span>
             <span style="display:block;font:400 13px/1.3 var(--sans);color:var(--grey);margin-top:4px;
               word-break:break-all">${esc(st.email||'not set')}</span>
           </span>
         </div>
+        ${avRowHTML()}
         <div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(28,32,25,.09)">
           <div class="kick2">YOUR PLAN</div>
           <div style="display:flex;align-items:baseline;gap:9px;margin-top:8px">
@@ -26154,6 +26155,8 @@ function loadEntitlement(){
       /* how many of the open check's clips are in, up to 3 (31 Oct 2026) */
       st.checkClips=Number(d.checkClips)||0; st.checkMax=Number(d.checkMax)||3;
       st.trialUsed=!!d.trialUsed; st.trialRefused=!!d.trialRefused; st.trialRefusedWhy=d.trialRefusedWhy||'';
+      /* a profile photo (26 Nov 2026), and whether the leaderboard shows photos yet */
+      st.avatar=d.avatar&&d.avatar.id?d.avatar:null; st.photosOn=!!d.photosOn;
       st.checkCredits=Number(d.checkCredits)||0; st.checkOpen=!!d.checkOpen;
       /* form checks, £35 a month: on, and the day the next one opens */
       st.checks=(d.checks&&d.checks.on)?{on:true, next:Number(d.checks.next)||0}:null;
@@ -29458,6 +29461,66 @@ function sideCheckCard(){
 /* the rail on a monitor, the side menu on a phone */
 /* Elliott Staley is ES: the first and last names' first letters, or the
    first two of a single name or the email */
+/* ── a profile photo (Elliott, 26 Nov 2026) ─────────────────────────
+   Square, shrunk on the phone, sent through /image like any other photo,
+   then named as theirs. Their own account and the dashboard show it at
+   once. The Advent leaderboard shows it only when the board's photos are
+   switched on, they ask for it, and Elliott has approved it. */
+const avImg = (id) => `<img src="${AUTH.image}/${esc(id||(st.avatar&&st.avatar.id)||'')}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`;
+function avRowHTML(){
+  const a=st.avatar, board=st.photosOn && a ? `<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;font:400 13.5px/1.4 var(--sans);color:var(--grey)">
+      <input type="checkbox" ${a.board?'checked':''} onchange="avBoard(this.checked)" style="width:20px;height:20px;accent-color:var(--forest);margin:0;flex:none">
+      <span>Show my photo on the Advent leaderboard${a.board?`<span style="display:block;font:600 12.5px/1.4 var(--sans);color:${a.ok&&!a.hidden?'var(--forest)':'var(--grey2)'};margin-top:3px">${a.hidden?'Off the board while Elliott takes a look.':a.ok?'On the board.':'Waiting for Elliott to approve it.'}</span>`:''}</span></label>` : '';
+  return `<div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(28,32,25,.09)">
+      <div class="kick2">YOUR PHOTO</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <label class="btn2" style="flex:1;min-width:140px;display:grid;place-items:center;cursor:pointer;min-height:44px">${a?'Change photo':'Add a photo'}
+          <input type="file" accept="image/*" onchange="avPick(this)" style="display:none"></label>
+        ${a?`<button class="btn2" style="flex:none;min-height:44px;padding:0 16px" onclick="avRemove()">Remove</button>`:''}
+      </div>
+      <div id="avMsg" role="status" style="font:600 12.5px/1.4 var(--sans);color:var(--forest);margin-top:6px"></div>
+      ${board}
+    </div>`;
+}
+async function avSquare(file, size=360){
+  let src;
+  try{ src=await createImageBitmap(file,{imageOrientation:'from-image'}); }
+  catch(e){ src=await new Promise((res,rej)=>{ const i=new Image(), u=URL.createObjectURL(file);
+    i.onload=()=>{ URL.revokeObjectURL(u); res(i); }; i.onerror=()=>{ URL.revokeObjectURL(u); rej('Could not read that photo'); }; i.src=u; }); }
+  const w=src.width||src.naturalWidth, h=src.height||src.naturalHeight; if(!w||!h) throw 'Could not read that photo';
+  const side=Math.min(w,h), c=document.createElement('canvas'); c.width=c.height=size;
+  c.getContext('2d').drawImage(src,(w-side)/2,(h-side)/2,side,side,0,0,size,size);
+  if(src.close) src.close();
+  return c.toDataURL('image/jpeg',0.86);
+}
+async function avPick(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  const msg=document.getElementById('avMsg'); if(msg) msg.textContent='Uploading…';
+  try{
+    const data=await avSquare(f);
+    const up=await fetch(AUTH.image,{method:'POST',headers:authed(),body:JSON.stringify({data})}).then(r=>r.json());
+    if(!up.id) throw (up.error||'That photo did not upload');
+    const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({id:up.id})}).then(r=>r.json());
+    if(!j.ok) throw (j.error||'That photo did not save');
+    st.avatar=j.avatar; save(); drawOv(); render();
+  }catch(e){ if(msg) msg.textContent=String(e&&e.message||e); }
+}
+async function avRemove(){
+  const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({remove:true})}).then(r=>r.json()).catch(()=>({}));
+  if(j.ok){ st.avatar=null; save(); drawOv(); render(); } else toast('Could not remove it. Check your signal.');
+}
+async function avBoard(on){
+  const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({board:on})}).then(r=>r.json()).catch(()=>({}));
+  if(j.ok){ st.avatar=j.avatar; save(); drawOv(); } else toast(j.error||'Could not change that. Check your signal.');
+}
+/* a photo on the leaderboard: tap it to report it */
+function chPicTap(pic){ st.chRep = st.chRep===pic ? '' : pic; render(); }
+async function chReport(pic){
+  st.chRep='';
+  (CH_D.board||[]).forEach(r=>{ if(r.pic===pic) delete r.pic; }); render();
+  await fetch('/api/app/challenge/report',{method:'POST',headers:authed(),body:JSON.stringify({pic})}).catch(()=>{});
+  toast('Thanks. It is off the board until Elliott takes a look.');
+}
 function nameInitials(){
   const w=String(st.client||'').trim().split(/\s+/).filter(Boolean);
   if(w.length>1) return (w[0][0]+w[w.length-1][0]).toUpperCase();
@@ -29514,7 +29577,7 @@ function railFoot(){
           text-align:left">
           <span style="flex:none;width:30px;height:30px;border-radius:999px;background:var(--deep);
             color:var(--on-primary);display:grid;place-items:center;
-            font:700 11px/1 var(--sans)">${esc(initials)}</span>
+            font:700 11px/1 var(--sans);overflow:hidden">${st.avatar?avImg():esc(initials)}</span>
           <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
             <span style="font:600 13px/1 var(--sans);color:var(--ink)">${esc(name||'You')}</span>
             <span style="font:600 9px/1 var(--sans);letter-spacing:.14em;
@@ -30014,8 +30077,8 @@ function topBar(){
       style="${chip};border-radius:999px;padding:0;width:44px;height:44px;display:grid;place-items:center">
       <span style="width:34px;height:34px;border-radius:999px;
         background:var(--deep);
-        color:var(--on-primary);
-        display:grid;place-items:center;font:700 12px/1 var(--sans);letter-spacing:.02em">${esc(initials)}</span></button>`
+        color:var(--on-primary);overflow:hidden;
+        display:grid;place-items:center;font:700 12px/1 var(--sans);letter-spacing:.02em">${st.avatar?avImg():esc(initials)}</span></button>`
     :`<button class="tb-signin" onclick="openMenu()" data-tour="menu" aria-label="Sign in and the menu" title="Sign in" style="${chip};border-radius:22px;
       height:44px;padding:0 16px;display:inline-flex;align-items:center;
       font:600 14px/1 var(--sans)"><span class="tb-word">Sign in</span><svg class="tb-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -31869,7 +31932,9 @@ function chBoardHTML(peek){
   const rowHTML=x=>{ const r=x.r, big=by==='mins'?(x.mins?chMinsTxt(x.mins):'0 min'):x.doors+'/'+days, small=by==='mins'?x.doors+'/'+days+' doors':(x.mins?chMinsTxt(x.mins):'');
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px ${r.me?'10px':'2px'};margin:0 ${r.me?'-8px':'0'};border-top:1px solid rgba(29,85,102,.08);${r.me?'background:rgba(35,127,149,.08);border-radius:12px;border-top-color:transparent':''}">
       <span style="flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 13px/1 var(--sans);font-variant-numeric:tabular-nums;${x.place<=3 && x.doors+x.mins>0?'background:'+medal[x.place-1]+';color:#3b2a08':'color:var(--grey)'}">${x.place}</span>
+      ${CH_D.photos && r.pic ? `<button onclick="chPicTap('${esc(r.pic)}')" aria-label="${esc(r.n)}'s photo" style="flex:none;width:34px;height:34px;border-radius:50%;overflow:hidden;padding:0;border:0;cursor:pointer;background:#eef2f3">${avImg(r.pic)}</button>` : ''}
       <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
+        ${CH_D.photos && r.pic && st.chRep===r.pic && !r.me ? `<button onclick="chReport('${esc(r.pic)}')" style="display:block;border:0;background:none;padding:4px 0 0;color:var(--red);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Report this photo</button>` : ''}
         ${peek?'':`<span style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${r.d.split('').map((c,i)=>`<i style="width:7px;height:7px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.10)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'outline:1.5px solid #f3a949;outline-offset:1px;':''}"></i>`).join('')}</span>`}</span>
       <span style="flex:none;text-align:right"><b style="display:block;font:600 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${esc(big)}</b>${small?`<span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey);margin-top:4px;font-variant-numeric:tabular-nums">${esc(small)}</span>`:''}</span></div>`; };
   const mine=ranked.find(x=>x.r.me);

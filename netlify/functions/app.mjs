@@ -2731,7 +2731,10 @@ async function chCfg() {
     call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120),
     group: String(o.group || '').slice(0, 300),
     /* the group's target, in hours, for the team total (25 Nov 2026) */
-    goalH: Number(o.goalH) > 0 ? Math.round(Number(o.goalH)) : 100 };
+    goalH: Number(o.goalH) > 0 ? Math.round(Number(o.goalH)) : 100,
+    /* photos on the leaderboard (26 Nov 2026): off until Elliott switches it on in the
+       dashboard, once Apple has 1.0.1 and the age rating says people see each other's photos */
+    photos: !!o.photos };
 }
 /* day 1 is the start date in London; 0 or less is before it */
 const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
@@ -2758,6 +2761,12 @@ async function chGiveDays(e, days) {
 const CH_KINDS = ['s', 'm', 'f', 'c', 'o'];
 const CH_FLAGS = ['rest', 'ill', 'injured', 'away', 'other'];
 /* what the app may show of somebody else: a first name or initials, and their dots */
+/* a profile photo (26 Nov 2026): avatar:<email> = { id (an img: blob, owned), at, board (they
+   asked for it on the leaderboard), ok (Elliott approved it there), hidden + reported (someone
+   reported it: off the board until Elliott looks) }. Their own account and the dashboard show it
+   at once; the board only once all of that says yes. */
+const avShown = v => !!(v && /^[a-z0-9]{8,40}$/i.test(String(v.id || '')) && v.board && v.ok && !v.hidden);
+const avOwn = v => (v && v.id) ? { id: v.id, board: !!v.board, ok: !!v.ok, hidden: !!v.hidden } : null;
 const chPublic = (v, cfg) => {
   const nm = String(v.n || '').trim(), first = nm.split(/\s+/)[0] || 'Someone';
   const ini = nm.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join('').slice(0, 3) || '?';
@@ -6839,6 +6848,8 @@ const handle = async (request) => {
       trialRefusedWhy: (tr && tr.why) || '',
       email: who,
       name: clients()[who] || acct.name || '',
+      avatar: avOwn(await getSetting(`avatar:${who}`).catch(() => null)),
+      photosOn: !!(await chCfg()).photos,
       coached: coachedNow,
       /* which plan a coached client bought, where a payment recorded it, so
          the app does not offer Inner Circle to somebody already in it */
@@ -13066,7 +13077,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || [])
       .filter(r => r.value && typeof r.value === 'object');
     const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
-    const pub = rows.map(r => Object.assign(chPublic(r.value, cfg), { me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length }));
+    const pics = cfg.photos ? Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []))
+      .filter(r => avShown(r.value)).map(r => [r.key.slice(7), r.value.id])) : {};
+    const pub = rows.map(r => Object.assign(chPublic(r.value, cfg), { me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length },
+      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {}));
     /* the board shows once somebody else is on it (Elliott, 25 Nov: "wheres the chat, or
        way to see other peoples progress"): a small group sees each other from day one */
     const board = pub.length >= CH.boardMin ? pub.sort((a, b) => (b.me - a.me) || (b.logged - a.logged)).map(({ logged, ...x }) => x) : null;
@@ -13080,7 +13094,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote,
         need: CH_PRIZE.need, floor: CH_PRIZE.floor },
       team: { mins: pub.reduce((t, x) => t + (x.mins || 0), 0), goalH: cfg.goalH },
-      day, count: rows.length, board, week, me: null };
+      day, count: rows.length, board, week, me: null, photos: cfg.photos };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
       st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
       /* the WhatsApp group is the accountability group's own (Elliott, 25 Nov:
@@ -13279,6 +13293,35 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       coachShow: (((await supa.rows('settings', `select=key,value&key=like.${enc('chalshow:')}*`).catch(() => [])) || [])
         .filter(r => r.value && r.value.on).map(r => r.key.slice(9))) });
   }
+  /* profile photos for the dashboard (26 Nov 2026): every one, the ones asking
+     for the leaderboard first, and approve, take off the board, or delete */
+  if (path === '/coach/avatars' && request.method === 'GET') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can see this' }, 401);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || [])
+      .filter(r => r.value && r.value.id);
+    const chal = Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []))
+      .map(r => [r.key.slice(5), (r.value && r.value.n) || '']));
+    return json({ photos: rows.map(r => ({ email: r.key.slice(7), name: chal[r.key.slice(7)] || clients()[r.key.slice(7)] || '',
+      id: r.value.id, at: r.value.at || 0, board: !!r.value.board, ok: !!r.value.ok, hidden: !!r.value.hidden,
+      reported: r.value.reported ? { at: r.value.reported.at || 0 } : null }))
+      .sort((a, b) => (+!!b.reported - +!!a.reported) || (+(b.board && !b.ok) - +(a.board && !a.ok)) || (b.at - a.at)) });
+  }
+  if (path === '/coach/avatar' && request.method === 'POST') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can change this' }, 401);
+    const e = norm(body.email || '');
+    const cur = e ? await getSetting(`avatar:${e}`).catch(() => null) : null;
+    if (!cur) return json({ error: 'No photo for that address' }, 404);
+    if (body.remove === true) {
+      if (cur.id) await db.delete(`img:${cur.id}`).catch(() => {});
+      await dropSetting(`avatar:${e}`).catch(() => {});
+      return json({ ok: true });
+    }
+    const v = Object.assign({}, cur);
+    if (typeof body.ok === 'boolean') { v.ok = body.ok; if (body.ok) { v.hidden = false; delete v.reported; } }
+    if (body.hide === true) v.hidden = true;
+    await setSetting(`avatar:${e}`, v);
+    return json({ ok: true });
+  }
   if (path === '/coach/challenge' && request.method === 'POST') {
     if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
     if (body.cfg && typeof body.cfg === 'object') {
@@ -13288,6 +13331,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
         if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
         if (Number(c.goalH) > 0) x.goalH = Math.min(9999, Math.round(Number(c.goalH)));
+        if (typeof c.photos === 'boolean') x.photos = c.photos;
         /* the accountability group's WhatsApp link, shown only to people who joined from its link (?src=whatsapp) */
         if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
         if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
@@ -13723,6 +13767,55 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     await db.set(`img:${id}`, buf,
       { metadata: { type: m[1], owner: who, at: Date.now() } });
     return json({ id });
+  }
+
+  /* ── a profile photo (26 Nov 2026) ───────────────────────────────
+     The picture goes up through /image like any other, so it is theirs and
+     goes with the account; this only says which one it is, whether they
+     want it on the Advent leaderboard, or that it should go. A new photo
+     waits for Elliott again before the board shows it. */
+  if (path === '/avatar' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cur = (await getSetting(`avatar:${who}`).catch(() => null)) || null;
+    if (body.remove === true) {
+      if (cur && cur.id) await db.delete(`img:${cur.id}`).catch(() => {});
+      await dropSetting(`avatar:${who}`).catch(() => {});
+      return json({ ok: true, avatar: null });
+    }
+    if (typeof body.id === 'string') {
+      const id = body.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+      const m = id ? await db.getMetadata(`img:${id}`).catch(() => null) : null;
+      if (!m || !m.metadata || m.metadata.owner !== who) return json({ error: 'That photo did not upload. Try again.' }, 400);
+      if (cur && cur.id && cur.id !== id) await db.delete(`img:${cur.id}`).catch(() => {});
+      const v = { id, at: Date.now(), board: !!(cur && cur.board), ok: false, hidden: false };
+      await setSetting(`avatar:${who}`, v);
+      if (v.board) await coachAlert(null, 'told', { title: 'A leaderboard photo to look at', body: `${who} changed their photo` }).catch(() => {});
+      return json({ ok: true, avatar: avOwn(v) });
+    }
+    if (typeof body.board === 'boolean') {
+      if (!cur || !cur.id) return json({ error: 'Add a photo first' }, 400);
+      const v = Object.assign({}, cur, { board: body.board });
+      await setSetting(`avatar:${who}`, v);
+      if (body.board && !cur.ok) await coachAlert(null, 'told', { title: 'A leaderboard photo to look at', body: `${who} would like their photo on the board` }).catch(() => {});
+      return json({ ok: true, avatar: avOwn(v) });
+    }
+    return json({ error: 'Nothing to change' }, 400);
+  }
+  /* somebody on the challenge reports a photo on the board: it comes off at
+     once and waits for Elliott, who is told */
+  if (path === '/challenge/report' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (!(await getSetting(`chal:${who}`).catch(() => null))) return json({ error: 'Join the challenge first' }, 403);
+    if ((await rateHit(`avrep:${who}`, 24 * 3600000)) > 20) return json({ ok: true });
+    const pic = String(body.pic || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []);
+    const hit = rows.find(r => r.value && r.value.id === pic);
+    if (!hit) return json({ ok: true });
+    await changeSetting(hit.key, cur => cur ? Object.assign({}, cur, { hidden: true, reported: { at: Date.now(), by: who } }) : undefined).catch(() => {});
+    await coachAlert(null, 'told', { title: 'A leaderboard photo was reported', body: `${hit.key.slice(7)}'s photo is off the board until you look` }).catch(() => {});
+    return json({ ok: true });
   }
 
   /* ── a voice note ────────────────────────────────────────────────
@@ -14300,7 +14393,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      delete, so neither can forget a key the other knows about. */
   /* trialused: a new address is not a second free week. ladderflags: how
      the free ladder felt, which the coach reads if they join coaching. */
-  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
+  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs', 'avatar',
                         'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
                         'plan', 'ref', 'trialused', 'ladderflags', 'flaglog',
                         /* a client made before their real address was known
