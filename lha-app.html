@@ -9507,11 +9507,11 @@ function cpAsk(){ closeOv(); go('coaching'); }
    coached client, form checks already on, or in the iPhone app a Ladder
    paid on the website, which form checks through Apple would charge twice. */
 function trainChecksLine(){
-  if(!st.token || coachedView() || st.coached || (st.checks && st.checks.on)) return '';
+  if(coachedView() || st.coached || (st.checks && st.checks.on)) return '';
   if(!IOS_APP && !checksPrice()) return '';
   const b=t=>`<b style="font-weight:600;color:var(--deep)">${t}</b>`;
   if(!isPlus()){
-    if(!sellsLadder()) return '';
+    if(!sellsLadder() && !IOS_APP) return '';
     return b('All stages with form checks')+(checksPrice()?', '+esc(checksPrice())+' a month':'');
   }
   if(IOS_APP && !sells()){
@@ -21616,7 +21616,13 @@ function climbCardHTML(cs, S, P, x){
       background:#fff;border:1px solid rgba(29,85,102,.12);color:var(--deep)">
       <svg width="15" height="17" viewBox="0 0 12 14" aria-hidden="true" style="flex:none"><rect x="1" y="6" width="10" height="7" rx="2" fill="none" stroke="#237f95" stroke-width="1.4"/><path d="M3.5 6V4a2.5 2.5 0 015 0v2" fill="none" stroke="#237f95" stroke-width="1.4"/></svg>
       <span style="flex:1;min-width:0;font:400 13px/1.35 var(--sans);color:var(--grey)"><b style="font-weight:600;color:var(--deep)">Unlock all ${STAGES.length===6?'six':'four'} stages</b>${PRICE()?', '+esc(PRICE())+' a month':''}${PRICE_TRIAL()>0?', first '+(PRICE_TRIAL()===7?'week':PRICE_TRIAL()+' days')+' free':''}</span>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#237f95" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>` : ''}
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#237f95" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`
+    : (!isPlus() && !coachedView() && IOS_APP && !sells() && iapPlugin()) ? `<button onclick="iapLadderRetry(this)"
+      style="display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;padding:12px 14px;border-radius:14px;cursor:pointer;text-align:left;
+      background:#fff;border:1px solid rgba(29,85,102,.12);color:var(--deep)">
+      <svg width="15" height="17" viewBox="0 0 12 14" aria-hidden="true" style="flex:none"><rect x="1" y="6" width="10" height="7" rx="2" fill="none" stroke="#237f95" stroke-width="1.4"/><path d="M3.5 6V4a2.5 2.5 0 015 0v2" fill="none" stroke="#237f95" stroke-width="1.4"/></svg>
+      <span style="flex:1;min-width:0;font:400 13px/1.35 var(--sans);color:var(--grey)"><b style="font-weight:600;color:var(--deep)">Unlock all ${STAGES.length===6?'six':'four'} stages</b>,
+        <span data-say>${iapStarted?'the price has not come through from the App Store'+(iapLoadErr?' ('+esc(iapLoadErr)+')':'')+'. Tap to try again.':'loading the price'}</span></span></button>` : ''}
     ${/* and the step above it, under it, so form checks can be found from the
          ladder too (Elliott, 27 Nov 2026, after App Review could not find them) */''}
     ${trainChecksLine()
@@ -28214,7 +28220,7 @@ function screenCoaching(){
      shown once the free one was used, so an account that had not sent one
      had no way to find the subscription, and App Review could not
      (27 Nov 2026). The website keeps the free one as the whole offer. */
-  const afterOffer = (IOS_APP && !sells() && signedIn && canCheck && !st.coached && !coachedView()
+  const afterOffer = (IOS_APP && !sells() && (!signedIn || canCheck) && !st.coached && !coachedView()
       && !(st.checks && st.checks.on) && !(st.checkCredits>0)) ? iosChecksOfferHTML() : '';
   const iosAfterFree = afterOffer
     ? `<div class="card" style="padding:22px">
@@ -28471,7 +28477,7 @@ function iosChecksOfferHTML(){
   /* Apple's sheet needs the product from StoreKit, and until it came this
      returned nothing, so the screen said "That is your free one used" with
      no way on: App Review could not find form checks at all (27 Nov 2026) */
-  if(!iapChecks) return !st.token ? '' : `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Form checks are
+  if(!iapChecks) return `<div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Form checks are
       bought through the App Store: up to 3 clips reviewed every fortnight, with the whole Ladder included. The price has not
       come through from the App Store yet.</div>
     <button class="btn" id="iapChecksLoad" style="width:100%;margin-top:16px" onclick="iapChecksRetry()">Load form checks</button>
@@ -30792,11 +30798,13 @@ function iapTrialDays(){
 /* StoreKit was asked for the product once: if that one answer did not
    come, every lock said "for members" with no way to buy, for the whole
    session. It is asked again a few times, and when the app comes back. */
-let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='', iapCounted=false;
+let iapLoading=false, iapListening=false, iapTries=0, iapLastErr='', iapCounted=false, iapLoadErr='';
 async function iapInit(){
   const P=iapPlugin(); if(!P || iapLoading || (iapProduct && iapChecks)) return; iapLoading=true; iapStarted=true;
   try{ const r=await P.products({ids:[IAP_LADDER, IAP_CHECKS]}), ps=(r&&r.products)||[];
-    iapProduct=ps.find(x=>x.id===IAP_LADDER)||null; iapChecks=ps.find(x=>x.id===IAP_CHECKS)||null; }catch(e){ iapProduct=null; }
+    iapProduct=ps.find(x=>x.id===IAP_LADDER)||null; iapChecks=ps.find(x=>x.id===IAP_CHECKS)||null;
+    iapLoadErr = !ps.length ? 'The App Store sent no products' : !iapProduct ? 'The App Store sent no Ladder' : !iapChecks ? 'The App Store sent no form checks' : ''; }
+  catch(e){ iapProduct=null; iapLoadErr=String((e && (e.message || e.errorMessage || e.code)) || 'Could not reach the App Store'); }
   if(!iapListening){ iapListening=true;
     /* an Ask to Buy approved while the app is open: the screen opens up with it */
     try{ P.addListener('transaction', t=>{ if(t && t.jws) iapSend(t.jws).then(v=>{ if(v && v.active){ if(st.ov==='iap'||st.ov==='members') closeOv(); render();
@@ -30817,8 +30825,19 @@ async function iapChecksRetry(){
   if(b){ b.disabled=true; b.textContent='Asking the App Store'; }
   iapTries=3; iapLoading=false; await iapInit();
   if(iapChecks){ if(st.ov) drawOv(); else render(); return; }
-  if(b){ b.disabled=false; b.textContent='Load form checks'; }
-  if(m) m.textContent='The App Store has not answered. Check your connection and try again.';
+  const b2=document.getElementById('iapChecksLoad')||b, m2=document.getElementById('iapMsgChecks')||m;
+  if(b2){ b2.disabled=false; b2.textContent='Load form checks'; }
+  if(m2) m2.textContent='The App Store has not answered. Check your connection and try again.'+(iapLoadErr?' ('+iapLoadErr+')':'');
+}
+/* the Train tab's Unlock row when StoreKit has not sent the Ladder: it
+   used to vanish, so a phone with no answer had no way to buy anything
+   and nothing said why (Elliott, 27 Nov 2026) */
+async function iapLadderRetry(b){
+  const t=b && b.querySelector('[data-say]'); if(t) t.textContent='asking the App Store';
+  iapTries=3; iapLoading=false; await iapInit();
+  if(iapProduct){ render(); return; }
+  const t2=document.querySelector('[data-say]') || t;
+  if(t2) t2.textContent='the App Store has not answered'+(iapLoadErr?' ('+iapLoadErr+')':'')+'. Tap to try again.';
 }
 async function iapSend(jws){
   const r=await fetch('/api/app/iap/verify',{method:'POST',headers:st.token?authed():{'Content-Type':'application/json'},
