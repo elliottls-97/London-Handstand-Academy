@@ -58,6 +58,7 @@
 @media (prefers-reduced-motion: reduce){.box.tpop{animation:none}}
 .hcap-cp .cpr2{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;transform-origin:50% 50%}
 .cpr-spkl{filter:drop-shadow(0 0 3px rgba(255,200,80,.95)) drop-shadow(0 0 7px rgba(245,166,35,.6))}
+@keyframes cprDie{from{opacity:1}to{opacity:0}}
 .cpr-glow{filter:blur(4px);animation:cprGlow 2.4s ease-in-out infinite alternate}
 @keyframes cprGlow{from{opacity:.25}to{opacity:.8}}
 .cpr-shim{opacity:.85;stroke-dashoffset:18px;animation:cprShim 2.6s cubic-bezier(.4,0,.3,1) infinite}
@@ -22030,7 +22031,15 @@ function cpRingRun(el){
     /* a sparkler, not sparkles (Elliott, same day: "almost like sparklers"):
        the end of the yellow burns, a white-hot point throwing short sparks
        every way, each on its own beat so it never repeats in step */
+    /* it burns for four seconds when Train is arrived at and after a check
+       point is ticked, then dies down to the glow alone, so Start session
+       stays the thing on the page (Elliott, 27 Nov 2026: "very distracting") */
+    if(moving) window._cprMoved=Date.now();
     if(!moving && swellT<=0.02 && !sparksOn && !coachedView()){
+      const nowT=Date.now();
+      if((window._cprMoved && nowT-window._cprMoved<1500) || !window._cprRest || nowT-window._cprRest>60000){ window._cprBurn=nowT+4000; window._cprMoved=0; }
+      window._cprRest=nowT;
+      const burn=Math.max(0,(window._cprBurn||0)-nowT), die=burn>0?`animation:cprDie .8s ease ${Math.max(0,burn-800)}ms both`:'';
       const p=pt(Math.max(1,reached)), COL=['#fff6d0','#ffd66b','#f5a623','#fffdf2'];
       let sk='';
       for(let i=0;i<14;i++){ const ang=(i*137.5+((i*53)%29))%360, len=3+((i*7)%5), dur=(0.45+((i*37)%50)/100).toFixed(2), del=(((i*61)%90)/100).toFixed(2);
@@ -22041,8 +22050,9 @@ function cpRingRun(el){
       if(reached>6){ const n=Math.max(6,Math.ceil(reached/4)), q=[]; for(let k=0;k<=n;k++){ const z=pt(reached*k/n); q.push(f1(z[0])+' '+f1(z[1])); }
         const d='M '+q.join(' L '), L=Math.round(reached);
         out=out.replace('<path d="M ', `<path class="cpr-glow" d="${d}" stroke="#f7c04a" stroke-width="10" stroke-linecap="round" fill="none"/><path d="M `)
+          /* the band of light keeps running after the sparks die (Elliott: "keep the white line going through the yellow") */
           + `<path class="cpr-shim" d="${d}" stroke="#fffdf2" stroke-width="3" stroke-linecap="round" fill="none" stroke-dasharray="18 ${L+40}" style="--L:${-(L+20)}px"/>`; }
-      out+=`<g class="cpr-spkl" transform="translate(${f1(p[0])} ${f1(p[1])})">${sk}<circle class="cpr-core" r="2.2" fill="#ffe9a8"/></g>`;
+      if(burn>0) out+=`<g transform="translate(${f1(p[0])} ${f1(p[1])})"><g class="cpr-spkl" style="${die}">${sk}<circle class="cpr-core" r="2.2" fill="#ffe9a8"/></g></g>`;
     }
     svg.innerHTML=out;
     let track=[253,248,240];
