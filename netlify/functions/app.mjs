@@ -2732,10 +2732,18 @@ async function chCfg() {
     group: String(o.group || '').slice(0, 300),
     /* the group's target, in hours, for the team total (25 Nov 2026) */
     goalH: Number(o.goalH) > 0 ? Math.round(Number(o.goalH)) : 100,
-    /* photos on the leaderboard (26 Nov 2026): off until Elliott switches it on in the
-       dashboard, once Apple has 1.0.1 and the age rating says people see each other's photos */
-    photos: !!o.photos };
+    /* photos and films on the leaderboard (26 and 27 Nov 2026): 'off', 'web' (the website
+       only, never inside the iPhone app, while Apple has not approved 1.0.1) or 'all' */
+    photos: chMode(o.photos), films: chMode(o.films) };
 }
+const chMode = v => (v === true || v === 'all') ? 'all' : v === 'web' ? 'web' : 'off';
+/* whether this request may see them: the iPhone app says so in its user agent */
+const chShows = (mode, request) => mode === 'all' || (mode === 'web' && !/LHAiOS/.test((request && request.headers.get('user-agent')) || ''));
+/* a start or end film on the board (27 Nov 2026): film1 / filmEnd = { uid, at, share (they
+   asked for it on the board), ok (Elliott approved it), hidden (reported: off until he looks) }.
+   Elliott always sees it; nobody else does until all of that says yes. */
+const chFilmState = f => (!f || !f.uid || !f.share) ? '' : f.hidden ? 'off' : f.ok ? 'on' : 'wait';
+const chFilmShown = f => chFilmState(f) === 'on';
 /* day 1 is the start date in London; 0 or less is before it */
 const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
 const chPrice = cfg => Date.now() < Date.parse(cfg.earlyUntil) ? cfg.early : cfg.price;
@@ -6556,21 +6564,19 @@ const handle = async (request) => {
        work; the welcome waits, and the coach hears once rather than per
        account. */
     const dayN = await rateHit('signup:all', 24 * 3600000);
-    if (dayN === 16) {
+    /* once a day at most, and only for a day that looks like accounts made in bulk */
+    if (dayN === 41) {
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
-        `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
-         emails to you stop here until tomorrow, to keep the day's email allowance for sign in
-         codes and receipts. The accounts all work. If this
-         is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
+        `<p style="font:16px/1.6 system-ui">More than forty new app accounts today. The accounts
+         all work. If this is not a campaign or a reel doing well, it may be somebody making
+         accounts in bulk.</p>`);
     }
     /* No welcome email: the welcome is the coach's line in the app (above),
-       and email is kept for what has to be email, a hundred a day at most. */
+       and email is kept for what has to be email, a hundred a day at most.
+       No email to Elliott per sign up either (27 Nov 2026: "i don't need these,
+       i just can look in coach dashboard"); a notification only if he has
+       switched sign ups on in Settings, Notifications. */
     await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
-    if (dayN <= 15 && await coachMail(null, 'signups'))
-    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-      `New app sign-up: ${e}`,
-      `<p style="font:16px/1.6 system-ui">${esc(e)} started the Handstand Ladder.
-       Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
   };
 
   /* ── create an account ───────────────────────────────────────────
@@ -6852,7 +6858,7 @@ const handle = async (request) => {
       email: who,
       name: clients()[who] || acct.name || '',
       avatar: avOwn(await getSetting(`avatar:${who}`).catch(() => null)),
-      photosOn: !!(await chCfg()).photos,
+      photosOn: chShows((await chCfg()).photos, request),
       coached: coachedNow,
       /* which plan a coached client bought, where a payment recorded it, so
          the app does not offer Inner Circle to somebody already in it */
@@ -11667,11 +11673,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ videos });
   }
 
-  if (path === '/coach/clip' && request.method === 'GET') {
-    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
-    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
-    if (!uid) return json({ error: 'Which clip?' }, 400);
-
+  /* a Stream film as one MP4 file, at the address the redirect lands on (that
+     one carries the CORS header). Downloads are off per video until asked for,
+     so it asks, and Stream builds the file in the background. */
+  const streamFile = async uid => {
     /* signed where the library is locked, or the resolve below is a 403 */
     const base = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/downloads/default.mp4`;
     const ask = async () => {
@@ -11686,11 +11691,28 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (r.status >= 300 && r.status < 400) return r.headers.get('location') || null;
       return r.ok ? base : null;
     };
-
     let src = await resolve();
     if (!src) { await ask(); src = await resolve(); }
+    return src;
+  };
+  if (path === '/coach/clip' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+    if (!uid) return json({ error: 'Which clip?' }, 400);
+    const src = await streamFile(uid);
     if (!src) return json({ error: 'Stream is still building this one. Try again in a minute.', building: true }, 202);
     return json({ uid, src });
+  }
+  /* their own start or end film as a file, to post wherever they like (27 Nov 2026) */
+  if (path === '/challenge/filmfile' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const mine = await getSetting(`chal:${who}`).catch(() => null), f = mine && (Number(body.which) === 1 ? mine.film1 : mine.filmEnd);
+    if (!f || !/^[a-f0-9]{32}$/.test(String(f.uid || ''))) return json({ error: 'Send the film first' }, 400);
+    if ((await rateHit(`filmfile:${who}`, 3600000)) > 30) return json({ error: 'Try again in a little while' }, 429);
+    const src = await streamFile(f.uid);
+    if (!src) return json({ building: true }, 202);
+    return json({ src });
   }
 
   if (path === '/coach/drill') {
@@ -12681,7 +12703,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                      visit, its button, and its cross */
                   'chaljoin', 'challog', 'chalfilm', 'chalbuy', 'chalshare', 'chalsharecal',
                   'chalchat', 'chaltab', 'chalbanner', 'chaltrain', 'chalprizes',
-                  'chalplan', 'chalplango', 'chalplanx'];
+                  'chalplan', 'chalplango', 'chalplanx', 'chalsharefilm', 'chalfilmshow', 'chalfilmplay'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -13080,12 +13102,16 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || [])
       .filter(r => r.value && typeof r.value === 'object');
     const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
-    const pics = cfg.photos ? Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []))
+    const picsOn = chShows(cfg.photos, request), filmsOn = !!mine && chShows(cfg.films, request);
+    const pics = picsOn ? Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []))
       .filter(r => avShown(r.value)).map(r => [r.key.slice(7), r.value.id])) : {};
     const blocked = new Set(who ? (((await getSetting(`chblock:${who}`).catch(() => null)) || {}).ids || []) : []);
     const ids = await Promise.all(rows.map(r => chRowId(r.key.slice(5))));
     const pub = rows.map((r, i) => Object.assign(chPublic(r.value, cfg), { id: ids[i], me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length },
-      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {}))
+      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {},
+      /* their films, only to others on the challenge, once Elliott has approved them */
+      filmsOn && !r.value.offBoard && chFilmShown(r.value.film1) ? { v1: r.value.film1.uid } : {},
+      filmsOn && !r.value.offBoard && chFilmShown(r.value.filmEnd) ? { vE: r.value.filmEnd.uid } : {}))
       .filter((x, i) => x.me || (!rows[i].value.offBoard && !blocked.has(x.id)));
     /* the board shows once somebody else is on it (Elliott, 25 Nov: "wheres the chat, or
        way to see other peoples progress"): a small group sees each other from day one */
@@ -13100,7 +13126,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote,
         need: CH_PRIZE.need, floor: CH_PRIZE.floor },
       team: { mins: pub.reduce((t, x) => t + (x.mins || 0), 0), goalH: cfg.goalH },
-      day, count: rows.length, board, week, me: null, photos: cfg.photos };
+      day, count: rows.length, board, week, me: null, photos: picsOn, films: filmsOn };
     if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
       st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
       /* the WhatsApp group is the accountability group's own (Elliott, 25 Nov:
@@ -13109,6 +13135,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine),
       /* their own two films, to watch side by side at the end */
       f1: (mine.film1 && mine.film1.uid) || '', fEnd: (mine.filmEnd && mine.filmEnd.uid) || '',
+      /* whether each is on the board: '', 'wait', 'on' or 'off' */
+      sh1: chFilmState(mine.film1), shE: chFilmState(mine.filmEnd),
       remind: mine.remind !== false };
     /* a coaching client sees the challenge only when Elliott has switched it on
        for them in the dashboard (25 Nov 2026, first for Beth's demo account) */
@@ -13182,9 +13210,26 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (which === 1 && !(day <= cfg.days - 3 && (day <= 7 || lateJoin))) return json({ error: 'Start films closed on day 7, or three days after joining' }, 400);
     if (which === cfg.days && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your end film goes in from day ' + (cfg.days - 2) }, 400);
     const slot = which === 1 ? 'film1' : 'filmEnd';
-    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { [slot]: { uid, at: Date.now() } }) : undefined);
+    const share = typeof body.share === 'boolean' ? body.share : !!(mine0[slot] && mine0[slot].share);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { [slot]: { uid, at: Date.now(), share, ok: false } }) : undefined);
     if (!v) return json({ error: 'Join the challenge first' }, 400);
-    return json({ ok: true, film1: !!v.film1, filmEnd: !!v.filmEnd });
+    if (share && (await chCfg()).films !== 'off')
+      await coachAlert(null, 'told', { title: 'A film to look at', body: `${who} would like their ${which === 1 ? 'start' : 'end'} film on the Advent board` }).catch(() => {});
+    return json({ ok: true, film1: !!v.film1, filmEnd: !!v.filmEnd, sh1: chFilmState(v.film1), shE: chFilmState(v.filmEnd) });
+  }
+  /* on the board or not, their choice, any time; Elliott approves it before anyone else sees it */
+  if (path === '/challenge/filmshare' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), which = Number(body.which), slot = which === 1 ? 'film1' : which === cfg.days ? 'filmEnd' : '';
+    if (!slot || typeof body.share !== 'boolean') return json({ error: 'Which film?' }, 400);
+    const before = await getSetting(`chal:${who}`).catch(() => null);
+    if (!before || !before[slot] || !before[slot].uid) return json({ error: 'Send the film first' }, 400);
+    const v = await changeSetting(`chal:${who}`, cur => cur && cur[slot] ? Object.assign({}, cur, { [slot]: Object.assign({}, cur[slot], { share: body.share }) }) : undefined);
+    if (!v) return json({ error: 'Send the film first' }, 400);
+    if (body.share && !before[slot].ok && cfg.films !== 'off')
+      await coachAlert(null, 'told', { title: 'A film to look at', body: `${who} would like their ${which === 1 ? 'start' : 'end'} film on the Advent board` }).catch(() => {});
+    return json({ ok: true, sh1: chFilmState(v.film1), shE: chFilmState(v.filmEnd) });
   }
   if (path === '/challenge/week' && request.method === 'POST') {
     const who = await me();
@@ -13297,6 +13342,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
         reported: r.value.reported ? { at: r.value.reported.at || 0, n: r.value.reported.n || 1 } : null, offBoard: !!r.value.offBoard,
         film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
+        sh1: chFilmState(r.value.film1), shE: chFilmState(r.value.filmEnd),
         logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
         dm: Array.from({ length: cfg.days }, (_, i) => Number(((r.value.d || {})[i + 1] || {}).m) || 0), remind: r.value.remind !== false,
         given: r.value.prize3m || 0, month: r.value.month || 0 })),
@@ -13335,6 +13381,14 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
   if (path === '/coach/challenge' && request.method === 'POST') {
     if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
+    /* a film on the board: approve it, or take it off */
+    if (body.film && typeof body.film === 'object' && typeof body.film.ok === 'boolean') {
+      const e = norm(body.film.email || ''), slot = Number(body.film.which) === 1 ? 'film1' : 'filmEnd';
+      const v = await changeSetting(`chal:${e}`, cur => cur && cur[slot] && cur[slot].uid
+        ? Object.assign({}, cur, { [slot]: Object.assign({}, cur[slot], { ok: body.film.ok, hidden: !body.film.ok }) }) : undefined);
+      if (!v) return json({ error: 'No film there' }, 404);
+      return json({ ok: true });
+    }
     if (typeof body.offBoard === 'string') {
       const e = norm(body.offBoard);
       await changeSetting(`chal:${e}`, cur => cur ? Object.assign({}, cur, { offBoard: body.on !== false, ...(body.on === false ? { reported: null } : {}) }) : undefined);
@@ -13347,7 +13401,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
         if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
         if (Number(c.goalH) > 0) x.goalH = Math.min(9999, Math.round(Number(c.goalH)));
-        if (typeof c.photos === 'boolean') x.photos = c.photos;
+        if (typeof c.photos === 'boolean' || ['off', 'web', 'all'].includes(c.photos)) x.photos = chMode(c.photos);
+        if (['off', 'web', 'all'].includes(c.films)) x.films = c.films;
         /* the accountability group's WhatsApp link, shown only to people who joined from its link (?src=whatsapp) */
         if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
         if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
@@ -13834,8 +13889,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!email && pic) { const av = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []).find(r => r.value && r.value.id === pic); if (av) email = av.key.slice(7); }
     if (!email || email === who) return json({ ok: true });
     await changeSetting(`avatar:${email}`, cur => cur ? Object.assign({}, cur, { hidden: true, reported: { at: Date.now(), by: who } }) : undefined).catch(() => {});
-    await changeSetting(`chal:${email}`, cur => cur ? Object.assign({}, cur, { reported: { at: Date.now(), by: who, n: (Number(cur.reported && cur.reported.n) || 0) + 1 } }) : undefined).catch(() => {});
-    await coachAlert(null, 'told', { title: 'Someone on the Advent board was reported', body: `${email}: their name or photo. Look in the dashboard, Challenge.` }).catch(() => {});
+    /* their films come off the board too, until Elliott looks */
+    const off = f => (f && f.uid) ? Object.assign({}, f, { hidden: true }) : f;
+    await changeSetting(`chal:${email}`, cur => cur ? Object.assign({}, cur, { film1: off(cur.film1), filmEnd: off(cur.filmEnd),
+      reported: { at: Date.now(), by: who, n: (Number(cur.reported && cur.reported.n) || 0) + 1 } }) : undefined).catch(() => {});
+    await coachAlert(null, 'told', { title: 'Someone on the Advent board was reported', body: `${email}: their name, photo or film. Look in the dashboard, Challenge.` }).catch(() => {});
     return json({ ok: true });
   }
   /* and hides them from their own board, for good (a block) */

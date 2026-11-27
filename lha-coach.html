@@ -1665,11 +1665,21 @@ function avAct(email, body, done){
   fetch(API+'/avatar',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({email},body))})
     .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(done); loadAvs(true); })).catch(e=>flash(String(e.message||e)));
 }
-function chalPhotos(on){
-  if(on && !confirm('Show photos on the Advent leaderboard? Only do this once Apple has approved the iPhone app 1.0.1 and the age rating answer for User-Generated Content is Yes. Only photos you approve appear.')) return;
-  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({cfg:{photos:!!on}})})
-    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(on?'Leaderboard photos on':'Leaderboard photos off'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+/* photos and films on the board (27 Nov 2026): off, the website only (never
+   inside the iPhone app, so safe while Apple has not approved 1.0.1), or everywhere */
+const CH_MODES=[['off','Off'],['web','Website only'],['all','Everywhere']];
+function chalModeHTML(kind, mode){
+  return `<div role="radiogroup" aria-label="${kind==='photos'?'Photos':'Films'} on the leaderboard" style="display:inline-flex;flex-wrap:wrap;gap:2px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)">${CH_MODES.map(([k,l])=>
+    `<button role="radio" aria-checked="${mode===k}" onclick="chalMode('${kind}','${k}')" style="border:0;border-radius:10px;padding:8px 12px;min-height:36px;cursor:pointer;font:600 13px/1 var(--sans);${mode===k?'background:#fff;color:var(--deep,#00403d);box-shadow:0 1px 2px rgba(17,17,17,.08)':'background:transparent;color:var(--grey)'}">${l}</button>`).join('')}</div>`;
 }
+function chalMode(kind, mode){
+  const what=kind==='photos'?'Photos':'Films';
+  if(mode==='all' && !confirm(what+' on the leaderboard inside the iPhone app too? Only once Apple has approved 1.0.1. Only the ones you approve appear.')) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({cfg:{[kind]:mode}})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(what+': '+CH_MODES.find(m=>m[0]===mode)[1].toLowerCase()); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+const chalModeNote = m => m==='web' ? 'On the website. Not inside the iPhone app until you choose Everywhere, once Apple has approved 1.0.1.'
+  : m==='all' ? 'On the website and in the iPhone app.' : 'Nobody sees anyone else\'s.';
 function chalPhotosHTML(c){
   loadAvs();
   const list=avs||[], dt=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
@@ -1679,9 +1689,9 @@ function chalPhotosHTML(c){
   return `<div class="card" style="margin-bottom:16px">
     <div class="kick">PHOTOS</div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
-      <div style="min-width:0;flex:1"><b style="font:600 14px/1.3 var(--sans)">Photos on the leaderboard: ${c.photos?'on':'off'}</b>
-        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${c.photos?'Only photos you approve show, and anyone on the challenge can report one, which takes it off until you look.':'Leave this off until Apple has approved 1.0.1 and the age rating says User-Generated Content: Yes. People can still add a photo to their own account; only they and you see it.'}</div></div>
-      <button class="btn ${c.photos?'btn-secondary':'btn-primary'} btn-sm" onclick="chalPhotos(${!c.photos})">${c.photos?'Turn off':'Turn on'}</button>
+      <div style="min-width:0;flex:1"><b style="font:600 14px/1.3 var(--sans)">Photos on the leaderboard</b>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${chalModeNote(c.photos)} Only photos you approve show, and a report takes one off until you look.</div></div>
+      ${chalModeHTML('photos', c.photos||'off')}
     </div>
     ${list.length?`<div style="margin-top:12px">${list.map(p=>`<div data-k="av-${esc(p.email)}" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)">
       <img src="/api/app/image/${esc(p.id)}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex:none;background:#eef2f3">
@@ -1693,6 +1703,33 @@ function chalPhotosHTML(c){
         <button class="btn btn-secondary btn-sm" onclick="if(confirm('Delete ${esc(p.name||p.email)}\\'s photo for good?'))avAct('${esc(p.email)}',{remove:true},'Photo deleted')">Delete</button>
       </div></div>`).join('')}</div>`
       :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">No photos yet.</div>`}
+  </div>`;
+}
+/* start and end films people asked to show on the board (27 Nov 2026):
+   you see every film anyway; these wait for you before anybody else does */
+function chalFilmsHTML(c, ppl){
+  const asked=[];
+  ppl.forEach(p=>{ if(p.sh1 && p.film1) asked.push({p, which:1, uid:p.film1, s:p.sh1});
+    if(p.shE && p.filmEnd) asked.push({p, which:c.days, uid:p.filmEnd, s:p.shE}); });
+  const rank={wait:0, off:1, on:2};
+  asked.sort((a,b)=>(rank[a.s]-rank[b.s]) || String(a.p.name).localeCompare(String(b.p.name)));
+  const status=s=>s==='on'?'<span style="color:var(--forest)">On the board</span>':s==='off'?'Taken off the board':'<b style="color:#8a5a00">Waiting for you</b>';
+  const waiting=asked.filter(x=>x.s==='wait').length;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">FILMS ON THE BOARD</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
+      <div style="min-width:0;flex:1"><b style="font:600 14px/1.3 var(--sans)">Start and end films on the leaderboard${waiting?': '+waiting+' waiting for you':''}</b>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${chalModeNote(c.films)} You see every film. Only the ones people ask to share and you approve show, to others on the challenge.</div></div>
+      ${chalModeHTML('films', c.films||'off')}
+    </div>
+    ${asked.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-top:14px">${asked.map(x=>`<div data-k="chs-${esc(x.p.email)}-${x.which}" style="min-width:0">
+      ${clipPoster(x.uid,'4/5','260px')}
+      <b style="display:block;font:600 13.5px/1.3 var(--sans);margin-top:8px">${esc(x.p.name||x.p.email)}, ${x.which===1?'start':'end'}</b>
+      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${status(x.s)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${x.s==='on'
+        ? `<button class="btn btn-secondary btn-sm" onclick="chalAct({film:{email:${esc(JSON.stringify(x.p.email))},which:${x.which},ok:false}},'Taken off the board')">Take off the board</button>`
+        : `<button class="btn btn-primary btn-sm" onclick="chalAct({film:{email:${esc(JSON.stringify(x.p.email))},which:${x.which},ok:true}},'On the board')">Approve</button>`}</div></div>`).join('')}</div>`
+      :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">Nobody has asked yet.${(c.films||'off')==='off'?' They can once this is on.':''}</div>`}
   </div>`;
 }
 function chalAct(body, done, ask){
@@ -1822,6 +1859,7 @@ function challengeHTML(){
     <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="chalSave()">Save</button>
   </div>
   ${chalPhotosHTML(c)}
+  ${chalFilmsHTML(c, ppl)}
   ${chalPrizeHTML(ppl)}
   <div class="card">
     <div class="kick">PEOPLE</div>
@@ -14729,7 +14767,7 @@ const KIND_LABELS=[
   ['told','Check-ins, skipped days and drill flags'],
   ['trained','Sessions they finish'],
   ['business','Bookings, applications and payments'],
-  ['signups','New sign-ups and app feedback'],
+  ['signups','App feedback, and new sign-ups (never by email)'],
 ];
 let cpush={loaded:false, ready:false, on:false, key:'', kinds:{}, mail:{}, devices:0, ends:[], busy:false, sub:null};
 /* the kinds that come as an email as well; sessions finished never have */
