@@ -29470,7 +29470,7 @@ const avImg = (id) => `<img src="${AUTH.image}/${esc(id||(st.avatar&&st.avatar.i
 function avRowHTML(){
   const a=st.avatar, board=st.photosOn && a ? `<label style="display:flex;align-items:flex-start;gap:10px;margin-top:12px;font:400 13.5px/1.4 var(--sans);color:var(--grey)">
       <input type="checkbox" ${a.board?'checked':''} onchange="avBoard(this.checked)" style="width:20px;height:20px;accent-color:var(--forest);margin:0;flex:none">
-      <span>Show my photo on the Advent leaderboard${a.board?`<span style="display:block;font:600 12.5px/1.4 var(--sans);color:${a.ok&&!a.hidden?'var(--forest)':'var(--grey2)'};margin-top:3px">${a.hidden?'Off the board while Elliott takes a look.':a.ok?'On the board.':'Waiting for Elliott to approve it.'}</span>`:''}</span></label>` : '';
+      <span>Show my photo on the Advent leaderboard<span style="display:block;font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:2px">Others on the challenge will see it. It must follow the <a href="/terms.html#conduct" style="color:var(--forest)">photo rules</a>.</span>${a.board?`<span style="display:block;font:600 12.5px/1.4 var(--sans);color:${a.ok&&!a.hidden?'var(--forest)':'var(--grey2)'};margin-top:3px">${a.hidden?'Off the board while Elliott takes a look.':a.ok?'On the board.':'Waiting for Elliott to approve it.'}</span>`:''}</span></label>` : '';
   return `<div style="margin-top:16px;padding-top:15px;border-top:1px solid rgba(28,32,25,.09)">
       <div class="kick2">YOUR PHOTO</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -29513,13 +29513,21 @@ async function avBoard(on){
   const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({board:on})}).then(r=>r.json()).catch(()=>({}));
   if(j.ok){ st.avatar=j.avatar; save(); drawOv(); } else toast(j.error||'Could not change that. Check your signal.');
 }
-/* a photo on the leaderboard: tap it to report it */
-function chPicTap(pic){ st.chRep = st.chRep===pic ? '' : pic; render(); }
-async function chReport(pic){
+/* someone else on the leaderboard (27 Nov 2026, App Store 1.2): the ⋯ on
+   their row offers Report (their name or photo, to Elliott) and Hide them
+   (gone from this person's board for good) */
+function chRowTap(id){ st.chRep = st.chRep===id ? '' : id; render(); }
+async function chReport(id){
   st.chRep='';
-  (CH_D.board||[]).forEach(r=>{ if(r.pic===pic) delete r.pic; }); render();
-  await fetch('/api/app/challenge/report',{method:'POST',headers:authed(),body:JSON.stringify({pic})}).catch(()=>{});
-  toast('Thanks. It is off the board until Elliott takes a look.');
+  (CH_D.board||[]).forEach(r=>{ if(r.id===id) delete r.pic; }); render();
+  await fetch('/api/app/challenge/report',{method:'POST',headers:authed(),body:JSON.stringify({id})}).catch(()=>{});
+  toast('Thanks. Elliott will take a look.');
+}
+async function chBlock(id){
+  st.chRep='';
+  CH_D.board=(CH_D.board||[]).filter(r=>r.id!==id); render();
+  await fetch('/api/app/challenge/block',{method:'POST',headers:authed(),body:JSON.stringify({id})}).catch(()=>{});
+  toast('Hidden. You will not see them on your board.');
 }
 function nameInitials(){
   const w=String(st.client||'').trim().split(/\s+/).filter(Boolean);
@@ -31932,11 +31940,11 @@ function chBoardHTML(peek){
   const rowHTML=x=>{ const r=x.r, big=by==='mins'?(x.mins?chMinsTxt(x.mins):'0 min'):x.doors+'/'+days, small=by==='mins'?x.doors+'/'+days+' doors':(x.mins?chMinsTxt(x.mins):'');
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px ${r.me?'10px':'2px'};margin:0 ${r.me?'-8px':'0'};border-top:1px solid rgba(29,85,102,.08);${r.me?'background:rgba(35,127,149,.08);border-radius:12px;border-top-color:transparent':''}">
       <span style="flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 13px/1 var(--sans);font-variant-numeric:tabular-nums;${x.place<=3 && x.doors+x.mins>0?'background:'+medal[x.place-1]+';color:#3b2a08':'color:var(--grey)'}">${x.place}</span>
-      ${CH_D.photos && r.pic ? `<button onclick="chPicTap('${esc(r.pic)}')" aria-label="${esc(r.n)}'s photo" style="flex:none;width:34px;height:34px;border-radius:50%;overflow:hidden;padding:0;border:0;cursor:pointer;background:#eef2f3">${avImg(r.pic)}</button>` : ''}
+      ${CH_D.photos && r.pic ? `<span style="flex:none;width:34px;height:34px;border-radius:50%;overflow:hidden;background:#eef2f3">${avImg(r.pic)}</span>` : ''}
       <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
-        ${CH_D.photos && r.pic && st.chRep===r.pic && !r.me ? `<button onclick="chReport('${esc(r.pic)}')" style="display:block;border:0;background:none;padding:4px 0 0;color:var(--red);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Report this photo</button>` : ''}
+        ${!peek && r.id && st.chRep===r.id && !r.me ? `<span style="display:flex;gap:14px;padding-top:4px"><button onclick="chReport('${esc(r.id)}')" style="border:0;background:none;padding:0;color:var(--red);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Report</button><button onclick="chBlock('${esc(r.id)}')" style="border:0;background:none;padding:0;color:var(--grey);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Hide them</button></span>` : ''}
         ${peek?'':`<span style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${r.d.split('').map((c,i)=>`<i style="width:7px;height:7px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.10)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'outline:1.5px solid #f3a949;outline-offset:1px;':''}"></i>`).join('')}</span>`}</span>
-      <span style="flex:none;text-align:right"><b style="display:block;font:600 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${esc(big)}</b>${small?`<span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey);margin-top:4px;font-variant-numeric:tabular-nums">${esc(small)}</span>`:''}</span></div>`; };
+      <span style="flex:none;text-align:right"><b style="display:block;font:600 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${esc(big)}</b>${small?`<span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey);margin-top:4px;font-variant-numeric:tabular-nums">${esc(small)}</span>`:''}</span>${!peek && !r.me && r.id ? `<button onclick="chRowTap('${esc(r.id)}')" aria-label="Report or hide ${esc(r.n)}" style="flex:none;width:32px;height:32px;margin-left:-4px;border:0;border-radius:50%;background:none;color:var(--grey2);cursor:pointer;font:700 16px/1 var(--sans)">&middot;&middot;&middot;</button>` : ''}</div>`; };
   const mine=ranked.find(x=>x.r.me);
   const list = peek ? ranked.slice(0,3).concat(mine && ranked.indexOf(mine)>2 ? [mine] : []) : ranked;
   const sortSeg = (!peek && others.length) ? `<div class="seg" role="radiogroup" aria-label="Rank by" style="margin-top:12px">${[['doors','Doors opened'],['mins','Minutes']].map(([k,l])=>

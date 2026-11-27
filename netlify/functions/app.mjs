@@ -2765,6 +2765,9 @@ const CH_FLAGS = ['rest', 'ill', 'injured', 'away', 'other'];
    asked for it on the leaderboard), ok (Elliott approved it there), hidden + reported (someone
    reported it: off the board until Elliott looks) }. Their own account and the dashboard show it
    at once; the board only once all of that says yes. */
+/* a person's id on the public board (27 Nov 2026): reports and blocks name it, never the email */
+const CH_BAD_NAME = /\b(fuck\w*|shit(s|ty|head)?|cunts?|bitch\w*|twats?|wank\w*|dickhead|cocks|pussy|sluts?|whores?|rap(e|ist)|nazis?|hitler|porn\w*|sex|nude|tits)\b|nigg|fagg|retard/i;
+const chRowId = async e => (await sha256hex('lha-board:' + (process.env.SIGNING_SECRET || '') + ':' + e)).slice(0, 14);
 const avShown = v => !!(v && /^[a-z0-9]{8,40}$/i.test(String(v.id || '')) && v.board && v.ok && !v.hidden);
 const avOwn = v => (v && v.id) ? { id: v.id, board: !!v.board, ok: !!v.ok, hidden: !!v.hidden } : null;
 const chPublic = (v, cfg) => {
@@ -13079,8 +13082,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
     const pics = cfg.photos ? Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []))
       .filter(r => avShown(r.value)).map(r => [r.key.slice(7), r.value.id])) : {};
-    const pub = rows.map(r => Object.assign(chPublic(r.value, cfg), { me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length },
-      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {}));
+    const blocked = new Set(who ? (((await getSetting(`chblock:${who}`).catch(() => null)) || {}).ids || []) : []);
+    const ids = await Promise.all(rows.map(r => chRowId(r.key.slice(5))));
+    const pub = rows.map((r, i) => Object.assign(chPublic(r.value, cfg), { id: ids[i], me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length },
+      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {}))
+      .filter((x, i) => x.me || (!rows[i].value.offBoard && !blocked.has(x.id)));
     /* the board shows once somebody else is on it (Elliott, 25 Nov: "wheres the chat, or
        way to see other peoples progress"): a small group sees each other from day one */
     const board = pub.length >= CH.boardMin ? pub.sort((a, b) => (b.me - a.me) || (b.logged - a.logged)).map(({ logged, ...x }) => x) : null;
@@ -13123,6 +13129,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!who) return json({ error: 'Make an account first, so your days are kept' }, 401);
     const n = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
     const show = body.show === 'initials' ? 'initials' : 'name';
+    /* the name shows on the board to everyone taking part, so the obvious
+       words are refused here (27 Nov 2026, App Store 1.2: a filter as well as
+       reports, hiding and Elliott's eye) */
+    if (CH_BAD_NAME.test(n)) return json({ error: 'Please use your first name.' }, 400);
     const stg = Number(body.stage);
     const v = await changeSetting(`chal:${who}`, cur => Object.assign({ at: Date.now(), d: {}, fl: {}, wk: {} }, cur || {},
       { n: n || (cur && cur.n) || who.split('@')[0], show }, Number.isInteger(stg) && stg >= 0 && stg <= 9 ? { st: stg } : {},
@@ -13285,6 +13295,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg), { said: intakes[r.key.slice(5)] || null },
       { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
         comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
+        reported: r.value.reported ? { at: r.value.reported.at || 0, n: r.value.reported.n || 1 } : null, offBoard: !!r.value.offBoard,
         film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
         logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
         dm: Array.from({ length: cfg.days }, (_, i) => Number(((r.value.d || {})[i + 1] || {}).m) || 0), remind: r.value.remind !== false,
@@ -13324,6 +13335,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
   if (path === '/coach/challenge' && request.method === 'POST') {
     if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
+    if (typeof body.offBoard === 'string') {
+      const e = norm(body.offBoard);
+      await changeSetting(`chal:${e}`, cur => cur ? Object.assign({}, cur, { offBoard: body.on !== false, ...(body.on === false ? { reported: null } : {}) }) : undefined);
+      return json({ ok: true });
+    }
     if (body.cfg && typeof body.cfg === 'object') {
       const c = body.cfg;
       await changeSetting('chalcfg', cur => {
@@ -13802,19 +13818,33 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     }
     return json({ error: 'Nothing to change' }, 400);
   }
-  /* somebody on the challenge reports a photo on the board: it comes off at
-     once and waits for Elliott, who is told */
+  /* somebody on the challenge reports someone on the board, their name or
+     their photo (27 Nov 2026, App Store 1.2): a photo comes off at once, and
+     Elliott is told and decides in the dashboard */
   if (path === '/challenge/report' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
     if (!(await getSetting(`chal:${who}`).catch(() => null))) return json({ error: 'Join the challenge first' }, 403);
     if ((await rateHit(`avrep:${who}`, 24 * 3600000)) > 20) return json({ ok: true });
+    const id = String(body.id || '').replace(/[^a-f0-9]/g, '').slice(0, 14);
     const pic = String(body.pic || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
-    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []);
-    const hit = rows.find(r => r.value && r.value.id === pic);
-    if (!hit) return json({ ok: true });
-    await changeSetting(hit.key, cur => cur ? Object.assign({}, cur, { hidden: true, reported: { at: Date.now(), by: who } }) : undefined).catch(() => {});
-    await coachAlert(null, 'told', { title: 'A leaderboard photo was reported', body: `${hit.key.slice(7)}'s photo is off the board until you look` }).catch(() => {});
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let email = '';
+    if (id) for (const r of rows) { if ((await chRowId(r.key.slice(5))) === id) { email = r.key.slice(5); break; } }
+    if (!email && pic) { const av = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []).find(r => r.value && r.value.id === pic); if (av) email = av.key.slice(7); }
+    if (!email || email === who) return json({ ok: true });
+    await changeSetting(`avatar:${email}`, cur => cur ? Object.assign({}, cur, { hidden: true, reported: { at: Date.now(), by: who } }) : undefined).catch(() => {});
+    await changeSetting(`chal:${email}`, cur => cur ? Object.assign({}, cur, { reported: { at: Date.now(), by: who, n: (Number(cur.reported && cur.reported.n) || 0) + 1 } }) : undefined).catch(() => {});
+    await coachAlert(null, 'told', { title: 'Someone on the Advent board was reported', body: `${email}: their name or photo. Look in the dashboard, Challenge.` }).catch(() => {});
+    return json({ ok: true });
+  }
+  /* and hides them from their own board, for good (a block) */
+  if (path === '/challenge/block' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const id = String(body.id || '').replace(/[^a-f0-9]/g, '').slice(0, 14);
+    if (!id) return json({ error: 'Who?' }, 400);
+    await changeSetting(`chblock:${who}`, cur => { const ids = Array.from(new Set([...(((cur || {}).ids) || []), id])).slice(-300); return { ids, at: Date.now() }; });
     return json({ ok: true });
   }
 
