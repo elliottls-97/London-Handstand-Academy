@@ -96,7 +96,7 @@ const CHECKPOINTS={
 const CP_SUPPORT={
   /* Foundations */
   'ch-assist':['chair-assisted-handstand-walks','chair-assisted-step-ups','chair-assisted-knee-lifts','chair-assisted-handstand-shoulder-adjustments'],
-  'fall-comfort':['fear-of-falling-cartwheel','proper-cartwheel','basic-bail-outs','chest-to-wall-bailouts'],
+  'fall-comfort':['art:fall-out-of-a-handstand-safely','fear-of-falling-cartwheel','proper-cartwheel','basic-bail-outs','chest-to-wall-bailouts'],   /* art: a Learn article (Elliott, 27 Nov 2026) */
   'wall-45':['p-l-handstand','chair-assisted-handstand-walks','chair-assisted-handstand-extensions'],   /* L-shaped first: the hardest in Foundations (Elliott, 27 Nov 2026) */
   /* the plank film itself covers the variations (Elliott, 27 Nov 2026); ex: points at a drill's
      explainer in DRILL_EXPLAIN, so a plank explainer shows here the day it is added there */

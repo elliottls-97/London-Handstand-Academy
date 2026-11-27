@@ -9206,12 +9206,20 @@ function cpSupportIds(c){
   return Array.isArray(c.support) ? c.support : ((typeof CP_SUPPORT!=='undefined' && CP_SUPPORT[c.k]) || []);
 }
 function cpSupport(c){
-  return cpSupportIds(c).filter((v,i,a)=>a.indexOf(v)===i && !/^ex:/.test(v) && drillById(v));
+  return cpSupportIds(c).filter((v,i,a)=>a.indexOf(v)===i && !/^(ex|art):/.test(v) && drillById(v));
 }
 /* 'ex:crow-pose' is a drill's own explainer film in place of drills (crow
    pose, 27 Nov 2026): the same Watch it here line the drill page has */
 function cpSupportHTML(c){
-  const exs=cpSupportIds(c).filter(v=>/^ex:/.test(v)).map(v=>drillExHTML(v.slice(3))).join('');
+  const exs=cpSupportIds(c).filter(v=>/^ex:/.test(v)).map(v=>drillExHTML(v.slice(3))).join('')
+    /* 'art:fall-out-of-a-handstand-safely' is a Learn article, opened in the
+       app's reader (Fear of falling, Elliott 27 Nov 2026) */
+    + cpSupportIds(c).filter(v=>/^art:[a-z0-9-]+$/.test(v)).map(v=>{
+        const path='/learn/'+v.slice(4), a=(typeof LEARN_ARTS!=='undefined' ? LEARN_ARTS : []).find(x=>x.art===path);
+        if(!a) return '';
+        return `<button class="dex" onclick="event.stopPropagation();fxReadOpen(${jsq(path)},${jsq(a.t)})">
+          <span class="dex-p" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2z"/><path d="M4 21V5"/></svg></span>
+          <span class="dex-t">${esc(a.t)}<b>Read it here</b></span></button>`; }).join('');
   /* the check point's own film is already above the row, so not again in it
      (sessions still lean on it through cpSupport) */
   const list=cpSupport(c).filter(v=>v!==c.demo); if(!list.length) return exs ? `<div style="margin-top:4px">${exs}</div>` : '';
