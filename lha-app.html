@@ -373,6 +373,10 @@ body{margin:0;background:#fcfcfc;font-family:var(--sans);color:var(--ink);
  -webkit-backdrop-filter:blur(22px) saturate(180%)}
 .hcap{display:flex;align-items:stretch;gap:6px;padding:6px;margin-top:22px;border-radius:999px;background:#fff;
  border:1px solid rgba(29,85,102,.10);box-shadow:0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
+/* the free ladder's pill lifts a little more off the page: it holds the two
+   things a new person needs (Elliott, 27 Nov 2026) */
+.hcap:not(.hcap-c){border-color:rgba(29,85,102,.14);box-shadow:0 2px 4px rgba(29,85,102,.06),0 14px 32px rgba(29,85,102,.16)}
+.hcap:not(.hcap-c) .hcap-cp,.hcap:not(.hcap-c) .hcap-go{min-height:60px}
 .hcap-cp{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:10px;padding:0 6px 0 12px;border:0;border-radius:999px;min-height:56px;
  cursor:pointer;text-align:left}
 .hcap-cp>span{display:flex;flex-direction:column;line-height:1.15;min-width:0}
@@ -1203,6 +1207,16 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  cursor:pointer;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .ls-fig{display:flex;justify-content:center;align-items:flex-end;border-bottom:2px solid rgba(29,85,102,.14)}
 .ls-g{display:flex;transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+/* the stage after yours, filling with the check points reached (27 Nov 2026) */
+.ls-fillg{position:relative}
+.ls-fill{position:absolute;left:0;right:0;bottom:0;overflow:hidden;pointer-events:none;transition:height .7s cubic-bezier(.2,.8,.2,1)}
+.ls-fill>span{position:absolute;left:0;bottom:0;display:flex;color:#e8962f}
+.ls-badge{position:absolute;top:-9px;right:-9px;z-index:1;padding:3px 6px;border-radius:999px;background:#fff;border:1px solid rgba(232,150,47,.6);
+ font:700 10px/1 var(--sans);color:#8a5a12;pointer-events:none}
+.ls-run.ls-ph .ls-fill,.ls-run.ls-ph .ls-badge{animation:lsFillIn .4s ease calc(2400ms + var(--ls-off,0ms)) both}
+@keyframes lsFillIn{from{opacity:0}to{opacity:1}}
+.ls-say{margin:12px 0 0;font:400 14px/1.45 var(--sans);color:var(--grey)}
+.ls-say b{font-weight:700;color:var(--ink)}
 .ls-fig .lw-fig{width:49px;height:64px;animation:none}
 .ls-step:active .ls-g{transform:scale(.92)}
 .ls-n{display:block;text-align:center;margin-top:6px;font:600 10px/12px var(--sans);color:var(--grey);
@@ -21626,7 +21640,8 @@ function climbCardHTML(cs, S, P, x){
 `}
     <!-- the name of the ladder and the stage under the six figures, not over
          them (Elliott, 9 Nov 2026) -->
-    ${(x.film || (wide()&&x.row))?'':`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:12px">
+    ${(x.film || (wide()&&x.row))?'' : lsSays() ? (()=>{ const P=cpProgress(curStage());
+        return `<p class="ls-say">${lsSayHTML(P.met, P.of)}</p>`; })() : `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-top:12px">
       <span class="kick2" style="color:var(--forest)">${isMU()?'THE MUSCLE UP LADDER':'THE LADDER'}</span>
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--grey)">${(typeof needsLevel==='function' && needsLevel()) ? 'FIND YOUR LEVEL' : 'STAGE '+((clearShowing()!=null?clearShowing():cs)+1)+' OF '+n}</span></div>`}
     ${x.film||''}
@@ -21991,7 +22006,8 @@ function cpRingRun(el){
     if(tick){ if(tickT<0) tick.hidden=true; else { tick.hidden=false;
       tick.style.transform='scale('+(tickT<.7?1.18*(tickT/.7):1.18-.18*((tickT-.7)/.3)).toFixed(3)+')';
       tick.style.background=hex(lerp([243,169,73],[214,140,16],doneMix)); } }
-    if(num && S.count!=null) num.textContent=cpCountWords(S.count, S.total||of);
+    if(num && S.count!=null){ num.textContent=cpCountWords(S.count, S.total||of);
+      if(!coachedView() && window._lsMet!==S.count){ window._lsMet=S.count; lsFillPaint(S.count, S.total||of); } }
   };
   const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
     const t0=+svg.dataset.t0||performance.now();
@@ -22073,7 +22089,8 @@ function cpCountWords(met, of){
   /* free: what the count is for, in the pill (Elliott, 15 Nov 2026) */
   if(coachedView()) return met+' of '+of+' done · '+(of-met)+' to go';
   const i=clearShowing()!=null ? clearShowing() : curStage();
-  return met+' of '+of+(STAGES[i+1] ? ' to climb' : ' to finish');
+  /* "4 to Wall Work": what is left, and where it takes you (27 Nov 2026) */
+  return STAGES[i+1] ? (of-met)+' to '+STAGES[i+1].n : met+' of '+of+' to finish';
 }
 function capsuleHTML(go, label, pillOnly){
   window._capArgs=[go, label];
@@ -25596,6 +25613,29 @@ function lsRunSync(arrived){
   const el=now-lsT0;
   if(el<3300){ s.classList.add('ls-run'); if(lsPh) s.classList.add('ls-ph'); s.style.setProperty('--ls-off', (-Math.round(el))+'ms'); }
 }
+/* whether the strip shows the next stage filling: the free ladder, placed,
+   with a stage above and check points to reach */
+function lsFills(){
+  if(coachedView() || isMU() || clearShowing()!=null) return false;
+  if(typeof needsLevel==='function' && needsLevel()) return false;
+  const cur=curStage(); if(!STAGES[cur+1]) return false;
+  const P=cpProgress(cur); return P.of>0;
+}
+/* all reached, the strip's own line or the stage cleared sheet says so */
+function lsSays(){ if(!lsFills()) return false; const P=cpProgress(curStage()); return P.met<P.of; }
+/* the line under the strip that says it, and the same numbers on the figure;
+   repainted with the pill's count as a check point is ticked */
+function lsSayHTML(met, of){
+  const nx=(STAGES[curStage()+1]||{}).n||'';
+  return met>=of ? `<b>All ${of} check points reached.</b> ${esc(nx)} is next.`
+    : `<b>${met} of ${of} check points.</b> ${esc(nx)} fills in as you reach them.`;
+}
+function lsFillPaint(met, of){
+  if(!of) return;
+  document.querySelectorAll('.ls-fill').forEach(el=>{ el.style.height=Math.round(Math.min(1,met/of)*100)+'%'; });
+  document.querySelectorAll('.ls-badge').forEach(el=>{ el.textContent=met+'/'+of; });
+  document.querySelectorAll('.ls-say').forEach(el=>{ el.innerHTML=lsSayHTML(met, of); });
+}
 function ladderStripHTML(o){
   o=o||{};
   /* while a stage is being cleared, the ladder still shows it as where you
@@ -25615,11 +25655,15 @@ function ladderStripHTML(o){
     /* green behind you, amber where you are, grey teal ahead; a stage
        finished and stayed on goes green with the amber still under it */
     const done = i<cur, now = i===cur, next = false;
-    const col = done || (now && earned && clearShowing()==null) ? 'var(--forest)' : now ? '#e8962f' : lwAhead(i);
+    /* the stage after yours fills with amber as its check points are reached,
+       so the ladder itself says what moves you up (Elliott, 27 Nov 2026:
+       Claude Design direction B) */
+    const fill = lsFills() && i===cur+1;
+    const col = done || (now && earned && clearShowing()==null) ? 'var(--forest)' : now ? '#e8962f' : fill ? '#a3c8d1' : lwAhead(i);
     return `<button class="ls-step${now?' now':''}" onclick="lwPick(${i})" style="--i:${i}" aria-expanded="${lwPopI===i}"
-      aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}">
+      aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}${fill?', '+P.met+' of '+P.of+' check points reached':''}">
       <span class="ls-fig"><span
-        class="ls-g${next?' ls-next':''}" style="color:${col}">${lwFigSVG(i,1)}</span></span>
+        class="ls-g${next?' ls-next':''}${fill?' ls-fillg':''}" style="color:${col}">${lwFigSVG(i,1)}${fill?`<span class="ls-fill" style="height:${Math.round(P.met/P.of*100)}%" aria-hidden="true"><span>${lwFigSVG(i)}</span></span><span class="ls-badge" aria-hidden="true">${P.met}/${P.of}</span>`:''}</span></span>
       <span class="ls-n" style="${now||next?'color:var(--ink);font-weight:700':done?'color:var(--forest)':''}">${LW_BREAK[S.n]||esc(S.n)}</span>
     </button>`; }).join('');
   /* where the free part ends, and the way into the rest */
