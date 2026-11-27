@@ -19752,11 +19752,12 @@ function profilePct(){
    ends the questions, so a beginner answers one or two and someone working
    on a press answers five. */
 const SKILLS=[
+  /* the kick up first, then the L (Elliott, 27 Nov 2026) */
+  {k:'kick', q:'Can you kick up to the wall?', d:'Back to the wall, both feet up, on your own, most times you try.',
+   demo:'wall-kick-ups', t:'2s', o:[[1,'Yes, I can'],[0,'Not yet']]},
   {k:'l', q:'Can you hold an L‑shaped handstand?', d:'Hands down, feet up on a box or the wall, for 30 seconds.',
    demo:'p-l-handstand', t:'4s', o:[[2,'Yes, and I am stacked','Hips right over my hands'],
      [1,'Yes, but not stacked','Hips still behind my hands'],[0,'Not yet','Or I have never tried one']]},
-  {k:'kick', q:'Can you kick up to the wall?', d:'Back to the wall, both feet up, on your own, most times you try.',
-   demo:'wall-kick-ups', t:'2s', o:[[1,'Yes, I can'],[0,'Not yet']]},
   {k:'ctw', q:'How long can you hold chest-to-wall?', d:'Walked up, belly to the wall, hands close to it, arms straight.',
    demo:'chest-to-wall-handstand', t:'2s', o:[[0,'Not yet'],[1,'I can\'t get all the way to the wall'],
      [2,'I can hold it for 5 to 20 seconds'],[3,'I can hold it for more than 20 seconds']]},
@@ -19796,12 +19797,15 @@ function quizLadder(v){
 function skillNext(s){
   s=s||{};
   if(muGoal()) return MU_SKILLS.findIndex(q=>s[q.k]==null);
-  if(s.l==null) return 0;
-  if(!s.l) return -1;
-  if(s.kick==null) return 1;
+  if(s.kick==null) return 0;
   if(!s.kick) return -1;
+  if(s.l==null) return 1;
+  if(!s.l) return -1;
   if(s.ctw==null) return 2;
   if(s.ctw<3) return -1;
+  /* an L that is not stacked goes no further than Wall Work, so nothing
+     after chest-to-wall can change where they start (Elliott, 27 Nov 2026) */
+  if(s.l===1) return -1;
   if(s.tuck==null) return 3;
   if(s.tuck<2) return -1;
   if(s.free==null) return 4;
@@ -19826,6 +19830,8 @@ function skillStage(s){
   else if(s.tuck==null || s.tuck<2) at=2;
   else if(s.free==null || s.free<2) at=3;
   else at=4;
+  /* the shoulders not stacked in the L: Wall Work at most (27 Nov 2026) */
+  if(s.l===1) at=Math.min(at, 1);
   const top=STAGES.reduce((m,S,i)=>S.soon?m:i, 0);
   return Math.min(top, at);
 }
@@ -19847,11 +19853,12 @@ function skillLine(a){
   }
   const s=(a&&a.skills)||null;
   if(!s || skillNext(s)>=0) return '';
-  if(!s.l) return 'Not upside down yet. Foundations starts from zero.';
-  if(!s.kick) return 'An L-shape, and kicking up to the wall is next.';
+  if(!s.kick) return 'Not kicking up to the wall yet. Foundations builds to it.';
+  if(!s.l) return 'Kicking up, and the L-shaped handstand is next.';
   if(!s.ctw) return 'Kicking up, and chest-to-wall is next.';
   if(s.ctw===1) return 'Kicking up, and not all the way to the wall on chest-to-wall yet.';
   if(s.ctw===2) return 'Chest-to-wall for 5 to 20 seconds.';
+  if(s.l===1) return 'More than 20 seconds on the wall, with the shoulders still to stack in the L.';
   if(!s.tuck) return 'More than 20 seconds on the wall, and tuck slides are next.';
   if(s.tuck===1) return 'Tuck slides, with the shoulders still to stack.';
   if(!s.free) return 'Tuck slides with the shoulders stacked, and not freestanding yet.';
