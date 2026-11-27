@@ -18005,7 +18005,8 @@ const awaitingBlock = () => !!st.coached && !hasPlan() && st.tier!=='check';
 function joinSteps(){
   const a=intake(), cps=st.obCps||[];
   const tested=cps.filter(c=>cpLast(c.k)).length;
-  const qDone=!!a.goal && a.level!=null;
+  /* the goal is no longer asked in the quiz (27 Nov 2026), so where they are is enough */
+  const qDone=a.level!=null;
   return [
     {k:'in', t:'You\u2019re in', short:'Coaching starts today.', done:true},
     /* optional (Elliott, 18 Oct 2026): the App Store app is coming, so the
@@ -20028,8 +20029,10 @@ const INTAKE_STEPS=[
      view with nothing more to answer; the app carries on to the goal */
   {id:'how',   kick:'HOW YOU TRAIN',  q:'How do you want to train?',
    sub:'You can switch any time in the menu.'},
+  /* taken out for now (Elliott, 27 Nov 2026); the code that asks it is all
+     still here, so putting this line back brings it back:
   {id:'goal',  kick:'WHAT YOU WANT',  q:'What are you here to achieve?',
-   sub:'This shapes how I explain things, not where you start.'},
+   sub:'This shapes how I explain things, not where you start.'}, */
   {id:'level', kick:'WHERE YOU ARE',  q:'Tell us about your handstand.',
    sub:'This is the one that sets your stage.'},   /* asked as SKILLS, one at a time */
   /* Elliott's decision (24 Sept): the last question was "anything sore",
@@ -20112,15 +20115,16 @@ function quizCount(){
   const n = skillNext(s);
   const others = INTAKE_STEPS.length-1;
   let skills, at, open=false;
-  /* how they train comes first (28 Oct 2026), so the goal is the second */
-  if(step.id==='how'){ skills=SK.filter(q=>!skip(q)).length; at=1; open=true; }
-  else if(step.id==='goal'){ skills=SK.filter(q=>!skip(q)).length; at=2; open=true; }
-  else if(step.id==='level'){
-    if(n<0){ skills=asked; at=2+asked; }
-    else { skills=asked+SK.slice(n).filter(q=>!skip(q)).length; at=2+asked+1; open=true; }
-  } else {
+  /* counted from where the steps sit, not fixed numbers: the goal question
+     came out (27 Nov 2026) and the count jumped from 1 to 3 */
+  const lv=INTAKE_STEPS.findIndex(x=>x.id==='level'), before=lv<0?0:lv;
+  if(step.id==='level'){
+    if(n<0){ skills=asked; at=before+asked; }
+    else { skills=asked+SK.slice(n).filter(q=>!skip(q)).length; at=before+asked+1; open=true; }
+  } else if(lv>=0 && i<lv){ skills=SK.filter(q=>!skip(q)).length; at=i+1; open=true; }
+  else {
     skills=Math.max(1, asked);
-    at=1+skills+INTAKE_STEPS.slice(0,i).filter(x=>x.id!=='goal'&&x.id!=='level').length+1;
+    at=skills+INTAKE_STEPS.slice(0,i).filter(x=>x.id!=='level').length+1;
   }
   return {at, of:others+skills, open};
 }
