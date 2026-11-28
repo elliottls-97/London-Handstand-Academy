@@ -213,6 +213,27 @@ async function wsCreditIssue(b, w) {
   }
   return { code, until: until.toISOString() };
 }
+/* ── the class pass (Elliott, 28 Nov 2026) ─────────────────────────
+   Three classes for £50, any of them, booked when it suits, within three
+   months. It is a code like a credit, good for three places: the booking
+   page already takes it, each booking spends one, and a £0 booking needs
+   no card. Filed once per checkout, so Stripe sending it twice makes one. */
+const WS_PASS = { n: 3, pence: 5000, months: 3 };
+async function wsPassIssue(e, name, cs) {
+  let code = '', fresh = false;
+  await changeSetting(`classpass:${cs}`, cur => { if (cur && cur.code) { code = cur.code; return undefined; } fresh = true; return { e, at: Date.now() }; });
+  if (!fresh) return { code, fresh: false };
+  const until = new Date(); until.setMonth(until.getMonth() + WS_PASS.months);
+  for (let i = 0; i < 6 && !code; i++) {
+    const c = 'PASS-' + newId().replace(/[^A-Za-z0-9]/g, '').slice(-5).toUpperCase();
+    await changeSetting('wscodes', cur => { const all = Object.assign({}, cur || {}); if (all[c]) return undefined;
+      all[c] = { place: true, pct: 0, pence: 0, max: WS_PASS.n, until: until.toISOString(), workshop: '', kind: '', for: '', pass: true,
+        note: `Class pass: ${String(name || e || '').slice(0, 40)}`.slice(0, 80), used: 0 };
+      code = c; return all; }).catch(() => {});
+  }
+  await changeSetting(`classpass:${cs}`, cur => Object.assign({}, cur || {}, { code, until: until.toISOString() })).catch(() => {});
+  return { code, until: until.toISOString(), fresh: true };
+}
 /* An early bird (15 Oct 2026). price is what a class costs now; early.then
    is what it goes up to at early.until. The first request after that moment
    writes the new price in, and the daily run reads it the same way, so every
@@ -1863,7 +1884,7 @@ function newsParas(body) {
 const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
   'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg',
   /* the Advent challenge, from its page (28 Nov 2026) */
-  'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
+  'app-screens-2026-11.jpg', 'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
 const NEWS_REVIEWS = [
   { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
@@ -5033,6 +5054,21 @@ const handle = async (request) => {
        Marks them paid, adds the two video replies as form check credits
        and opens the Ladder until a week after the end. Filed once per
        checkout, so Stripe sending it twice does not give four replies. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.classpass) {
+      if (!csPaid(obj) || !e) return json({ ok: true, note: 'class pass payment pending' });
+      const nm = String(obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
+      const p = await wsPassIssue(e, nm, obj.id);
+      if (p.fresh && p.code) {
+        const till = new Date(p.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });
+        await email(e, `Your class pass: ${p.code}`, mail({ title: 'Your class pass.', greeting: nm.split(' ')[0] || '',
+          paras: [`Three classes, any of them, until <b>${esc(till)}</b>.`,
+            `Your code is <b style="font-size:20px;letter-spacing:.06em">${esc(p.code)}</b>. Pick a date on the class page, type the code where it asks for one, and the place is yours with nothing to pay. Each booking uses one of the three.`],
+          cta: { href: `${SITE}/handstand-class?src=pass#book`, label: 'Book a class' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => {});
+        await coachAlert(null, 'business', { title: 'Class pass: ' + (nm || e), body: '£' + ((Number(obj.amount_total) || 0) / 100).toFixed(2) + ' · ' + p.code, tag: 'pass:' + e }).catch(() => {});
+      }
+      return json({ ok: true, classpass: p.code || '' });
+    }
     if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.challenge) {
       if (!csPaid(obj) || !e) return json({ ok: true, note: 'challenge payment pending' });
       const cfg = await chCfg();
@@ -7225,6 +7261,29 @@ const handle = async (request) => {
      checkout lasts a day and the email may be opened in a week. Each click
      makes a fresh checkout for the plan and sessions the coach agreed, with
      their email already filled in. */
+  /* the class pass checkout: from the after class email (a signed link that
+     fills in their email) or the class page (28 Nov 2026) */
+  if (path === '/classpass' && request.method === 'GET') {
+    const back = Response.redirect(`${url.origin}/handstand-class?src=pass`, 302);
+    if (!stripeKey()) return back;
+    const tk = await verify(String(url.searchParams.get('t') || '')).catch(() => null);
+    const pe = tk && tk.k === 'pass' && tk.e ? norm(tk.e) : '';
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(WS_PASS.pence),
+        'line_items[0][price_data][product_data][name]': `Class pass: any ${WS_PASS.n} classes in ${WS_PASS.months} months`,
+        'line_items[0][quantity]': '1',
+        'metadata[classpass]': '1', 'metadata[src]': String(url.searchParams.get('src') || 'site').replace(/[^a-z0-9-]/gi, '').slice(0, 20),
+        ...(pe ? { customer_email: pe, client_reference_id: pe } : {}),
+        'custom_text[submit][message]': `Your code comes by email straight away. Use it for any ${WS_PASS.n} classes until three months from today.`,
+        success_url: `${url.origin}/handstand-class?pass=done#book`,
+        cancel_url: `${url.origin}/handstand-class?src=pass`,
+      });
+      return Response.redirect(sess.url, 303);
+    } catch (err) { console.warn('class pass', err && err.message); return back; }
+  }
   if (path === '/start' && request.method === 'GET') {
     const t = String(url.searchParams.get('t') || '').replace(/[^a-z0-9]/gi, '').slice(0, 40);
     const L = t ? await getSetting(`startl:${t}`) : null;
@@ -8978,6 +9037,10 @@ const handle = async (request) => {
     const roster = new Set(rosterList().map(c => norm(c.email)));
     const day = new Date(ms(w.when)).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Europe/London' });
     const saved = (await getSetting('emails')) || {};
+    const passSave = (Number((coming[0] && coming[0].w.price) || w.price) || 0) * WS_PASS.n - WS_PASS.pence;
+    const chc = await chCfg().catch(() => ({ start: CH.start, days: CH.days }));
+    const adventEnd = Date.parse(chc.start + 'T00:00:00Z') + chc.days * DAY;
+    const adventWhen = Date.now() < Date.parse(chc.start + 'T00:00:00Z') ? '1 to 24 December · Free' : 'On now, until Christmas Eve · Free';
     const make = async (t) => {
       const T = renderEmail('wsThanks', { name: esc(t.first), title: esc(w.title), day: esc(day), review_line: '', app_line: '' }, saved);
       const pitch = !roster.has(t.email) && (await wantsEmail(t.email, 'offers'));
@@ -8989,7 +9052,12 @@ const handle = async (request) => {
           return { day: d0, time: tt.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
             price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.cap, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
         }),
-        more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
+        more: `${SITE}/handstand-class`, offers: pitch ? prices : null,
+        /* the class pass, with their email already in (28 Nov 2026) */
+        pass: { href: `${SITE}/api/app/classpass?src=classmail&t=${await sign({ k: 'pass', e: t.email, exp: Date.now() + 60 * DAY })}`, n: WS_PASS.n, months: WS_PASS.months,
+          price: wsPounds(WS_PASS.pence), save: passSave > 0 ? wsPounds(passSave) : '' },
+        /* the Advent challenge, until its last door */
+        advent: Date.now() < adventEnd ? { href: `${SITE}/advent?src=classmail`, when: adventWhen } : null });
       return { T, M };
     };
     if (only && !to.length) return json({ error: had.length ? 'They have had the thank you for this class already' : 'They are not booked on this class, or are marked No show' }, 400);
@@ -10599,7 +10667,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const M = key === 'wsThanks'
         ? afterClassEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: `${SITE}/review`,
             /* no photo on the thank you (Elliott, 7 Nov 2026) */ headshot: '/assets/site/coach-elliott-headshot.jpg',
-            preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }] })
+            preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }],
+            pass: { href: `${SITE}/api/app/classpass?src=classmail`, n: WS_PASS.n, months: WS_PASS.months, price: wsPounds(WS_PASS.pence) },
+            advent: Date.now() < Date.parse(CH.start + 'T00:00:00Z') + CH.days * DAY ? { href: `${SITE}/advent?src=classmail` } : null })
         : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/?src=workshop#apply`,
             photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand' }, headshot: '/assets/site/coach-elliott-headshot.jpg', preheader: '' });
       html = M.html.replace(/(src|href)="\//g, `$1="${SITE}/`);
