@@ -11038,10 +11038,14 @@ function climbTap(btn){
      fold: nothing above it moves. */
   lc.querySelectorAll('.lc-r.open').forEach(o=>{
     const above = o!==r && (o.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING);
-    if(!above || !sc || was===k){ rungShut(o, still); return; }
+    if(!above || was===k){ rungShut(o, still); return; }
     const y0=r.getBoundingClientRect().top;
     rungShut(o, true);
-    sc.scrollTop += r.getBoundingClientRect().top - y0;
+    /* whichever is doing the scrolling, the page or the screen's own box:
+       when the page scrolls, moving the box did nothing and the pressed
+       rung jumped up by the height of the one that closed */
+    const dy=r.getBoundingClientRect().top - y0;
+    if(sc && sc.scrollHeight>sc.clientHeight+1) sc.scrollTop += dy; else window.scrollBy(0, dy);
   });
   if(was===k){ lcOpen[use]=null; return; }
   lcOpen[use]=k;
@@ -11061,13 +11065,13 @@ function climbTap(btn){
      now, at its full height, rather than after it had grown: it grew
      for a third of a second and then the page flew half a screen to
      catch up, two movements where there should be one. */
-  let by=0;
-  if(sc){
-    const box=r.getBoundingClientRect(), view=sc.getBoundingClientRect();
-    const floor=view.bottom - (document.querySelector('.tabbar') && !wide() ? 96 : 16);
-    const ceil=view.top + (wide() ? 16 : 80);
-    by=Math.max(0, Math.min(box.bottom-floor, box.top-ceil));
-  }
+  /* The page stays where it is: the rung opens downwards under the finger
+     and nothing moves (Elliott, 28 Nov 2026: "when I click on a checkpoint
+     it still is pulling it up so I can't see the name of the checkpoint,
+     everything should stay in place when I open and close"). It used to
+     scroll so the whole open rung fitted, which slid the name up under
+     the header. */
+  const by=0;
   if(still || typeof requestAnimationFrame!=='function'){
     if(by) sc.scrollTop += by;
     climbFit(lc); return;
