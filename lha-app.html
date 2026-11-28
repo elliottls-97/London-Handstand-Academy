@@ -8839,6 +8839,8 @@ function pressStripHTML(){
         <span class="pr-f${x.held?'':' ok'}">${x.lim ? (x.held ? esc(x.lim.n) : x.strong ? 'Strong' : 'In place') : ''}</span></button>`).join('')}</div>
     <p class="pr-say">${say}</p></div>`;
 }
+/* the pill on Press says what the strip says: parts in place, of eight */
+const pressInPlaceN = () => PRESS_LADDERS.filter(pressInPlace).length;
 function pressStepCardHTML(){
   if(!pressStepsOn()) return '';
   const x=pressStepState(PRESS_STEPS[Math.max(0, Math.min(PRESS_STEPS.length-1, prStep))]), S=x.S, P=x.lim;
@@ -22841,13 +22843,14 @@ function capsuleHTML(go, label, pillOnly){
      never has to be open to say it (Elliott, 27 Nov 2026: "have a
      checkpoint or 2 open so its always clear without everything being open") */
   const pk = (!on && !pillOnly && !coachedView() && !wide() && !openTall() && clearShowing()==null
-      && !(typeof needsLevel==='function' && needsLevel()) && P.of>0 && P.met<P.of) ? cpListHTML(cs, 2) : '';
+      && !(typeof needsLevel==='function' && needsLevel()) && P.of>0 && P.met<P.of
+      && !(typeof pressStepsOn==='function' && pressStepsOn())) ? cpListHTML(cs, 2) : '';
   return `${(exp||pk)?`<div class="hexp${pk?' hexp-pk':''}${grow?' unfold':''}">`:''}<div class="hcap${on?' hcap-stick':''}${coachedView()?' hcap-c':''}"${on?` style="top:${wide()?'12px':'calc(env(safe-area-inset-top) + 74px)'}"`:''}>
       <button class="hcap-cp" onclick="homeCps()" aria-expanded="${on}"
         aria-label="Check points, ${P.of?P.met+' of '+P.of+(P.met>=P.of?', all reached':''):'on their way'}${fbN?', '+fbN+' new from '+esc(coachLabel()):''}"
         style="background:${(P.of&&P.met>=P.of)?'#fef3d4':'#fdf8f0'}">
         ${P.of?cpRingMark(P, coachedView()?'c':'s'+cs):''}
-        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${P.of ? cpCountWords(P.met, P.of) : 'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
+        <span><b>Check points</b><small><i class="cpr-tk" ${(P.of&&P.met>=P.of)?'':'hidden'} aria-hidden="true"><svg width="10" height="10" viewBox="0 0 14 14"><path d="M2.5 7.5l3 3 6-7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></i><em id="hcapN">${(typeof pressStepsOn==='function' && pressStepsOn()) ? pressInPlaceN()+' of '+PRESS_LADDERS.length+' parts in place' : P.of ? cpCountWords(P.met, P.of) : 'On their way'}</em></small>${fbN?`<span class="hcap-fb"><b aria-hidden="true"></b><span>${fbN} new<i> from ${esc(coachLabel())}</i></span></span>`:''}</span></button>
       <button data-tour="${coachedView()?'session':'buildsession'}" class="hcap-go" onclick="${go}"${coachedView()?` aria-label="${esc(String(label).replace(/<[^>]+>/g,''))}" title="${esc(String(label).replace(/<[^>]+>/g,''))}"`:''}><em class="hcap-gl" style="font-style:normal">${label}</em>
         <span><svg width="14" height="16" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0
           1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"></path></svg></span></button>
@@ -24560,8 +24563,11 @@ function screenHome(){
      main page") */
   const prOn = pressStepsOn() && typeof PRESS_WORKOUTS!=='undefined';
   const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressStripHTML()+pressQuizPromptHTML()+pressStepCardHTML()+(cpDayCardHTML(true) || '<span hidden></span>')+(prOn?'':pressWorkoutsHTML()))
-    : (()=>{ const cap=pressStripHTML()+pressQuizPromptHTML()+capsuleHTML(prOn ? 'pressStart()' : `startDay(${_cellIdx},'full')`, prOn ? 'Start session<small class="hcap-gsub">Pick a press workout</small>' : startLabel, W);
-        return cap+pressStepCardHTML()+(cpTestDue() ? '' : cpDayCardHTML(true))+(prOn?'':pressWorkoutsHTML()); })();
+    : (()=>{ const cap=capsuleHTML(prOn ? 'pressStart()' : `startDay(${_cellIdx},'full')`, prOn ? 'Start session<small class="hcap-gsub">Pick a press workout</small>' : startLabel, W);
+        /* Press (Elliott, 28 Nov 2026: "three versions still there"): the
+           strip, the step it opens straight under it, then Start */
+        if(prOn) return pressStripHTML()+pressQuizPromptHTML()+pressStepCardHTML()+cap;
+        return pressQuizPromptHTML()+cap+(cpTestDue() ? '' : cpDayCardHTML(true))+pressWorkoutsHTML(); })();
   const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="${(pressStepsOn() && typeof PRESS_WORKOUTS!=='undefined') ? 'pressStart()' : `startDay(${_cellIdx},'full')`}">
       <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
       <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>` : '';
@@ -24610,7 +24616,7 @@ function screenHome(){
     ${needsLevel() ? levelFirstHTML() : ''}
     ${trialPending() ? firstPlacedHTML() : needsLevel() ? `<div class="unplaced">${homeLadderHTML(homeRow)}</div>` : homeLadderHTML(homeRow)}
     ${/* the fortnight's check point test, under the ladder's own card (Elliott, 28 Nov 2026: "checkpoint test moves down") */''}
-    ${(!W && !trialPending() && !needsLevel()) ? (c=>c?`<div style="padding:12px 20px 0">${c}</div>`:'')(cpTestCardHTML()) : ''}
+    ${(!W && !trialPending() && !needsLevel() && !pressStepsOn()) ? (c=>c?`<div style="padding:12px 20px 0">${c}</div>`:'')(cpTestCardHTML()) : ''}
     ${skipCheckHTML()}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
