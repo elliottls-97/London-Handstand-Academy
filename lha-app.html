@@ -27170,9 +27170,12 @@ function harderDose(it){
   const o=Object.assign({}, it), d=String(it.d||'');
   const isS = t => /^\s*(s|sec|secs|seconds)\b/i.test(t);
   /* the amount, never the leading set count: "3 × 8" becomes "3 × 10" */
-  let nd=d.replace(/(^\s*\d+\s*(?:×|x|sets?\b)\s*(?:·\s*)?)(.*)$/i, (m, head, rest)=>
-    head + rest.replace(/(\d+)(?=([^\d]*))/g, (n, num, after)=>String(harderMore(Number(num), isS(after)))));
-  if(nd===d) nd=d.replace(/(\d+)(?=([^\d]*))/g, (n, num, after)=>String(harderMore(Number(num), isS(after))));
+  /* "20 to 30s" is seconds at both ends */
+  const more = t => t.replace(/(\d+)(\s*to\s*)(\d+)(\s*(?:s|sec|secs|seconds)\b)|(\d+)(?=([^\d]*))/gi,
+    (m, a, to, b, u, num, after)=> a!=null ? harderMore(Number(a), true)+to+harderMore(Number(b), true)+u
+                                           : String(harderMore(Number(num), isS(after))));
+  let nd=d.replace(/(^\s*\d+\s*(?:×|x|sets?\b)\s*(?:·\s*)?)(.*)$/i, (m, head, rest)=> head + more(rest));
+  if(nd===d) nd=more(d);
   o.d=nd;
   if(Number(it.amt)>0) o.amt=harderMore(Number(it.amt), it.unit==='s');
   return o;
@@ -27214,7 +27217,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      Take-Off drills. Harder is the same drills, the harder ones getting more
      of the session, and about a fifth more reps) */
   const ownWritten = wristDay ? null : bandFor(stage, stageLevel(stage));
-  const harderOfStd = !wristDay && !ownWritten && stageLevel(stage)===3 && !!bandFor(stage, 2);
+  /* every stage without its own Harder list, written Standard or not: Standard's pick, done harder */
+  const harderOfStd = !wristDay && !ownWritten && stageLevel(stage)===3;
   const written = harderOfStd ? bandFor(stage, 2) : ownWritten;
   /* their own warm-up, done before they pressed Go: none is built, and the time goes to the work */
   const warm = (wristDay || st.warmOwn) ? {items:[], secs:0} : warmupFor(budget, stage, written);
@@ -27272,7 +27276,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   const rowOf = v => poolRow(stage,v) || (stage>0 ? poolRow(stage-1,v) : null);
   const lvlOf = v => ((rowOf(v)||{}).L)||0;
   const grpOf = v => ((rowOf(v)||{}).g)||'';
-  const hard  = stageLevel(stage)===3;
+  const hard  = stageLevel(stage)===3 && !harderOfStd;
   /* their pushing, from the assessment: every push drill is theirs instead */
   const sp = (!wristDay && strPaid()) ? strPlan() : null;
   /* a level on a paid stage, on a free account: the stage's own push ups */
@@ -27304,7 +27308,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      sort order made Easier four drills on repeat. Picking by share and then
      spending the clock on sets is the thing that is both different and still
      a session. */
-  const mix   = mixFor(stage, stageLevel(stage));
+  const mix   = mixFor(stage, harderOfStd ? 2 : stageLevel(stage));
   const lvls  = Object.keys(mix).map(Number).sort((a,b)=>a-b);
   /* how many different drills. A short session is a spread of five to eight
      at one set each; a longer one has room for more of them and for the sets
