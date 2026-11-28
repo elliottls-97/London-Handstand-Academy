@@ -3846,7 +3846,7 @@ const MU_ON=(()=>{ try{ const q=new URLSearchParams(location.search).get('mu');
   return localStorage.getItem('lha_mu')==='1'; }catch(e){ return false; } })();
 const HS_DATA={STAGES:STAGES.slice(), POOL:Object.assign({},POOL), WEEK:Object.assign({},WEEK), CHECKPOINTS:Object.assign({},CHECKPOINTS)};
 const MU_DATA={STAGES:MU_STAGES, POOL:MU_POOL, WEEK:MU_WEEK, CHECKPOINTS:MU_CHECKPOINTS};
-const LADDER_ST=['stage','placed','freeChoice','lvl','rot','clearedFrom','cpRingSeen','climbSeen','planDay','ovStage','wantUpgrade'];
+const LADDER_ST=['stage','placed','freeChoice','lvl','rot','clearedFrom','cpRingSeen','climbSeen','planDay','ovStage','wantUpgrade','payFor'];
 const isMU=()=>LADDER_ON==='mu';
 function fillLadder(D){
   STAGES.length=0; D.STAGES.forEach(x=>STAGES.push(x));
@@ -17330,8 +17330,10 @@ function drawOv(){
        CSS animation whose resting style is the end state, so reduced
        motion shows where it ends with nothing moving. */
     const fi=st.clearedFrom||0, ti=fi+1, nx=STAGES[ti], locked=!moved && !!nx && !nx.soon;
+    /* placed higher by their answers: the amber goes to that stage (28 Nov 2026) */
+    const toFig = (!moved && nx && ansStage()>ti && STAGES[ansStage()] && !STAGES[ansStage()].soon) ? ansStage() : ti;
     const figs=STAGES.map((S,k)=>{
-      const isFrom=k===fi, isNext=k===ti && !!nx;
+      const isFrom=k===fi, isNext=k===toFig && !!nx;
       const col = k<fi ? 'var(--forest)' : isFrom ? 'var(--forest)' : isNext ? '#e8962f' : LW_AHEAD;
       return `<div class="clr-st${isFrom?' clr-from':''}${isNext?' clr-next':''}">
         <span class="clr-fig"><span class="clr-g" style="color:${col}">${lwFigSVG(k)}</span>${isFrom?Array.from({length:8},(_,q)=>
@@ -17378,6 +17380,19 @@ function drawOv(){
         <i aria-hidden="true"><svg width="15" height="17" viewBox="0 0 15 17"><path d="M2 1.5v14l11.5-7z" fill="#237f95"/></svg></i></button>`; })()
     : (nx && nx.soon) ? `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">${esc(nx.n)} is next, and it is being filmed now. It opens here as soon as it is ready; until then, keep ${esc(from.n)} sharp.</div>
       <button class="btn" style="width:100%;margin-top:20px" onclick="clearedEnd('green')">Keep training ${esc(from.n)}</button>`
+    : nx && ansStage()>fi+1 && STAGES[ansStage()] && !STAGES[ansStage()].soon ? (()=>{ const A=ansStage(), S=STAGES[A];
+      /* their answers put them further up than the next stage (Elliott, 28 Nov
+         2026, Angelica on Take-Off): that stage is the one offered */
+      return `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">Your answers put you on <b style="color:var(--ink)">${esc(S.n)}</b>. That is where your training is.</div>
+      <div style="margin-top:16px;border-radius:18px;padding:15px 18px;background:#f2e6d6">
+        <div style="font:700 10px/1 var(--sans);letter-spacing:.14em;color:#8a5a1e">WHAT IS NEXT</div>
+        <div style="font:400 15px/1.5 var(--sans);color:var(--ink);margin-top:8px">${esc(S.n)}. ${esc((S.goal||'').replace(/\.$/,''))}.</div>
+      </div>
+      ${sellsLadder()?`<button class="btn" style="width:100%;margin-top:16px" onclick="clearedEnd();st.ovStage=${A};startUpgrade()">${
+          trialDays>0 ? 'Try '+esc(S.n)+' free for '+(trialDays===7?'a week':trialDays+' days') : 'Open '+esc(S.n)+' for '+PRICE()+' a month'}</button>
+        ${trialDays>0?`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:8px">Then ${PRICE()} a month for the full Ladder. Cancel any time.</div>`:''}`
+        :`<div style="font:400 13px/1.4 var(--sans);color:var(--grey);text-align:center;margin-top:12px">${esc(S.n)} is ${MEMBERS}.</div>`}
+      <button class="btn2" style="width:100%;margin-top:10px" onclick="clearedStay()">Keep training ${esc(from.n)}</button>`; })()
     : nx ? `<div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);text-align:center;margin-top:14px">${esc(nx.n)} is next. You keep training ${esc(from.n)} until you open it.</div>
       <div style="margin-top:16px;border-radius:18px;padding:15px 18px;background:#f2e6d6">
         <div style="font:700 10px/1 var(--sans);letter-spacing:.14em;color:#8a5a1e">WHAT IS NEXT</div>
@@ -26218,7 +26233,8 @@ function cpEasySheetHTML(){
     <div class="cpe-sheet" id="cpeDemo">${cpeDemoHTML()}</div>
     <div id="cpeSay" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:10px">${ansStage()>cur?'Your answers put you on '+esc((STAGES[ansStage()]||{}).n||'')+'. ':''}Every check point you can do fills ${esc(STAGES[cur].n)}. Fill it and ${esc(nx.n||'the next stage')} opens.</div>
     <button class="btn" id="cpeGo" style="width:100%;margin-top:14px" onclick="cpeDone()">I am working on all of them</button>
-    <button class="btn2" style="width:100%;margin-top:9px" onclick="cpEasyAll()">I can do all ${n}: tick them off</button>`;
+    <button class="btn2" style="width:100%;margin-top:9px" onclick="cpEasyAll()">I can do all ${n}: tick them off</button>
+    <button onclick="cpEasyQuiz()" style="display:block;width:100%;margin:10px auto 0;border:0;background:none;color:var(--forest);font:600 14px/1.3 var(--sans);min-height:44px;cursor:pointer">These are way too easy: retake the starting quiz</button>`;
 }
 function cpeDemoHTML(){
   return `<div class="cpe-strip">${ladderStripHTML({})}</div>
@@ -26280,6 +26296,11 @@ function cpeDone(){
   left.forEach(c=>saveCheckpoint(c.k, c.kind==='face' ? 2 : c.kind==='yn' ? 1 : (Number(c.target)||0)));
   if(left.length) toast(left.length+' check point'+(left.length===1?'':'s')+' ticked off.'); else toast('They are in your sessions. Tick each one when you get there.');
   render();
+}
+/* way too easy: the quiz again, to be placed where they are (Elliott, 28 Nov 2026) */
+function cpEasyQuiz(){
+  st.cpEasyAns=Date.now(); save(); track('cpeasyquiz');
+  closeOv(); setTimeout(retakeIntake, 150);
 }
 function cpEasyAll(){
   const left=cpEasyLeft();
@@ -26660,6 +26681,8 @@ function codeResume(){
     .catch(()=>{});
 }
 function startUpgrade(){
+  /* the stage they were opening when they paid, so paying takes them there (28 Nov 2026) */
+  if(st.ovStage!=null && STAGES[st.ovStage] && !isMU()){ st.payFor=st.ovStage; save(); }
   if(!sells()){ st.ov=null; openOv(iapProduct?'iap':'members'); return; }
   const b=event&&event.target;
   /* no account, no subscription to attach — send them to sign up first.
@@ -26923,6 +26946,10 @@ function loadEntitlement(){
       if((st.in && !wasIn) || (st.coached && !wasCoached)){ loadProgramme(); loadProgress(); loadThread(); loadTrack(); loadState(); }
       /* still waiting for block one: ask whether it has been written */
       else if(st.coached && !st.in) loadProgramme();
+      /* the Ladder just opened: on to the stage they paid to open (Elliott, 28 Nov 2026:
+         Angelica would otherwise land back on Foundations and have to find Take-Off) */
+      if(!was && st.plus && !st.in && !isMU() && st.payFor!=null && STAGES[st.payFor] && !STAGES[st.payFor].soon && st.payFor>placedStage()){
+        st.stage=st.payFor; st.payFor=null; st.freeChoice=false; save(); try{ sendIntake(); }catch(e){} try{ saveState(); }catch(e){} }
       if(was!==st.plus || wasIn!==st.in || wasFC!==st.canCheck){ render(); loadSign(); }
       else if(wasTU!==st.trialUsed) render(); })
     .catch(()=>{});
