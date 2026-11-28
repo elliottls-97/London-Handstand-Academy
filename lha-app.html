@@ -8587,12 +8587,21 @@ function cpAim(c){
 function cpRow(it){
   const c=cpOfDrill(it&&it.v); if(!c) return '';
   const met=cpMet(c), aim=cpAim(c);
-  return `<div data-cpin="${esc(c.k)}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
-    <span style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;padding:5px 8px;border-radius:999px;
-      background:${met?'var(--forest)':'rgba(243,169,73,.22)'};color:${met?'var(--on-primary)':'#7a4a10'}">${met?'&check; CHECK POINT REACHED':'CHECK POINT'}</span>
-    ${aim&&!met?`<span style="font:600 12.5px/1 var(--sans);color:var(--grey)">target ${esc(aim)}</span>`:''}
-    ${!met&&aim?`<button onclick="event.stopPropagation();cpReach(${jsq(c.k)})" style="margin-left:auto;border:0;cursor:pointer;
-      border-radius:999px;padding:8px 12px;background:var(--forest);color:var(--on-primary);font:600 12px/1 var(--sans)">I got ${esc(aim)}</button>`:''}
+  /* said as what it is: a check point, its target, and one wide button that
+     ticks it off, where it was a small pill beside the target that read as
+     a label (Elliott, 28 Nov 2026: "make it clearer they are pressing that
+     they have achieved it") */
+  if(met) return `<div data-cpin="${esc(c.k)}" style="display:flex;align-items:center;gap:10px;margin-top:10px;padding:11px 14px;border-radius:14px;background:#fdf1dc;border:1px solid rgba(232,150,47,.5)">
+    <span style="flex:none;width:26px;height:26px;border-radius:50%;background:#e8962f;display:grid;place-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+    <span style="font:700 14px/1.25 var(--sans);color:#7a4a10">Check point reached${aim?': '+esc(aim):''}</span></div>`;
+  return `<div data-cpin="${esc(c.k)}" style="margin-top:10px;padding:12px 14px;border-radius:14px;background:rgba(243,169,73,.12);border:1px solid rgba(232,150,47,.4)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <span style="font:700 10px/1 var(--sans);letter-spacing:.12em;color:#7a4a10">CHECK POINT</span>
+      ${aim?`<span style="font:600 13px/1 var(--sans);color:#7a4a10">Target: ${esc(aim)}</span>`:''}</div>
+    ${aim?`<button onclick="event.stopPropagation();cpReach(${jsq(c.k)})" style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:48px;margin-top:10px;border:0;cursor:pointer;
+      border-radius:12px;background:linear-gradient(180deg,#2f93a9,#237f95);color:#fff;font:700 15px/1.2 var(--sans);box-shadow:0 6px 16px rgba(35,127,149,.25)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>I did it: tick off ${esc(aim)}</button>
+    <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px;text-align:center">${cpTestRun?'Not there today? Carry on. You log what you got at the end.':'Tap when you reach it. It counts towards the next stage.'}</div>`:''}
   </div>`;
 }
 function cpReach(k){
@@ -14854,22 +14863,43 @@ function showStep(){
        box and setting the class wholesale threw it away, which dropped
        the bar out of the film and left it lying across the bottom of the
        window looking like the browser's own. */
-    vw.classList.add('novideo');
-    const rv=vw.querySelector('video'); if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
-      const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; }
-    /* only preview a genuinely different drill — the line above already
-       names the next set of the current one */
+    /* the rest shows what is coming: the next set's film plays through it,
+       so they have watched it before they do it (Elliott, 28 Nov 2026: "open
+       up the next one in the rest and auto play"). The same element, so the
+       set that follows carries straight on. With no film, or no signal for
+       one not saved, the rest is as it was. */
     const nx=Q[qi+1];
+    const nf=(nx && nx.it && nx.it.url && !(navigator.onLine===false && !dlHas(uidOfUrl(nx.it.url)))) ? nx.it : null;
+    const rv=vw.querySelector('video');
+    if(nf && rv){
+      vw.classList.remove('novideo'); { const ph=vw.querySelector('.p-nofilm'); if(ph) ph.style.display='none'; }
+      rv.style.display=''; { const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display=''; }
+      rv.muted=!soundOn();
+      const src=filmSrc(nf.url);
+      if(rv.getAttribute('data-src')!==src){
+        vw.classList.toggle('tall', /^mu-/.test(String(nf.v||'')));
+        rv.setAttribute('data-src',src); delete rv.dataset.filmTried; rv.src=src;
+        const pu=uidOfUrl(nf.url); if(pu) rv.poster=streamThumb(pu); else rv.removeAttribute('poster');
+        delete rv.dataset.ccDone;
+        if(pu){ rv.setAttribute('data-cc',pu); attachCaptions(rv, pu); } else rv.removeAttribute('data-cc');
+      }
+      startFilm(rv);
+    } else {
+      vw.classList.add('novideo');
+      if(rv){ try{ rv.pause(); }catch(e){} rv.style.display='none';
+        const rb=vw.querySelector('.vp-bar'); if(rb) rb.style.display='none'; }
+    }
     const n=(nx && nx.it!==it) ? nx : null;
     body.innerHTML=`<span class="p-phase">Rest</span>
       <div class="p-main">
         <div class="p-repcol"><div class="p-repnum" id="p-repnum">${Math.round(left)}</div>
           <div class="p-repunit">remaining</div></div>
-        <div class="p-info"><h2 class="p-name">Rest</h2>
+        <div class="p-info"><h2 class="p-name">${nx ? 'Next: '+esc(nx.it.n) : 'Rest'}</h2>
           <div class="p-rule"></div>
           <div class="p-cues"><span class="cl">${
-            s.set<s.sets ? 'Next: set '+(s.set+1)+' of '+s.sets+' · '+esc(it.n)
-            : nx ? 'Next: '+esc(nx.it.n) : 'Last one done.'}</span></div></div>
+            s.set<s.sets ? 'Set '+(s.set+1)+' of '+s.sets+'. Watch it while you rest.'
+            : nx ? (nf ? 'Watch it while you rest.' : 'Coming up after the rest.') : 'Last one done.'}</span>${
+            (nx && nx.it!==it && nx.it.desc) ? `<b style="display:block;margin-top:8px">${esc(nx.it.desc)}</b>` : ''}</div></div>
       </div>
       ${upNextHTML()}`;
     $('#p-next').textContent='Skip rest →';
@@ -23893,7 +23923,7 @@ function screenHome(){
   const homeRow = trialPending() ? '' : W ? (cpDayCardHTML(true) || '<span hidden></span>')
     : (()=>{ const cap=capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W), k=cap.indexOf('<div class="hcps');
         /* straight under Start session, above the check points when they are open */
-        return cap+(cpTestCardHTML() || cpDayCardHTML(true)); })();
+        return cap+(cpTestDue() ? '' : cpDayCardHTML(true)); })();
   const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
       <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
       <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>` : '';
@@ -23940,6 +23970,8 @@ function screenHome(){
     ${!W && !needsLevel() && (fcProgress() || (!quizzed() && !st.coached)) && fcQuizCardHTML() ? '<div class="rise rise-1" style="padding:12px 20px 0">'+fcQuizCardHTML()+'</div>' : ''}
     ${needsLevel() ? levelFirstHTML() : ''}
     ${trialPending() ? firstPlacedHTML() : needsLevel() ? `<div class="unplaced">${homeLadderHTML(homeRow)}</div>` : homeLadderHTML(homeRow)}
+    ${/* the fortnight's check point test, under the ladder's own card (Elliott, 28 Nov 2026: "checkpoint test moves down") */''}
+    ${(!W && !trialPending() && !needsLevel()) ? (c=>c?`<div style="padding:12px 20px 0">${c}</div>`:'')(cpTestCardHTML()) : ''}
     ${skipCheckHTML()}
     ${/* check points on the left, the stage's films and reads on the right; Start
          above names today's session, so it has no card of its own (Elliott, 13 Nov 2026) */''}
