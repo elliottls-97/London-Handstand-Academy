@@ -13279,6 +13279,28 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     /* and once, ever, by email, to anybody on the free ladder who has never
        logged one (Elliott, 28 Nov 2026: 77 of 85 had not, and most have no
        notifications on). The same guards as any training email. */
+    /* each stage's check points as the app shows them: the shipped list from
+       ladder-data.js with the dashboard's own names, targets, order and
+       switched off ones laid over it, so the email names what is left on
+       the stage they are on (Elliott, 28 Nov 2026: "explain the ladder and
+       the checkpoints they have left to do, depending on the level") */
+    let LCP = null;
+    const cpGoal = c => { if (c.goal) return String(c.goal); const t = Number(c.target);
+      return c.kind === 'face' ? 'until it feels comfortable' : c.kind === 'yn' ? 'once'
+        : c.kind === 'secs' ? `hold ${t} seconds` : c.kind === 'rate' ? `${t} of 10 attempts`
+        : c.kind === 'breaks' ? `ten in ${t} goes or fewer` : /out of ten/i.test(c.note || '') ? `${t} of 10 attempts land`
+        : (c.unit ? `${t}${c.unit}` : `${t} reps`); };
+    const stageCps = async si => {
+      if (!LCP) { LCP = {};
+        try { const src = await fetch(`${SITE}/ladder-data.js`).then(r => r.ok ? r.text() : '').catch(() => '');
+          if (src) LCP.all = vm.runInNewContext(src + `\n;(typeof CHECKPOINTS !== 'undefined' ? CHECKPOINTS : null)`, { window: {}, console: { log() {}, warn() {}, error() {} } }, { timeout: 1500 });
+        } catch (err) { console.error('cptest ladder', String(err && err.message || err)); }
+        LCP.over = (await getSetting('ladder:checkpoints').catch(() => null)) || {}; }
+      const base = ((LCP.all || {})[si] || []).map(c => Object.assign({}, c)), o = LCP.over[String(si)] || {};
+      let list = base.map(c => Object.assign(c, (o.edit || {})[c.k] || {})).filter(c => !c.extra && !c.pushCp && (o.off || []).indexOf(c.k) < 0);
+      if (Array.isArray(o.order)) list.sort((a, b) => { const x = o.order.indexOf(a.k), y = o.order.indexOf(b.k); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
+      return list;
+    };
     try {
       const accs = (await supa.rows('accounts', 'select=email,name,first_seen').catch(() => [])) || [];
       for (const a of accs) {
@@ -13291,12 +13313,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           if (!(st0.quizDone || (st0.intake && st0.intake.level != null))) { why.noStage++; continue; }   /* a class booker with no stage */
           const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
           if (Object.keys(logs).some(k => (logs[k] || []).length)) { why.logged++; continue; }
+          const si = Math.max(0, Math.min(PLAN_STAGES.length - 1, Number(st0.stage) || 0)), stage = PLAN_STAGES[si], next = PLAN_STAGES[si + 1] || '';
+          const cps = await stageCps(si);
+          if (!cps.length) { why.noStage++; continue; }
           if (!(await supa.insertIfAbsent('nudges', { key: `cptestmail:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { why.already++; continue; }
           const first = String(a.name || '').trim().split(/\s+/)[0] || '';
-          await email(e, 'Can you do five push ups on your knees?', mail({ title: 'Your first check point.', greeting: first,
-            paras: ['Each stage of the Handstand Ladder has a handful of check points. Reach them all and the next stage opens.',
-              'You may be able to tick some off today. Five push ups on your knees is one. A 30 second plank is another.',
-              'The check point test takes you through all of them in about 13 minutes, one go at each, and you tick off what you can do.'],
+          await email(e, next ? `Your ${cps.length} check points to ${next}` : `Your ${cps.length} check points on ${stage}`,
+            mail({ title: next ? `${stage} to ${next}.` : `${stage}.`, greeting: first,
+            paras: [`The Handstand Ladder has six stages: ${PLAN_STAGES.slice(0, -1).join(', ')} and ${PLAN_STAGES[PLAN_STAGES.length - 1]}. You are on <b>${esc(stage)}</b>. ${esc(PLAN_GOALS[si] || '')}`,
+              next ? `You move up by reaching check points. ${esc(stage)} has ${cps.length}. Reach them all and ${esc(next)} opens.`
+                   : `You finish it by reaching check points. ${esc(stage)} has ${cps.length}.`,
+              'You have not ticked any off yet, and you may be able to do some of them today. The check point test takes you through them in about 13 minutes, one go at each.'],
+            box: { title: `Your check points on ${stage}`, numbered: true, items: cps.map(c => `${c.n}: ${cpGoal(c)}`) },
             cta: { href: `${SITE}/lha-app.html?go=cptest`, label: 'Open the check point test' },
             signoff: { name: 'Elliott, London Handstand Academy' } }), 'reminders');
           mailed++;
