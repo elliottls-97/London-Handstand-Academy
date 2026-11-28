@@ -8714,7 +8714,7 @@ function cpRow(it){
     ${(aim || c.kind==='face' || c.kind==='yn')?`<button onclick="event.stopPropagation();cpReach(${jsq(c.k)})" style="display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-height:48px;margin-top:10px;border:0;cursor:pointer;
       border-radius:12px;background:linear-gradient(180deg,#2f93a9,#237f95);color:#fff;font:700 15px/1.2 var(--sans);box-shadow:0 6px 16px rgba(35,127,149,.25)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>${c.kind==='face' ? 'It feels comfortable: tick it off' : (aim && c.kind==='secs') ? 'I did it: tick off '+esc(aim) : aim ? 'I did it: '+esc(rungGoal(c)) : 'I did it: tick it off'}</button>
-    <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px;text-align:center">${cpTestRun?'Not there today? Carry on. You log what you got at the end.':'Tap when you reach it. It counts towards the next stage.'}</div>`:''}
+    <div style="font:400 12px/1.4 var(--sans);color:var(--grey);margin-top:7px;text-align:center">${cpTestRun?'Not there today? Carry on. You log what you got at the end.':(curStage()===5 && !isMU() ? 'Tap when you reach it. It moves this part on.' : 'Tap when you reach it. It counts towards the next stage.')}</div>`:''}
   </div>`;
 }
 function cpReach(k){
@@ -8764,27 +8764,31 @@ function pressClipHTML(P, drillOnly){
   return url ? `<div class="pc-m"><video class="pc-v" src="${filmSrc(url)}${seg && !hlsUse() ? '#t='+seg[0]+','+seg[1] : ''}"${uid?` poster="${seg ? STREAM_CDN+uid+'/thumbnails/thumbnail.jpg?time='+(seg[0]+6)+'s&height=480' : streamThumb(uid)}"`:''} autoplay muted ${seg?`data-seg="${seg[0]},${seg[1]}" onloadedmetadata="pcSeg(this,1)" ontimeupdate="pcSeg(this)"`:'loop'} playsinline preload="auto"
       onclick="if(this.paused){delete this.dataset.held;this.play()}else{this.dataset.held=1;this.pause()}" aria-label="${esc(P?P.n:'A press, start to finish')}"></video></div>` : '';
 }
+/* the intro is the three steps of the press, each with the parts inside
+   it (Elliott, 28 Nov 2026: one way of teaching it; the eight cards taught
+   eight parts and the page under them taught three steps) */
 function pressCardsHTML(){
-  const N=PRESS_LADDERS.length+1; pcI=Math.max(0, Math.min(N-1, pcI));
-  const P=pcI>0 ? PRESS_LADDERS[pcI-1] : null;
-  const film=pressClipHTML(P);
-  const last=pcI===N-1;
+  const N=PRESS_STEPS.length+1; pcI=Math.max(0, Math.min(N-1, pcI));
+  const S=pcI>0 ? PRESS_STEPS[pcI-1] : null, last=pcI===N-1;
+  const ph=S && typeof PRESS_PHASES!=='undefined' ? PRESS_PHASES[pcI-1] : null;
+  const parts=S ? S.parts.map(k=>PRESS_LADDERS.find(x=>x.k===k)).filter(Boolean) : [];
+  const pic=S ? (ph && ph.img ? `<div class="pc-m"><img src="${esc(ph.img)}" alt="${esc(ph.cap||S.n)}" style="display:block;width:100%;max-height:300px;object-fit:cover;border-radius:16px"></div>` : '') : pressClipHTML(null);
   return `<div id="pcards" class="card" style="padding:18px 16px 16px;margin:6px 0 4px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <span class="kick2" style="color:var(--forest)">THE PRESS IN EIGHT PARTS</span>
-      <span style="font:600 12px/1 var(--sans);color:var(--grey)">${pcI===0?'Start':pcI+' of '+(N-1)}</span></div>
+      <span class="kick2" style="color:var(--forest)">THE PRESS IN THREE STEPS</span>
+      <span style="font:600 12px/1 var(--sans);color:var(--grey)">${pcI===0?'Start':'Step '+pcI+' of '+(N-1)}</span></div>
     <div style="display:flex;gap:4px;margin:10px 0 12px">${Array.from({length:N},(_,i)=>`<i style="flex:1;height:3px;border-radius:2px;background:${i<=pcI?'var(--forest)':'rgba(29,85,102,.14)'}"></i>`).join('')}</div>
-    ${film}
-    <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em">${P ? esc(P.n) : 'A press, start <em style="color:var(--forest);font-style:normal">to finish.</em>'}</div>
-    <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${P ? esc(P.why)
-      : 'Eight parts go into it. You do not need every one finished: all of them decent, and a couple of them strong.'}</div>
-    ${P?`<div style="margin-top:12px"><div style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest);margin-bottom:8px">Its levels · tap one to watch it</div>
-      ${pressGridHTML(P, 'pcLevel', -1)}
-      <div style="font:400 12.5px/1.45 var(--sans);color:var(--grey);margin-top:8px">You have this part at level ${P.levels.filter(x=>!x.opt).length}: ${esc(pressHave(P))}.</div></div>`:''}
+    ${pic}
+    <div style="font:400 26px/1.1 var(--serif);letter-spacing:-.01em;margin-top:12px">${S ? esc(S.n)+'. <em style="color:var(--forest);font-style:normal">'+esc(S.head)+'</em>' : 'A press, start <em style="color:var(--forest);font-style:normal">to finish.</em>'}</div>
+    <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${S ? esc(ph && ph.p || '')
+      : 'Three steps: take-off, compression, unroll. Each has a few parts that can hold it back. The quiz finds yours, and your sessions work on all three at once.'}</div>
+    ${S?`<div style="margin-top:12px"><div style="font:700 9.5px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest);margin-bottom:4px">What can hold it back</div>
+      ${parts.map(P=>`<div style="padding:9px 0;border-top:1px solid rgba(29,85,102,.08)"><b style="display:block;font:600 14.5px/1.3 var(--sans)">${esc(P.n)}</b>
+        <span style="display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:2px">${esc(P.why)}</span></div>`).join('')}</div>`:''}
     <div style="display:flex;gap:9px;margin-top:14px">
       ${pcI>0?`<button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="pcGo(-1)">Back</button>`:''}
-      <button class="btn" style="flex:1;margin:0" onclick="${last?'pressUnlock()':'pcGo(1)'}">${last?'Open my check points':pcI===0?'The eight parts':'Next'}</button></div>
-    <button onclick="pressUnlock()" style="display:block;width:100%;background:none;border:0;cursor:pointer;padding:12px 0 0;font:500 12.5px/1.3 var(--sans);color:var(--grey)">${last?'':'Skip to my check points'}</button>
+      <button class="btn" style="flex:1;margin:0" onclick="${last?'pressUnlock(1)':'pcGo(1)'}">${last?'Find what holds mine back':pcI===0?'The three steps':'Next'}</button></div>
+    <button onclick="pressUnlock()" style="display:block;width:100%;background:none;border:0;cursor:pointer;padding:12px 0 0;font:500 12.5px/1.3 var(--sans);color:var(--grey)">${last?'Later':'Skip'}</button>
   </div>`;
 }
 /* a card's clip is a stretch of the press guide: start at its start, and go
@@ -8807,11 +8811,12 @@ function pcGo(dn){
   el.outerHTML=pressCardsHTML();
   const n=document.getElementById('pcards'); if(n){ try{ n.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(e){} const v=n.querySelector('video'); if(v){ try{ v.play().catch(()=>{}); }catch(e){} } }
 }
-function pressUnlock(){
+function pressUnlock(quiz){
   st.pressSeen=Date.now(); pcI=0; save();
-  try{ track('story', pcI, 'press-parts'); }catch(e){}
+  try{ track('story', pcI, 'press-steps'); }catch(e){}
   render();
-  toast(st.pressQuiz ? 'Your check points are open.' : 'Your check points are open, at the starting level.');
+  if(quiz && !st.pressQuiz){ openPressQuiz(); return; }
+  if(!st.pressQuiz) toast('Take the quiz when you can train. It finds what is holding each step back.');
 }
 /* above the open check points until the quiz is answered: it is what puts
    them on the right level of each */
@@ -8831,7 +8836,7 @@ function pressStripHTML(){
   const SS=PRESS_STEPS.map(pressStepState), quiz=!!st.pressQuiz;
   prStep=Math.max(0, Math.min(SS.length-1, prStep));
   const held=SS.filter(x=>x.held).length;
-  const say = !quiz ? `<b>Take the quiz first.</b> Eight questions find what is holding back each step.`
+  const say = !quiz ? `<b>What is holding your press back?</b> Eight questions, tried for real, find it in each step.`
     : held>=3 ? `<b>Three things are holding your press back,</b> one in each step. Your sessions work on all three.`
     : held===2 ? `<b>Two things are holding your press back.</b> Your sessions work on both.`
     : held===1 ? `<b>One thing is holding your press back.</b> Your sessions work on it.`
@@ -8841,10 +8846,12 @@ function pressStripHTML(){
     <div class="kick2" style="color:var(--forest)">PRESS${quiz?' &middot; FROM YOUR QUIZ':''}</div>
     <div class="pr-h">Your press, <em>unpicked.</em></div>
     <div class="pr-strip" role="tablist" aria-label="The three steps of the press">${SS.map((x,i)=>`<button role="tab" aria-selected="${i===prStep}" class="pr-tile${i===prStep?' on':''}" onclick="prPick(${i})">
-        <span class="pr-pic">${img(i)?`<img src="${esc(img(i))}" alt="" loading="lazy">`:PR_PH('IMAGE', 0, 0)}<b>${x.ok.length}/${x.parts.length}</b></span>
+        <span class="pr-pic">${img(i)?`<img src="${esc(img(i))}" alt="" loading="lazy">`:PR_PH('IMAGE', 0, 0)}${quiz?`<b>${x.ok.length}/${x.parts.length}</b>`:''}</span>
         <span class="pr-n">${esc(x.S.n)}</span>
-        <span class="pr-f${x.held?'':' ok'}">${x.lim ? (x.held ? esc(x.lim.n) : x.strong ? 'Strong' : 'In place') : ''}</span></button>`).join('')}</div>
-    <p class="pr-say">${say}</p></div>`;
+        ${quiz?`<span class="pr-f${x.held?'':' ok'}">${x.lim ? (x.held ? esc(x.lim.n) : x.strong ? 'Strong' : 'In place') : ''}</span>`:`<span class="pr-f ok">${x.parts.length} part${x.parts.length>1?'s':''}</span>`}</button>`).join('')}</div>
+    <p class="pr-say">${say}</p>
+    ${quiz?'':`<button class="btn" style="width:100%;margin:4px 0 2px" onclick="openPressQuiz()">Take the press quiz</button>`}
+    ${pressGateHTML()}</div>`;
 }
 /* the pill on Press says what the strip says: parts in place, of eight */
 const pressInPlaceN = () => PRESS_LADDERS.filter(pressInPlace).length;
@@ -8870,20 +8877,20 @@ function pressStepCardHTML(){
         <span class="pr-thumb" style="width:116px;height:66px"><img src="${esc(streamThumb(S.film))}" alt=""><i><svg width="11" height="12" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#237f95"/></svg></i></span>
         <span class="pr-t"><b>${esc(S.n)}, explained</b><small>${esc(coachLabel())} explains this step</small></span></button>`
     : `<div class="pr-row">${PR_PH('VIDEO', 116, 66, true)}<span class="pr-t"><b>${esc(S.n)}, explained</b><small>${esc(coachLabel())} explains this step &middot; film to come</small></span></div>`;
-  const ok=x.ok.filter(q=>q!==P);
+  const quiz=!!st.pressQuiz;
   return `<div id="prcard" class="card pr-card">
-    <div class="pr-ck"><span class="kick2" style="color:var(--forest)">STEP ${PRESS_STEPS.indexOf(S)+1} &middot; ${esc(S.n.toUpperCase())}</span><span>${x.ok.length} of ${x.parts.length} in place</span></div>
+    <div class="pr-ck"><span class="kick2" style="color:var(--forest)">STEP ${PRESS_STEPS.indexOf(S)+1} &middot; ${esc(S.n.toUpperCase())}</span><span>${quiz?x.ok.length+' of '+x.parts.length+' in place':x.parts.length+' parts'}</span></div>
     <div class="pr-ch">${esc(S.head)}</div>
     ${film}
     <div class="pr-hr"></div>
-    <div><div class="pr-lab${x.held?' held':''}">${x.held?'HOLDING YOU BACK':x.strong?'STRONG':'IN PLACE, GETTING STRONGER'}</div>
+    ${quiz?`<div><div class="pr-lab${x.held?' held':''}">${x.held?'HOLDING YOU BACK':x.strong?'STRONG':'IN PLACE, GETTING STRONGER'}</div>
       <div class="pr-fac"><i class="${x.held?'held':''}"></i>${esc(P.n)}</div>
       <div class="pr-why">${esc(x.held ? (P.issue||'')+'.' : P.why||'')}</div>
-      ${(guide && P.t!=null)?`<button type="button" class="wk-link" style="display:inline;margin:6px 0 0;padding:0" onclick="openPhaseFilmAt(${Number(P.t)})">Watch this part of the press guide, from ${clock(P.t)}</button>`:''}</div>
-    ${c?`<div class="pr-hr"></div>
-    <div class="pr-lab">WORK ON ${x.parts.length>1?'EACH PART OF THIS STEP':'THIS PART'}</div>
+      ${(guide && P.t!=null)?`<button type="button" class="wk-link" style="display:inline;margin:6px 0 0;padding:0" onclick="openPhaseFilmAt(${Number(P.t)})">Watch this part of the press guide, from ${clock(P.t)}</button>`:''}</div>`:''}
+    ${c?`${quiz?'<div class="pr-hr"></div>':''}
+    <div class="pr-lab">${quiz?'WORK ON '+(x.parts.length>1?'EACH PART OF THIS STEP':'THIS PART'):'ITS PARTS, AT THE STARTING LEVEL'}</div>
     <div class="pr-list hcps${x.held?' held':''}">${cpListHTML(5, 0, [P.k].concat(x.parts.map(q=>q.k).filter(k=>k!==P.k)))}</div>
-    <button type="button" class="btn2" style="width:100%;margin-top:4px" onclick="pressPartSession(${jsq(P.k)})">Train ${esc(P.n.toLowerCase())}, 15 min</button>`:''}
+    ${quiz?`<button type="button" class="btn2" style="width:100%;margin-top:4px" onclick="pressPartSession(${jsq(P.k)})">Train ${esc(P.n.toLowerCase())}, 15 min</button>`:''}`:''}
     ${(()=>{ const B=st.pressQuiz ? pressBlock() : null; if(!B || B.due) return '';
       return `<div class="pr-blk">Week ${B.wk} of ${B.of}. The quiz again on ${esc(new Date(B.end).toLocaleDateString('en-GB',{day:'numeric',month:'long'}))}. <button type="button" class="wk-link" style="display:inline;margin:0;padding:0" onclick="openPressQuiz()">Retake it now</button></div>`; })()}
   </div>`;
@@ -8893,13 +8900,14 @@ function pressStepCardHTML(){
    Harder sheet: the levels are already their quiz. The ones that work on
    what is holding back each step come first, marked. */
 function pressWoForYou(){
+  if(!st.pressQuiz) return [];
   const lim=new Set(PRESS_STEPS.map(pressStepState).filter(x=>x.held && x.lim).map(x=>x.lim.k));
   return PRESS_WORKOUTS.filter(W=>W.k!=='whole' && W.parts.some(p=>lim.has(p))).map(W=>W.k);
 }
 function pressStart(){ if(typeof PRESS_WORKOUTS==='undefined'){ startDay(-1,'full'); return; } openOv('presswo'); }
 function pressWoSheetHTML(){
   const mine=pressWoForYou(), order=PRESS_WORKOUTS.slice().sort((a,b)=>(mine.indexOf(a.k)<0?1:0)-(mine.indexOf(b.k)<0?1:0));
-  const lim=PRESS_STEPS.map(pressStepState).filter(x=>x.held && x.lim);
+  const lim=st.pressQuiz ? PRESS_STEPS.map(pressStepState).filter(x=>x.held && x.lim) : [];
   return `<div class="kick2" style="color:var(--forest)">TODAY'S SESSION</div>
     <div style="font:400 27px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">Pick a press <em style="color:var(--forest);font-style:normal">workout.</em></div>
     <div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:6px">${lim.length?'Built to your levels. The ones marked work on '+lim.map(x=>esc(x.lim.n.toLowerCase())).join(', ').replace(/, ([^,]*)$/,' and $1')+'.':'Built to your levels.'}</div>
@@ -8930,6 +8938,7 @@ function pressQuizPromptHTML(){
         <div style="font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">PRESS BLOCK · WEEK ${B.wk} OF ${B.of} · RETEST ${esc(day.toUpperCase())}</div>
         ${W?`<div style="display:flex;align-items:center;gap:10px;margin-top:6px"><span style="flex:1;min-width:0;font:600 14px/1.35 var(--sans);color:var(--ink)">${esc(W.issue||W.n)}</span>
           <button class="rt" onclick="pressPartSession(${jsq(W.k)})">Train it</button></div>`:''}</div>`; }
+  if(pressStepsOn()) return '';
   return `<button onclick="openPressQuiz()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin:8px 0 4px;
       padding:13px 16px;border-radius:18px;cursor:pointer;background:rgba(232,150,47,.14);border:0">
       <span style="flex:1;min-width:0"><span style="display:block;font:700 10.5px/1 var(--sans);letter-spacing:.14em;color:#8a5a12">YOU ARE ON THE STARTING CHECK POINTS</span>
@@ -9058,8 +9067,63 @@ function pqFinish(){
   try{ track('presstest', null, 'ladders'); }catch(e){}
   pqStep=PRESS_LADDERS.length; drawOv();
 }
+/* can't hold an L shaped handstand for 30 seconds: every step of the press
+   sits on it, so the advice is to go back down the ladder to Foundations,
+   where it is taught (Elliott, 28 Nov 2026) */
+const pressGateOn = () => { try{ return !!st.pressQuiz && pressLvlOf('stack')===0; }catch(e){ return false; } };
+function pressGateHTML(){
+  if(!pressGateOn()) return '';
+  return `<div style="margin:10px 0 2px;padding:14px 16px;border-radius:18px;background:rgba(232,150,47,.13)">
+    <div style="font:700 10.5px/1 var(--sans);letter-spacing:.12em;color:#8a5a12">BEFORE ANY PRESS WORK</div>
+    <div style="font:600 16px/1.3 var(--sans);color:var(--ink);margin-top:6px">Hold an L shaped handstand for 30 seconds first.</div>
+    <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">Every step of the press sits on it. We recommend you go back down the ladder to learn it: it is taught in Foundations.</div>
+    <button class="btn" style="width:100%;margin:12px 0 0" onclick="closeOv();goToStage(0)">Go back to Foundations</button>
+    <button type="button" class="wk-link" style="display:block;margin:10px auto 0;padding:0" onclick="closeOv();pressPartSession('stack')">Or train the stacked hold here, 15 min</button></div>`;
+}
+/* the quiz's answer, as a diagnosis: each step of the press, what is
+   holding it back, and the check point that fixes it (Elliott, 28 Nov
+   2026: "it wants to feel like a diagnosis and what they need to work on
+   to fix it") */
+function pressDiagnosisHTML(){
+  const SS=PRESS_STEPS.map(pressStepState), held=SS.filter(x=>x.held).length;
+  const img=i=>((typeof PRESS_PHASES!=='undefined' && PRESS_PHASES[i]) ? PRESS_PHASES[i].img : '');
+  const W=['','One thing is','Two things are','Three things are'][held] || held+' things are';
+  const aim=c=>!c ? '' : c.kind==='secs'&&c.target ? 'Hold '+c.target+' seconds' : c.kind==='count'&&c.target ? c.target+' reps'
+    : c.kind==='rate'&&c.target ? c.target+' out of 10' : 'Until it feels solid';
+  const rows=SS.map((x,i)=>{ const P=x.lim; if(!P) return '';
+    const c=(cpsFor(5)||[]).find(q=>q.ladder===P.k);
+    const rest=x.parts.filter(q=>q!==P);
+    return `<div style="padding:16px 0;border-top:1px solid rgba(29,85,102,.10)">
+      <div style="display:flex;gap:12px;align-items:center">
+        ${img(i)?`<img src="${esc(img(i))}" alt="" style="flex:none;width:58px;height:58px;border-radius:14px;object-fit:cover">`:''}
+        <div style="flex:1;min-width:0"><div style="font:700 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">STEP ${i+1} &middot; ${esc(x.S.n.toUpperCase())}</div>
+          <div style="font:400 21px/1.15 var(--serif);margin-top:4px">${x.held?esc(P.n):x.strong?'Strong':'In place'}</div></div>
+        <span style="flex:none;font:600 12px/1.2 var(--sans);color:var(--grey);text-align:right">${x.ok.length} of ${x.parts.length}<br>in place</span></div>
+      ${x.held?`<div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:10px"><b style="color:#9a5a0c;font-weight:600">Holding it back:</b> ${esc(P.issue||P.n)}.</div>
+      <div style="display:flex;gap:10px;align-items:baseline;margin-top:8px"><span style="flex:none;font:700 10.5px/1 var(--sans);letter-spacing:.12em;color:var(--forest)">TO FIX IT</span>
+        <span style="flex:1;min-width:0;font:600 14.5px/1.35 var(--sans);color:var(--ink)">${esc(c?c.n:P.levels[pressLvlOf(P.k)].n)}<span style="font-weight:400;color:var(--grey)"> &middot; ${esc(aim(c))}</span></span></div>`:''}
+      ${rest.length?`<div style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font:600 12.5px/1.3 var(--sans)">${rest.map(q=>pressInPlace(q)
+        ? `<span style="color:var(--forest)">&#10003; ${esc(q.n)}</span>` : `<span style="color:var(--grey2)">${esc(q.n)}: level ${pressLvlOf(q.k)+1}</span>`).join('')}</div>`:''}
+    </div>`; }).join('');
+  const PC=pressCorners(), lim=PC.limiter;
+  const LBL=(typeof PT_LBL!=='undefined') ? PT_LBL : {strength:'Strength', mobility:'Mobility', patterning:'Patterning'};
+  const w={}; ['strength','mobility','patterning'].forEach(k=>{ w[k]=Math.max(.04, 1-PC.score[k]); });
+  const tri=(lim && typeof ptTriSVG==='function') ? `<div style="display:flex;gap:12px;align-items:center;margin-top:6px;padding-top:14px;border-top:1px solid rgba(29,85,102,.10)">
+      <div style="flex:none;width:120px">${ptTriSVG(w,{top:lim})}</div>
+      <div style="flex:1;min-width:0;font:400 13.5px/1.45 var(--sans);color:var(--grey)"><b style="color:var(--ink);font-weight:600">Mostly ${esc(LBL[lim].toLowerCase())} work.</b> That side is furthest from its top, so it gets the most time.</div></div>` : '';
+  return `<div class="kick2" style="color:var(--forest)">YOUR PRESS, UNPICKED</div>
+    <div style="font:400 30px/1.05 var(--serif);margin-top:8px">${held?W+' holding your press <em style="color:var(--forest);font-style:normal">back.</em>':'Every part is <em style="color:var(--forest);font-style:normal">in place.</em>'}</div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">${held?'One step at a time, here is what stops it, and the check point that fixes it.':'Now make them strong, and press.'}</div>
+    ${pressGateHTML()}
+    <div style="margin-top:12px">${rows}</div>
+    ${tri}
+    <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">Your sessions work on all three steps at once, what is holding them back first. Three a week for ${PRESS_BLOCK_WEEKS} weeks, then this quiz again.</div>
+    <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();go('home')">See my plan</button>
+    <button class="btn2" style="width:100%;margin-top:8px" onclick="openPressQuiz()">Answer again</button>`;
+}
 function pressQuizBody(){
   const N=PRESS_LADDERS.length;
+  if(pqStep>=N && pressStepsOn()) return pressDiagnosisHTML();
   if(pqStep>=N){
     const rows=PRESS_LADDERS.slice().sort((a,b)=>a.order-b.order).map(P=>{ const i=pressLvlOf(P.k), n=P.levels.length;
       return `<div style="display:flex;gap:12px;align-items:baseline;padding:11px 0;border-top:1px solid rgba(29,85,102,.08)">
@@ -9098,7 +9162,7 @@ function pressQuizBody(){
       <span style="flex:1;min-width:0;font:500 13.5px/1.4 var(--sans);color:var(--ink)"><b style="font-weight:600">Not sure you are doing it right?</b> Send me a clip and I will tell you.</span>
       <span style="flex:none;font:600 13px/1 var(--sans);color:#8a5a12">Form check ›</span></button>`;
   if(pqStep<0) return `<div class="kick2" style="color:var(--forest)">FIND YOUR LEVEL</div>
-    <div style="font:400 30px/1.05 var(--serif);margin-top:8px">Eight parts, <em style="color:var(--forest);font-style:normal">tried for real.</em></div>
+    <div style="font:400 30px/1.05 var(--serif);margin-top:8px">Eight questions, <em style="color:var(--forest);font-style:normal">tried for real.</em></div>
     <div style="font:400 14.5px/1.55 var(--sans);color:var(--grey);margin-top:10px">Do this somewhere you can train, with a wall and a chair, and give it fifteen minutes or so. Each question shows the levels of one part: try them, then pick the hardest one you can do. Guessing puts you on the wrong check points.</div>
     <button class="btn" style="width:100%;margin-top:18px" onclick="pqStart()">Start</button>
     <button class="btn2" style="width:100%;margin-top:8px" onclick="closeOv()">Later, when I can train</button>
@@ -27792,7 +27856,7 @@ function rerollSession(){
   rerollBump();
   closeOv(); buildFreeSession(false, true, lastBuildDay);
 }
-const rerollOk = () => { try{ return !coachedView() && !qFix && st.miniOn==null && !st.ovList && !(typeof tasting==='function' && tasting()); }catch(e){ return false; } };
+const rerollOk = () => { try{ return !coachedView() && !pressStepsOn() && !qFix && st.miniOn==null && !st.ovList && !(typeof tasting==='function' && tasting()); }catch(e){ return false; } };
 function nextDayIdx(){
   const plan=weekPlan(); if(!plan) return 0;
   return ((st.planDay|0) % plan.length + plan.length) % plan.length;

@@ -185,7 +185,7 @@ const STAGES=[
    eight reps. The ones still missing are listed in the open threads: they
    are not in either workbook, so nothing but Elliott can supply them. */
 const FREE_DOSE={'wall-kick-ups':'2 × 10 reps each side','crow-pose':'2 × hold 15 to 30s',
- 'p-l-handstand':'3 × 30s','chaturganga-push-ups':'2 × 10 reps','p-dd-toe-taps':'3 × 10 reps',
+ 'p-l-handstand':'3 × 30s','feet-on-box-press-leans':'3 × 15s','chaturganga-push-ups':'2 × 10 reps','p-dd-toe-taps':'3 × 10 reps',
  'p-pike-pushups-knees':'3 × 10 reps',
  'p-tuck-handstand':'3 × 20s',
  'wall-kick-ups-progressions':'2 × 10 reps each side',
@@ -760,7 +760,7 @@ const PRESS_FACES=['Not yet','Getting there','Solid'];
 /* a whole press, six seconds, for the first card of the parts (press-story-full-press) */
 const PRESS_FULL_UID='6c9fd342e99f3761044931a313eb4b8a';
 const PRESS_LADDERS=[
-  {k:'stack', seg:[66,88], clip:'p-l-handstand', yn:'Can you hold an L shaped handstand for 30 seconds?', ynClip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:8, issue:'Not stacked yet: the shoulders are not over the hands',
+  {k:'stack', seg:[66,88], clip:'p-l-handstand', yn:'Can you hold an L shaped handstand for 30 seconds?', ynClip:'p-l-handstand', c:'strength', n:'Stacked hold', t:67, order:8, issue:'The shoulders are not stacked over the hands yet',
    why:'Shoulders over the hands, hips over the shoulders. The first port of call before any press work.',
    levels:[
     {n:'Chair assisted handstand', kind:'secs', target:30, drills:['chair-assisted-handstand-walks']},
@@ -770,7 +770,7 @@ const PRESS_LADDERS=[
    levels:[
     {n:'Down dog to plank leans', kind:'face', drills:[]},
     {n:'Chair or straddle wall shoulder leans', kind:'face', drills:['chair-assisted-handstand-shoulder-adjustments','wall-straddle-shoulder-leans']},
-    {n:'Feet on box press lean', kind:'secs', target:20, drills:['feet-on-box-press-leans'], note:'Hips high, weight into the palms, not the fingertips. Hold time, not distance.'}]},
+    {n:'Feet on box press lean', kind:'secs', target:15, drills:['feet-on-box-press-leans'], note:'Hips high, weight into the palms, not the fingertips. Hold time, not distance.'}]},
   {k:'push', seg:[250,266], clip:'p-pike-pushups', c:'strength', n:'Not collapsing', t:224, order:7, issue:'You collapse when you lean',
    why:'If you lean and collapse, you need more strength in the front of the shoulders. Not a handstand push up or a planche.',
    levels:[
