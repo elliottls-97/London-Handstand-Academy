@@ -854,6 +854,38 @@ function pressCps(){
     return c;
   });
 }
+/* ── the three steps of the press itself (Elliott, 28 Nov 2026) ──────
+   Take-off, compression (the midpoint), unroll, as Coach Bachman teaches
+   it. They are the steps of the movement, not a training order: all three
+   are worked on at once, and each has its own limiting factors, which are
+   the eight parts. Which part sits under which step is a draft for Elliott
+   to confirm. film: the step's own explainer, when it is filmed. */
+const PRESS_STEPS=[
+  {k:'takeoff',     n:'Take-off',    head:'The lean, until the feet go light.',        parts:['flex','lean','push','float'], film:''},
+  {k:'compression', n:'Compression', head:'Hips over the hands before the legs rise.', parts:['tuck','back'],                film:''},
+  {k:'unroll',      n:'Unroll',      head:'Shoulders open, legs rise last.',           parts:['unroll','stack'],             film:''}];
+/* how many of a part's levels are behind them: the ones below the level
+   being trained, or all of them for somebody who said they can do the top */
+function pressReached(P){
+  const need=P.levels.filter(x=>!x.opt).length;
+  const top=(typeof st!=='undefined' && st && st.pressQuiz && st.pressQuiz.a)||{};
+  return Math.min(need, Number(top[P.k])>=P.levels.length-1 ? need : pressLvlOf(P.k));
+}
+/* in place: two levels behind them, or every level where a part has fewer.
+   "All of them decent, a couple strong." */
+function pressInPlace(P){
+  const need=P.levels.filter(x=>!x.opt).length;
+  return pressReached(P)>=Math.min(2, need);
+}
+/* one step: its parts, the ones in place, and the one holding it back
+   (the least far along; a tie goes to the earlier part of the step) */
+function pressStepState(S){
+  const parts=S.parts.map(k=>PRESS_LADDERS.find(x=>x.k===k)).filter(Boolean);
+  const frac=P=>pressReached(P)/Math.max(1, P.levels.filter(x=>!x.opt).length);
+  const lim=parts.slice().sort((a,b)=>frac(a)-frac(b))[0] || null;
+  const ok=parts.filter(pressInPlace);
+  return {S, parts, ok, lim, held: !!lim && !pressInPlace(lim), strong: !!lim && frac(lim)>=1};
+}
 function cpsFor(stage){
   if(Number(stage)===5 && !(typeof isMU==='function' && isMU())) return pressCps();
   const over=((typeof st!=='undefined' && st.ladderCps)||{})[ladKey(stage)];
