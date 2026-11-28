@@ -9306,6 +9306,40 @@ function cpSupportHTML(c){
    each put their drills in, in place of a drill of the same level, so the
    band's shares and the session's length are as they were. A quarter of
    the session at most, so the day's own theme still holds. */
+/* Harder, half an hour or more (Elliott, 28 Nov 2026): going harder means
+   wanting to move up, so at least three of the check points not reached yet
+   are in the session, each as one of its build up drills and then the check
+   point's own drill, at the end where the hardest work is. The easiest
+   drills make the room. */
+function cpSteerHard(picked, cands, stage, lvlOf, wantN, seed, mk){
+  let todo=[];
+  try{ todo=(cpFor(stage)||[]).filter(c=>c && !c.off && !c.extra && !cpMet(c) && !(typeof cpAsks==='function' && cpAsks(c))); }catch(e){ return picked; }
+  if(!todo.length) return picked;
+  const byV={}; (cands||[]).forEach(it=>{ if(it && it.v && !byV[it.v]) byV[it.v]=it; });
+  const get=v=>byV[v] || (drillById(v) ? (byV[v]=mk(v)) : null);
+  const turn=l=>{ const n=Math.abs(Number(seed)||0)%(l.length||1); return l.slice(n).concat(l.slice(0,n)); };
+  const add=[];   /* in the order they are to be done */
+  for(const c of todo){
+    if(add.filter(x=>x.cp).length>=3) break;
+    const own = c.demo && !/^(ex|art):/.test(c.demo) && !asideOn(c.demo) ? get(c.demo) : null;
+    const up = turn(cpSupport(c).filter(v=>v!==c.demo && !asideOn(v))).map(get).find(it=>it && !add.some(x=>x.it.v===it.v));
+    if(!own && !up) continue;
+    if(up) add.push({it:up});
+    if(own && !add.some(x=>x.it.v===own.v)) add.push({it:own, cp:true});
+    else if(!own) add[add.length-1].cp=true;
+  }
+  if(!add.length) return picked;
+  const ids=new Set(add.map(x=>x.it.v));
+  /* the easiest of what is left goes first to make room, never below half the session */
+  let rest=picked.filter(it=>it && !ids.has(it.v));
+  const keep=Math.max(Math.ceil(wantN/2), wantN-add.length);
+  if(rest.length>keep){
+    const drop=rest.map((it,i)=>({it,i,L:lvlOf(it.v)||1})).filter(x=>!x.it.back)
+      .sort((a,b)=>a.L-b.L || b.i-a.i).slice(0, rest.length-keep).map(x=>x.it);
+    rest=rest.filter(it=>drop.indexOf(it)<0);
+  }
+  return rest.concat(add.map(x=>Object.assign({}, x.it, {cpRun:true})));
+}
 function cpSteer(picked, cands, stage, lvlOf, wantN, seed){
   let todo=[];
   try{ todo=(cpFor(stage)||[]).filter(c=>c && !c.off && !cpMet(c)).slice(0,2); }catch(e){ return picked; }
@@ -27428,7 +27462,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     }
   }
   /* the check points not reached yet bring their own drills in (27 Nov 2026) */
-  if(!wristDay && !scripted && Array.isArray(picked) && picked.length) picked = cpSteer(picked, cands, stage, lvlOf, wantN, rot);
+  if(!wristDay && !scripted && Array.isArray(picked) && picked.length)
+    picked = (stageLevel(stage)===3 && mins>=30 && !coachedView())
+      ? cpSteerHard(picked, cands, stage, lvlOf, wantN, rot,
+          v=>{ const d=drillById(v); return Object.assign({}, d, {d:((st.timing||{})[v]||{}).d || d.d || FREE_DOSE[v] || '3 × 8'}); })
+      : cpSteer(picked, cands, stage, lvlOf, wantN, rot);
   /* Easiest first where the shares built it, so the session ramps. A written
      list is in the coach's order and re-sorting it would quietly undo the
      thing they came here to set. */
@@ -27437,10 +27475,11 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
        inside each, so the box work is together and the wall work after it */
     const so=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
     const gi=v=>{ const i=so ? so.indexOf(grpOf(v)) : -1; return i<0 ? 99 : i; };
-    picked.sort((a,b)=>so ? (gi(a.v)-gi(b.v)) || (lvlOf(a.v)-lvlOf(b.v)) : lvlOf(a.v)-lvlOf(b.v));
+    picked.sort((a,b)=>((a.cpRun?1:0)-(b.cpRun?1:0)) || (a.cpRun ? 0 : (so ? (gi(a.v)-gi(b.v)) || (lvlOf(a.v)-lvlOf(b.v)) : lvlOf(a.v)-lvlOf(b.v))));
   }
   else { const seq={}; (written||[]).forEach((r,i)=>{ seq[r.v]=i; });
-         picked.sort((a,b)=>(seq[a.v]==null?9e9:seq[a.v])-(seq[b.v]==null?9e9:seq[b.v])); }
+         /* the check point run stays at the end, build up then check point */
+         picked.sort((a,b)=>((a.cpRun?1:0)-(b.cpRun?1:0)) || (a.cpRun ? 0 : (seq[a.v]==null?9e9:seq[a.v])-(seq[b.v]==null?9e9:seq[b.v]))); }
   /* the stage below goes in first, before anything from this one, and takes
      its share of the places rather than being added on top of them */
   if(backItems.length){
@@ -27570,6 +27609,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const soG=(typeof SESSION_ORDER!=='undefined' && SESSION_ORDER[stage]) || null;
     const ordG=v=>{ if(!soG) return 0; const i=soG.indexOf(grpOf(v)); return i<0 ? 99 : i; };
     skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((a.it.vol?1:0)-(b.it.vol?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
+      || ((a.it.cpRun?1:0)-(b.it.cpRun?1:0))
+      || ((a.it.cpRun && b.it.cpRun) ? (orderOf.get(a.it.v)||0)-(orderOf.get(b.it.v)||0) : 0)
       || (written ? 0 : ordG(a.it.v)-ordG(b.it.v))
       || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
       || (harderOfStd ? (orderOf.has(a.it.v)?orderOf.get(a.it.v):99)-(orderOf.has(b.it.v)?orderOf.get(b.it.v):99) : 0)
