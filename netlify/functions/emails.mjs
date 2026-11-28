@@ -857,20 +857,21 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
       [{ href: `${site}/#coaching`, label: 'See coaching' }])
     : '';
   /* the class pass: any three classes in the next three months (Elliott, 28 Nov 2026) */
-  const pass = d.pass && d.pass.href ? mCard(`${mKick('Class pass')}<div class="s" style="${mf(M_SERIF, 30, 34, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(`${({2:'Two',3:'Three',4:'Four',5:'Five'})[d.pass.n || 3] || escH(String(d.pass.n))} classes for ${escH(d.pass.price || '£50')}.`)}</div>
+  /* inside the thank you box, under the dates (Elliott, 28 Nov 2026) */
+  const passInner = d.pass && d.pass.href ? `<div style="border-top:1px solid ${MC.line};padding:18px 0 4px">${mKick('Class pass')}<div class="s" style="${mf(M_SERIF, 26, 30, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(`${({2:'Two',3:'Three',4:'Four',5:'Five'})[d.pass.n || 3] || escH(String(d.pass.n))} classes for ${escH(d.pass.price || '£50')}.`)}</div>
 ${mPara(`Any ${escH(String(d.pass.n || 3))} classes in the next ${escH(String(d.pass.months || 3))} months. Book each one when it suits you.${d.pass.save ? ' You save ' + escH(d.pass.save) + '.' : ''}`, 10)}
-${mBtn(d.pass.href, 'Get the class pass', true)}`) : '';
+${mBtn(d.pass.href, 'Get the class pass', true)}</div>` : '';
   /* the Advent challenge, while it is on (Elliott, 28 Nov 2026) */
-  const advent = d.advent && d.advent.href ? `<tr><td style="padding:0 0 14px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid ${MC.line};border-radius:24px;border-collapse:separate">
-<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(d.advent.href)}"><img src="${escH((d.assets || site) + '/assets/site/advent-hero-email.jpg')}" width="598" alt="The Handstand Advent Challenge: log a practice, open a door" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0"></a></td></tr>
-<tr><td class="px" style="padding:22px 24px 26px">${mKick(escH(d.advent.when || '1 to 24 December · Free'))}<div class="s" style="${mf(M_SERIF, 30, 34, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit('The Handstand Advent Challenge.')}</div>
-${mPara('A door a day until Christmas Eve, and you open it by practising. Any practice counts, a class included.', 10)}
-${mBtn(d.advent.href, 'Join free', true)}</td></tr></table></td></tr>` : '';
+  const advent = d.advent && d.advent.href ? mCard(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="74" valign="top" style="padding:0 16px 0 0"><a href="${escH(d.advent.href)}"><img src="${escH((d.assets || site) + '/assets/site/advent-cal-thumb.jpg')}" width="74" alt="The Handstand Advent calendar" style="display:block;width:74px;height:auto;border:0;border-radius:10px"></a></td>
+<td valign="top">${mKick(escH(d.advent.when || '1 to 24 December · Free'))}<div class="s" style="${mf(M_SERIF, 22, 26, 400)};letter-spacing:-.01em;color:${MC.ink}">${mLit('The Handstand Advent Challenge.')}</div>
+<div style="${mf(M_SANS, 14, 21, 400)};color:${MC.grey};margin-top:6px">A door a day to Christmas Eve, opened by practising. A class counts.</div>
+<div style="margin-top:10px"><a href="${escH(d.advent.href)}" style="${mf(M_SANS, 15, 20, 600)};color:${MC.teal};text-decoration:none">Join free &rarr;</a></div></td></tr></table>`, '18px 20px 18px') : '';
   /* the dates in the top card, under the words (Elliott, 7 Nov 2026: "integrate next dates to the top bit of email") */
   const review = d.noReview ? '' : reviewCard;
   const html = dates.length
-    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>${commonLine ? `<div style="${mf(M_SANS, 13, 18, 600)};letter-spacing:.08em;text-transform:uppercase;color:${MC.teal};padding:0 0 10px">Next classes &middot; ${commonLine}</div>` : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>` })) + pass + advent + review + offers)
-    : mShell(d, mHero(d) + pass + advent + review + mH2('Next dates.') + datesCard + offers);
+    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>${commonLine ? `<div style="${mf(M_SANS, 13, 18, 600)};letter-spacing:.08em;text-transform:uppercase;color:${MC.teal};padding:0 0 10px">Next classes &middot; ${commonLine}</div>` : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>${passInner}` })) + review + advent + offers)
+    : mShell(d, mHero(Object.assign({}, d, { heroInner: passInner })) + review + mH2('Next dates.') + datesCard + advent + offers);
 
   const T = mTextTop(Object.assign({}, d, { cta: null }));
   T.push('NEXT DATES');

@@ -1884,7 +1884,7 @@ function newsParas(body) {
 const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
   'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg',
   /* the Advent challenge, from its page (28 Nov 2026) */
-  'app-screens-2026-11.jpg', 'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
+  'app-screens-2026-11.jpg', 'advent-cal-thumb.jpg', 'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
 const NEWS_REVIEWS = [
   { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
