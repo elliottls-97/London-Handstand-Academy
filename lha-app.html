@@ -1755,6 +1755,12 @@ button{color:var(--ink)}
    on the rest of the advent page. yes"): a frosty ground, slow snow behind
    the cards, and a sprig of holly by each card's label */
 .scroll.chsky{background:linear-gradient(180deg,#e6f1f4 0%,#f1f7f9 38%,#fbfcfd 100%)}
+/* a door opened with the app's session: gold, glowing (Elliott, 28 Nov 2026) */
+.chapp{box-shadow:0 0 0 1px rgba(243,169,73,.35),0 0 7px 1px rgba(247,192,74,.75);animation:chappGlow 2.8s ease-in-out infinite}
+@keyframes chappGlow{0%,100%{box-shadow:0 0 0 1px rgba(243,169,73,.3),0 0 4px 0 rgba(247,192,74,.5)}50%{box-shadow:0 0 0 1px rgba(243,169,73,.45),0 0 9px 2px rgba(247,192,74,.85)}}
+@media (prefers-reduced-motion: reduce){.chapp{animation:none}}
+.chkey{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:8px;font:500 12.5px/1.3 var(--sans);color:var(--grey)}
+.chkey i{width:8px;height:8px;border-radius:50%;background:#f3a949;display:block}
 .scroll.chsky::before{content:'';position:fixed;left:0;right:0;top:-320px;height:calc(100vh + 640px);pointer-events:none;z-index:0;
  background-image:radial-gradient(2.2px 2.2px at 18px 30px,rgba(35,127,149,0.22),transparent),radial-gradient(1.6px 1.6px at 120px 80px,rgba(35,127,149,0.18),transparent),radial-gradient(2.6px 2.6px at 70px 150px,rgba(35,127,149,0.2),transparent),radial-gradient(1.8px 1.8px at 190px 40px,rgba(35,127,149,0.16),transparent),radial-gradient(2.2px 2.2px at 150px 190px,rgba(35,127,149,0.2),transparent),radial-gradient(1.6px 1.6px at 40px 230px,rgba(35,127,149,0.18),transparent),radial-gradient(2.4px 2.4px at 210px 260px,rgba(35,127,149,0.2),transparent),radial-gradient(1.8px 1.8px at 100px 290px,rgba(35,127,149,0.16),transparent);background-size:240px 320px;animation:chSky 38s linear infinite;animation-delay:var(--now,0s)}
 @keyframes chSky{from{transform:translateY(0)}to{transform:translateY(320px)}}
@@ -30127,16 +30133,16 @@ async function avPick(inp){
     if(!up.id) throw (up.error||'That photo did not upload');
     const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({id:up.id})}).then(r=>r.json());
     if(!j.ok) throw (j.error||'That photo did not save');
-    st.avatar=j.avatar; save(); drawOv(); render();
+    st.avatar=j.avatar; save(); if(st.ov) drawOv(); render();
   }catch(e){ if(msg) msg.textContent=String(e&&e.message||e); }
 }
 async function avRemove(){
   const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({remove:true})}).then(r=>r.json()).catch(()=>({}));
-  if(j.ok){ st.avatar=null; save(); drawOv(); render(); } else toast('Could not remove it. Check your signal.');
+  if(j.ok){ st.avatar=null; save(); if(st.ov) drawOv(); render(); } else toast('Could not remove it. Check your signal.');
 }
 async function avBoard(on){
   const j=await fetch('/api/app/avatar',{method:'POST',headers:authed(),body:JSON.stringify({board:on})}).then(r=>r.json()).catch(()=>({}));
-  if(j.ok){ st.avatar=j.avatar; save(); drawOv(); } else toast(j.error||'Could not change that. Check your signal.');
+  if(j.ok){ st.avatar=j.avatar; save(); if(st.ov) drawOv(); } else toast(j.error||'Could not change that. Check your signal.');
 }
 /* someone else on the leaderboard (27 Nov 2026, App Store 1.2): the ⋯ on
    their row offers Report (their name or photo, to Elliott) and Hide them
@@ -32407,7 +32413,8 @@ function chDotsHTML(me, sz, night){
   /* night: on the Christmas card, gold for a day done on the dark ground */
   const on=night?'#f3c77a':'var(--forest)', off=night?'rgba(255,255,255,.18)':'rgba(29,85,102,.08)', ring=night?'#123c48':'#fff';
   for(let i=1;i<=days;i++){ const x=me.d?me.d[i]:null, f=me.fl?me.fl[i]:null;
-    h+=`<i title="Day ${i}" style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${x?on:off};${f?'border:1.5px dashed '+(night?'rgba(255,255,255,.6)':'var(--grey2)')+';background:transparent;':''}${i===n?'box-shadow:0 0 0 2px '+ring+',0 0 0 3.5px var(--amber);':''}"></i>`; }
+    const app = x && x.k==='s';
+    h+=`<i title="Day ${i}${app?', with the app':''}"${app?' class="chapp"':''} style="width:${sz}px;height:${sz}px;border-radius:50%;box-sizing:border-box;display:block;background:${app?(night?'#ffd98a':'#f3a949'):x?on:off};${f?'border:1.5px dashed '+(night?'rgba(255,255,255,.6)':'var(--grey2)')+';background:transparent;':''}${i===n?'box-shadow:0 0 0 2px '+ring+',0 0 0 3.5px var(--amber);':''}"></i>`; }
   return `<div style="display:flex;flex-wrap:wrap;gap:${Math.round(sz/2)}px;margin-top:12px" aria-label="${chGot()} of ${days} days logged">${h}</div>`;
 }
 /* ── the Challenge screen ──────────────────────────────────────────── */
@@ -32455,9 +32462,9 @@ function chPageHTML(){
   /* the starting point comes first until it is done; then the calendar leads */
   /* two tabs (Elliott, 25 Nov: "maybe we should have a tab for leader board"):
      the calendar, which is where it opens, and the leaderboard */
-  if(st.chTab==='board') return wide() ? `<div class="chone">${chBoardHTML(false)}</div>` : chBoardHTML(false);
+  if(st.chTab==='board') return wide() ? `<div class="chone">${chBoardHTML(false)}${chPhotoCardHTML()}</div>` : chBoardHTML(false)+chPhotoCardHTML();
   const left = n<1 ? chCalHTML()+intro+start : chCalHTML()+(chFinale()?chFinaleHTML():'')+start+film+(start?'':chPlanHTML());
-  const right = chBoardHTML(true)+chTryHTML()+chMoreHTML();
+  const right = chBoardHTML(true)+chPhotoCardHTML()+chTryHTML()+chMoreHTML();
   /* a laptop: the calendar on the left, everyone and the rest beside it */
   if(wide()) return `<div class="chcols"><div>${left}${chQuizCardHTML()}</div><div>${right}</div></div>`;
   return left+chQuizCardHTML()+right;
@@ -32617,7 +32624,7 @@ function chBoardHTML(peek){
       <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.25 var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.n)}${r.me?' <span style="color:var(--forest)">(you)</span>':''}</b>
         ${!peek && r.id && st.chFilmRow===r.id && r.v1 && r.vE ? `<span style="display:flex;gap:14px;padding-top:4px"><button onclick="chPlay('${esc(r.v1)}')" style="border:0;background:none;padding:0;color:var(--forest);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Start film</button><button onclick="chPlay('${esc(r.vE)}')" style="border:0;background:none;padding:0;color:var(--forest);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">End film</button></span>` : ''}
         ${!peek && r.id && st.chRep===r.id && !r.me ? `<span style="display:flex;gap:14px;padding-top:4px"><button onclick="chReport('${esc(r.id)}')" style="border:0;background:none;padding:0;color:var(--red);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Report</button><button onclick="chBlock('${esc(r.id)}')" style="border:0;background:none;padding:0;color:var(--grey);font:600 12.5px/1.3 var(--sans);cursor:pointer;min-height:32px">Hide them</button></span>` : ''}
-        ${peek?'':`<span style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${r.d.split('').map((c,i)=>`<i style="width:7px;height:7px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.10)':c==='x'?'transparent':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'outline:1.5px solid #f3a949;outline-offset:1px;':''}"></i>`).join('')}</span>`}</span>
+        ${peek?'':`<span style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${r.d.split('').map((c,i)=>`<i${c==='s'?' class="chapp"':''} style="width:7px;height:7px;border-radius:50%;display:block;box-sizing:border-box;background:${c==='.'?'rgba(29,85,102,.10)':c==='x'?'transparent':c==='s'?'#f3a949':'var(--forest)'};${c==='x'?'border:1.5px dashed var(--grey2);':''}${i+1===n?'outline:1.5px solid #f3a949;outline-offset:1px;':''}"></i>`).join('')}</span>`}</span>
       <span style="flex:none;text-align:right"><b style="display:block;font:600 15px/1 var(--sans);color:var(--deep);font-variant-numeric:tabular-nums">${esc(big)}</b>${small?`<span style="display:block;font:400 11.5px/1 var(--sans);color:var(--grey);margin-top:4px;font-variant-numeric:tabular-nums">${esc(small)}</span>`:''}</span>${!peek && r.me && CH_D.me && (CH_D.me.film1||CH_D.me.filmEnd) ? `<button onclick="openOv('chfilms')" aria-label="Your films" style="flex:none;width:32px;height:32px;border:0;border-radius:50%;background:rgba(35,127,149,.12);display:grid;place-items:center;cursor:pointer"><svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l14 8-14 8z" fill="var(--forest)"/></svg></button>` : ''}${!peek && !r.me && r.id && (r.v1||r.vE) ? `<button onclick="chRowFilm('${esc(r.id)}')" aria-label="Watch ${esc(r.n)}'s film" style="flex:none;width:32px;height:32px;border:0;border-radius:50%;background:rgba(35,127,149,.12);display:grid;place-items:center;cursor:pointer"><svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l14 8-14 8z" fill="var(--forest)"/></svg></button>` : ''}${!peek && !r.me && r.id ? `<button onclick="chRowTap('${esc(r.id)}')" aria-label="Report or hide ${esc(r.n)}" style="flex:none;width:32px;height:32px;margin-left:-4px;border:0;border-radius:50%;background:none;color:var(--grey2);cursor:pointer;font:700 16px/1 var(--sans)">&middot;&middot;&middot;</button>` : ''}</div>`; };
   const mine=ranked.find(x=>x.r.me);
   const list = peek ? ranked.slice(0,3).concat(mine && ranked.indexOf(mine)>2 ? [mine] : []) : ranked;
@@ -32632,6 +32639,7 @@ function chBoardHTML(peek){
     ${others.length?`<div style="margin-top:10px">${list.map(rowHTML).join('')}</div>`
       :`<button class="btn2" style="width:100%;margin:12px 0 10px" onclick="chShare('in')">Invite someone</button>`}
     ${peek && others.length && CH_D.me ? `<button class="btn2" style="width:100%;margin-top:10px" onclick="chTabGo('board')">See the leaderboard</button>` : ''}
+    ${!peek ? `<div class="chkey"><i class="chapp" aria-hidden="true"></i>Gold days were trained with the app's session</div>` : ''}
     ${!peek && others.length ? `<button onclick="chShare('in')" style="display:block;margin:6px auto 4px;border:0;background:none;color:var(--forest);font:600 13px/1.4 var(--sans);cursor:pointer;min-height:40px">Invite someone</button>` : ''}
   </div>`;
 }
@@ -32653,6 +32661,32 @@ function chTrain(){
   save(); render(); window.scrollTo(0,0);
 }
 function chSeePrizes(){ track('chalprizes', chLevel()); openOv('chprize'); }
+/* your photo on the board, from the challenge itself (28 Nov 2026: it was
+   only in Account, so nobody on the challenge found it). Gone once it is on
+   the board and approved; while it waits, it says so. */
+function chPhotoCardHTML(){
+  if(!CH_D || !CH_D.me || !st.photosOn) return '';
+  const a=st.avatar;
+  if(a && a.board && a.ok) return '';
+  const pic = a ? `<span style="width:52px;height:52px;border-radius:50%;overflow:hidden;flex:none">${avImg()}</span>` : '';
+  const act = !a ? `<label class="btn" style="width:100%;margin-top:14px;display:grid;place-items:center;cursor:pointer">Add your photo
+        <input type="file" accept="image/*" onchange="chAvPick(this)" style="display:none"></label>`
+    : !a.board ? `<button class="btn" style="width:100%;margin-top:14px" onclick="avBoard(true).then(()=>render())">Show it on the leaderboard</button>`
+    : `<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:10px">Elliott looks at each photo first. Yours shows on the board once he has.</div>`;
+  return `<div class="card" style="margin-top:14px">
+    <div style="display:flex;gap:12px;align-items:center">${pic}<div style="flex:1;min-width:0">
+      <div class="kick2" style="color:var(--forest)">YOUR PHOTO</div>
+      <div style="font:400 20px/1.2 var(--serif);margin-top:5px">${a&&a.board?'Waiting for a look.':'Put your face on the '+chEm('board.')}</div></div></div>
+    ${act}
+    <div id="avMsg" role="status" style="font:600 12.5px/1.4 var(--sans);color:var(--forest);margin-top:6px"></div>
+    ${!a?`<div style="font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:4px">Others on the challenge will see it, once Elliott has looked at it. It must follow the <a href="/terms.html#conduct" style="color:inherit">rules</a>.</div>`:''}
+  </div>`;
+}
+async function chAvPick(inp){
+  await avPick(inp);
+  if(st.avatar && !st.avatar.board) await avBoard(true);
+  render();
+}
 function chMoreHTML(){
   const n=CH_D.day, days=CH_D.cfg.days, sun=n>=1 && n<=days && chDate(n).getUTCDay()===0, open=st.chMore!=null?st.chMore:(sun && chTestOn()?'week':'');
   const row=(k, title, sub, body, hi)=>`<div id="chm-${k}" class="card" style="margin-top:12px;padding:0;overflow:hidden;scroll-margin-top:90px${hi?';border-color:rgba(243,169,73,.6)':''}">
