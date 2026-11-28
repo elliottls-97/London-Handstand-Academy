@@ -12705,7 +12705,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   'chalchat', 'chaltab', 'chalbanner', 'chaltrain', 'chalprizes',
                   'chalplan', 'chalplango', 'chalplanx', 'chalsharefilm', 'chalfilmshow', 'chalfilmplay',
                   /* whether StoreKit sent the form checks product to the iPhone app (27 Nov 2026) */
-                  'iapchecksok', 'iapchecksnone'];
+                  'iapchecksok', 'iapchecksnone',
+                  /* the fortnight's check point test started (28 Nov 2026) */
+                  'cptest'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -13260,6 +13262,41 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
   }
   /* 7pm, from chal-remind.mjs: a notification to everyone whose door is still
      shut today, once a day each. Notifications only, never email. */
+  /* ── the fortnight's check point test, to the phone (28 Nov 2026) ──────
+     Elliott: "build it fortnightly but get it to trigger on push, maybe in
+     late afternoon or weekend". Run on Saturday afternoon by cptest.mjs.
+     One notification to anybody on the free ladder with a phone who has
+     not logged a check point for a fortnight (or ever, a few days in), and
+     not again for a fortnight. Never an email, never a coached client,
+     and only with training reminders on. */
+  if (path === '/cptest/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('push:')}*`).catch(() => [])) || []);
+    const FORT = 13 * 864e5;
+    let sent = 0, skipped = 0;
+    for (const r of rows) {
+      const e = norm(String(r.key || '').slice(5)), rec = r.value || {};
+      if (!e || !((Array.isArray(rec.subs) && rec.subs.length) || (Array.isArray(rec.apns) && rec.apns.length))) { skipped++; continue; }
+      try {
+        if (await isCoached(e)) { skipped++; continue; }
+        if (!(await wantsPush(e, 'reminders')) || !mayEmail(e) || !(await clientMailAllowed(e))) { skipped++; continue; }
+        const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
+        let last = 0; for (const k of Object.keys(logs)) for (const x of (logs[k] || [])) if (x && Number(x.at) > last) last = Number(x.at);
+        const acc = await supa.row('accounts', `email=eq.${enc(e)}&select=first_seen`).catch(() => null);
+        const since = acc && acc.first_seen ? Date.now() - new Date(acc.first_seen).getTime() : 0;
+        if (last ? Date.now() - last < FORT : since < 3 * 864e5) { skipped++; continue; }
+        const nk = `pushcptest:${e}`;
+        const was = await supa.row('nudges', `key=eq.${enc(nk)}&select=sent_at`).catch(() => null);
+        if (was && was.sent_at && Date.now() - new Date(was.sent_at).getTime() < FORT) { skipped++; continue; }
+        await supa.upsert('nudges', { key: nk, stage: 0, sent_at: nowISO() }, 'key').catch(() => {});
+        const res = await pushSend(e, { title: 'Check point test', body: 'About 15 minutes. See which check points you can tick off today.',
+          url: '/lha-app.html?go=cptest', tag: 'cptest' }).catch(() => ({ sent: 0 }));
+        if (res && res.sent) sent++;
+      } catch (err) { skipped++; }
+    }
+    return json({ ok: true, sent, skipped });
+  }
   if (path === '/challenge/remind/run' && request.method === 'POST') {
     const key = String(request.headers.get('x-health-key') || '');
     if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
