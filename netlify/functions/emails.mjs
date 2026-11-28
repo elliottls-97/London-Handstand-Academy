@@ -986,8 +986,8 @@ const blockHTML = {
       ${b.steps && b.steps.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px">${b.steps.map((s, i) => `<tr>
         ${s.img ? `<td class="col stepimg" width="236" style="padding:0 0 18px;vertical-align:top"><img class="stepph" src="${escH(s.img)}" width="236" alt="${escH(s.alt || s.title || '')}" style="display:block;width:236px;max-width:100%;height:auto;border:0;border-radius:14px"></td>` : ''}
         <td class="col steptxt" style="padding:4px 0 18px ${s.img ? 20 : 0}px;vertical-align:top">
-          <div style="width:28px;height:28px;border-radius:50%;background:#111111;color:#ffffff;font:600 13px/28px Helvetica,Arial,sans-serif;text-align:center">${i + 1}</div>
-          <div style="font:600 17px/1.3 ${FS};color:#111111;margin-top:10px">${escH(s.title)}</div>
+          ${b.steps.length > 1 ? `<div style="width:28px;height:28px;border-radius:50%;background:#111111;color:#ffffff;font:600 13px/28px Helvetica,Arial,sans-serif;text-align:center">${i + 1}</div>` : ''}
+          <div style="font:600 17px/1.3 ${FS};color:#111111;margin-top:${b.steps.length > 1 ? 10 : 0}px">${escH(s.title)}</div>
           ${s.text ? `<div style="font:400 15px/1.55 ${FS};color:#5a5a5a;margin-top:4px">${escH(s.text)}</div>` : ''}</td></tr>`).join('')}</table>` : ''}
       ${b.stepsAfter == null ? '' : (b.paras || []).slice(b.stepsAfter).map(P).join('')}
       ${b.closer ? `<div style="height:1px;background:#e3e8e8;margin:4px 0 18px"></div><p style="margin:0 0 14px;font:400 18px/1.5 ${FS};color:#111111">${b.closer}</p>` : ''}

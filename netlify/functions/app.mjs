@@ -1861,14 +1861,16 @@ function newsParas(body) {
    are a still from one of the drill films or a photo already on the site,
    never an address typed in. Reviews are the Google ones, word for word. */
 const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
-  'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg'];
+  'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg',
+  /* the Advent challenge, from its page (28 Nov 2026) */
+  'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
 const NEWS_REVIEWS = [
   { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
   { text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
 ];
 const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], formcheck: ['/form-check?src=newsletter', 'Send me your clip'], learn: ['/learn/?src=newsletter', 'Read Learn'], appstore: ['https://apps.apple.com/gb/app/london-handstand-academy/id6818646346', 'Get it on the App Store'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
-  coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'] };
+  coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'], advent: ['/advent?src=newsletter', 'Join free'] };
 const STREAM_UID = /^[a-f0-9]{32}$/;
 function newsPhoto(x) {
   if (x && STREAM_UID.test(String(x.uid || ''))) return filmStillOf(x.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)));
@@ -1890,8 +1892,11 @@ async function newsBlocks(list, first, classOf) {
       if (!greeted) { c.greeting = first; greeted = true; }
       if (b.t === 'points') c.points = (Array.isArray(b.points) ? b.points : []).slice(0, 4).filter(p => p && p.text)
         .map(p => [esc(str(p.icon, 3)) || '&#10003;&#65038;', esc(str(p.text, 50))]);
-      if (b.t === 'steps' && STREAM_UID.test(String(b.uid || ''))) c.steps = (Array.isArray(b.items) ? b.items : []).slice(0, 5).filter(x => x && x.title)
-        .map(x => ({ img: filmStillOf(b.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)), 300), title: str(x.title, 60), text: str(x.text, 160) }));
+      /* a step's picture is a still from the section's film, or a site photo of its own (28 Nov 2026) */
+      const okUid = STREAM_UID.test(String(b.uid || ''));
+      if (b.t === 'steps') c.steps = (Array.isArray(b.items) ? b.items : []).slice(0, 5).filter(x => x && x.title)
+        .map(x => ({ img: NEWS_PHOTOS.includes(String(x.photo || '')) ? `${SITE}/assets/site/${x.photo}` : okUid ? filmStillOf(b.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)), 300) : '',
+          title: str(x.title, 60), text: str(x.text, 160) }));
       c.btn = newsBtn(b);
       out.push(c);
     } else if (b.t === 'class') { const k = await classOf(b.slug); if (k) out.push(k); }
