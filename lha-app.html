@@ -25760,8 +25760,9 @@ function lsSays(){ if(!lsFills()) return false; const P=cpProgress(curStage()); 
    repainted with the pill's count as a check point is ticked */
 function lsSayHTML(met, of){
   const nx=(STAGES[curStage()+1]||{}).n||'';
+  const here=(STAGES[curStage()]||{}).n||'', left=of-met;
   return met>=of ? `<b>All ${of} check points reached.</b> ${esc(nx)} is next.`
-    : `<b>${met} of ${of} check points.</b> ${esc(nx)} fills in as you reach them.`;
+    : `<b>${met} of ${of} check points on ${esc(here)}.</b> ${left===1?'One more':left+' more'} and ${esc(nx)} opens.`;
 }
 function lsFillPaint(met, of){
   if(!of) return;
@@ -25788,11 +25789,13 @@ function ladderStripHTML(o){
     /* green behind you, amber where you are, grey teal ahead; a stage
        finished and stayed on goes green with the amber still under it */
     const done = i<cur, now = i===cur, next = false;
-    /* the stage after yours fills with amber as its check points are reached,
-       so the ladder itself says what moves you up (Elliott, 27 Nov 2026:
-       Claude Design direction B) */
-    const fill = lsFills() && i===cur+1;
-    const col = done || (now && earned && clearShowing()==null) ? 'var(--forest)' : now ? '#e8962f' : fill ? '#a3c8d1' : lwAhead(i);
+    /* your own stage fills with amber as its check points are reached. It
+       was the stage after it that filled (Claude Design direction B, 27 Nov
+       2026), and that read wrong: the check points are this stage's, so
+       taking one off emptied a stage they were not on (Elliott, 28 Nov
+       2026). Pale amber where it is still to fill. */
+    const fill = lsFills() && i===cur;
+    const col = done || (now && earned && clearShowing()==null) ? 'var(--forest)' : fill ? '#f6dcb4' : now ? '#e8962f' : lwAhead(i);
     return `<button class="ls-step${now?' now':''}" onclick="lwPick(${i})" style="--i:${i}" aria-expanded="${lwPopI===i}"
       aria-label="Stage ${i+1}, ${esc(S.n)}${done?', done':now?', you are here':next?', earned':''}${fill?', '+P.met+' of '+P.of+' check points reached':''}">
       <span class="ls-fig"><span
