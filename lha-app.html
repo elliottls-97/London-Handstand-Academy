@@ -8873,6 +8873,28 @@ function pressStepCardHTML(){
       return `<div class="pr-blk">Week ${B.wk} of ${B.of}. The quiz again on ${esc(new Date(B.end).toLocaleDateString('en-GB',{day:'numeric',month:'long'}))}. <button type="button" class="wk-link" style="display:inline;margin:0;padding:0" onclick="openPressQuiz()">Retake it now</button></div>`; })()}
   </div>`;
 }
+/* ── Start session on the Press stage (Elliott, 28 Nov 2026) ─────────
+   Start opens the seven press workouts, not the Easier / Standard /
+   Harder sheet: the levels are already their quiz. The ones that work on
+   what is holding back each step come first, marked. */
+function pressWoForYou(){
+  const lim=new Set(PRESS_STEPS.map(pressStepState).filter(x=>x.held && x.lim).map(x=>x.lim.k));
+  return PRESS_WORKOUTS.filter(W=>W.k!=='whole' && W.parts.some(p=>lim.has(p))).map(W=>W.k);
+}
+function pressStart(){ if(typeof PRESS_WORKOUTS==='undefined'){ startDay(-1,'full'); return; } openOv('presswo'); }
+function pressWoSheetHTML(){
+  const mine=pressWoForYou(), order=PRESS_WORKOUTS.slice().sort((a,b)=>(mine.indexOf(a.k)<0?1:0)-(mine.indexOf(b.k)<0?1:0));
+  const lim=PRESS_STEPS.map(pressStepState).filter(x=>x.held && x.lim);
+  return `<div class="kick2" style="color:var(--forest)">TODAY'S SESSION</div>
+    <div style="font:400 27px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px">Pick a press <em style="color:var(--forest);font-style:normal">workout.</em></div>
+    <div style="font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:6px">${lim.length?'Built to your levels. The ones marked work on '+lim.map(x=>esc(x.lim.n.toLowerCase())).join(', ').replace(/, ([^,]*)$/,' and $1')+'.':'Built to your levels.'}</div>
+    <div style="margin-top:10px">${order.map((W,i)=>{ const hot=mine.indexOf(W.k)>-1;
+      return `<button onclick="closeOv();setTimeout(()=>pressWorkout(${jsq(W.k)}),120)" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;background:none;border:0;padding:13px 0;${i?'border-top:1px solid rgba(29,85,102,.08)':''}">
+        <span style="flex:none;width:10px;height:10px;border-radius:50%;background:${hot?'#e8962f':'rgba(29,85,102,.18)'}"></span>
+        <span style="flex:1;min-width:0"><b style="display:block;font:600 15.5px/1.25 var(--sans);color:var(--ink)">${esc(W.n)}</b>
+          <span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${esc(W.sub)}${hot?' &middot; <b style="color:#9a5a0c;font-weight:600">holding you back</b>':''}</span></span>
+        <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">${W.mins} min &rsaquo;</span></button>`; }).join('')}</div>`;
+}
 /* a step picked: the strip and its card are redrawn in place, never the page */
 function prPick(i){
   prStep=i;
@@ -16665,6 +16687,7 @@ function drawOv(){
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='pressq'){ body=pressQuizBody(); }
+  if(st.ov==='presswo'){ body=pressWoSheetHTML(); }
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='cptest'){ body=cpTestSheetHTML(); }
   if(st.ov==='cpask'){ body=cpAskSheetHTML(); }
@@ -24535,10 +24558,11 @@ function screenHome(){
   /* "I want a different workout" lives on the workout itself now, not on
      Train (Elliott, 26 Nov 2026: "should be on the workout page not on the
      main page") */
-  const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressStripHTML()+pressQuizPromptHTML()+pressStepCardHTML()+(cpDayCardHTML(true) || '<span hidden></span>')+pressWorkoutsHTML())
-    : (()=>{ const cap=pressStripHTML()+pressQuizPromptHTML()+capsuleHTML(`startDay(${_cellIdx},'full')`, startLabel, W);
-        return cap+pressStepCardHTML()+(cpTestDue() ? '' : cpDayCardHTML(true))+pressWorkoutsHTML(); })();
-  const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="startDay(${_cellIdx},'full')">
+  const prOn = pressStepsOn() && typeof PRESS_WORKOUTS!=='undefined';
+  const homeRow = trialPending() ? '' : pressLocked() ? pressCardsHTML() : W ? (pressStripHTML()+pressQuizPromptHTML()+pressStepCardHTML()+(cpDayCardHTML(true) || '<span hidden></span>')+(prOn?'':pressWorkoutsHTML()))
+    : (()=>{ const cap=pressStripHTML()+pressQuizPromptHTML()+capsuleHTML(prOn ? 'pressStart()' : `startDay(${_cellIdx},'full')`, prOn ? 'Start session<small class="hcap-gsub">Pick a press workout</small>' : startLabel, W);
+        return cap+pressStepCardHTML()+(cpTestDue() ? '' : cpDayCardHTML(true))+(prOn?'':pressWorkoutsHTML()); })();
+  const deskStart = W ? `<button class="cstart" data-tour="buildsession" onclick="${(pressStepsOn() && typeof PRESS_WORKOUTS!=='undefined') ? 'pressStart()' : `startDay(${_cellIdx},'full')`}">
       <span style="min-width:0"><b>Start session</b><small>${esc(sessTitle)}${sessCount?' &middot; '+sessCount+' drill'+(sessCount===1?'':'s'):''}</small></span>
       <i><svg width="16" height="18" viewBox="0 0 17 19" fill="#237f95" aria-hidden="true"><path d="M16 8.63a1 1 0 0 1 0 1.74L1.5 18.6A1 1 0 0 1 0 17.73V1.27A1 1 0 0 1 1.5.4z"/></svg></i></button>` : '';
   const sessIds = _rest ? ((typeof WRIST_DAY!=='undefined' && WRIST_DAY.drills) || []) : (((_day && dayDrills(_day, curStage())) || S.drillIds || []));
