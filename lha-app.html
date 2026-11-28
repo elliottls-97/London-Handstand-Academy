@@ -27462,9 +27462,12 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      drill can be lighter in Easier than in Harder without a second copy */
   picked = picked.map(it=>{
     if(it.push) return it;
+    /* Harder from Standard starts from Standard's own numbers, then a fifth more */
+    if(harderOfStd){ const b2=bandTimingFor(stage, 3, it.v) ? null : bandTimingFor(stage, 2, it.v);
+      const own=bandTimingFor(stage, 3, it.v); if(own) return Object.assign({}, it, own);
+      return harderDose(b2 ? Object.assign({}, it, b2) : it); }
     const b=bandTimingFor(stage, stageLevel(stage), it.v);
-    if(b) return Object.assign({}, it, b);
-    return harderOfStd ? harderDose(it) : it;
+    return b ? Object.assign({}, it, b) : it;
   });
   /* ── how many sets ──────────────────────────────────────────────
      A quarter of an hour is one set of each, whatever any dose says: the
@@ -27490,9 +27493,10 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     if(oneSetOnly && (orderOf.get(it.v) == null || orderOf.get(it.v) < tailFrom)) return 1;
     /* the push test's dose, not the band's: it was set for this person */
     if(it.push){ const n=Math.min(lhaSets(it.d)||3, 8); return oneSetOnly ? Math.min(n, it.vol ? 1 : 2) : n; }
-    const band=bandTimingFor(stage, stageLevel(stage), it.v);
+    const band=bandTimingFor(stage, stageLevel(stage), it.v) || (harderOfStd ? bandTimingFor(stage, 2, it.v) : null);
     const bs=Number(band && band.sets);
-    if(Number.isFinite(bs) && bs>=1) return Math.min(Math.round(bs), 8);
+    if(Number.isFinite(bs) && bs>=1){ const n=Math.min(Math.round(bs), 8);
+      return (harderOfStd && !oneSetOnly && !bandTimingFor(stage, 3, it.v)) ? (lvlOf(it.v)<=hardFloor ? Math.min(n, 2) : Math.min(n+1, 8)) : n; }
     const m=timed(it), stated=Number(m.sets);
     if(Number.isFinite(stated) && stated>=1) return Math.min(stated, 8);
     const n=setsFor(it);
