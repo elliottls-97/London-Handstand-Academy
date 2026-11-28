@@ -1270,6 +1270,13 @@ button.pr-row{cursor:pointer}
 .pr-fac{display:flex;align-items:center;gap:8px;font:600 17px/1.25 var(--sans);margin-top:5px}
 .pr-fac i{width:9px;height:9px;border-radius:50%;background:var(--forest);flex:none}.pr-fac i.held{background:#e8962f}
 .pr-why{font:400 14px/1.45 var(--sans);color:var(--grey);margin-top:3px}
+.pr-list{margin:2px -4px 0}
+.pr-list.held .lc-r:first-child .lc-tag{color:#9a5a0c}
+.pr-list.held .lc-r:first-child .lc-tag::before,.pr-grp.held .lc-r:first-child .lc-tag::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:#e8962f;margin-right:5px;vertical-align:1px}
+.pr-grp+.pr-grp{margin-top:10px}
+.pr-gh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:12px 4px 4px;font:700 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:var(--forest)}
+.pr-gh small{font:600 12px/1 var(--sans);letter-spacing:0;text-transform:none;color:var(--grey)}
+.pr-grp.held .lc-r:first-child .lc-tag{color:#9a5a0c}
 .pr-blk{font:400 12.5px/1.45 var(--sans);color:var(--grey);text-align:center;margin-top:2px}
 .pr-tick{flex:none;width:44px;height:44px;border-radius:50%;border:2px solid #237f95;display:grid;place-items:center;color:#8fbeca}
 @media (prefers-reduced-motion: reduce){.cpe-anim.go *{animation-duration:.01s!important;animation-delay:0s!important}}
@@ -2594,7 +2601,7 @@ button.px-step{cursor:pointer}
 .askw-note b{color:var(--ink);font-weight:600}
 .askw-note .btn,.askw-note .btn2{width:100%;margin:0;min-height:46px}
 .lc-tag{font-style:normal;font-weight:600;color:var(--forest)}
-.pg{display:grid;gap:0;border-radius:18px;overflow:hidden;background:#16282e}
+div.pg{display:grid;gap:0;border-radius:18px;overflow:hidden;background:#16282e}
 .pg-t{position:relative;aspect-ratio:4/3;border:0;border-radius:0;overflow:hidden;padding:0;cursor:pointer;background:#16282e;text-align:left}
 .pg-t.on{box-shadow:inset 0 0 0 3px #e8962f}
 .pg-t.on::after{background:linear-gradient(180deg,rgba(13,41,51,0) 45%,rgba(13,41,51,.82));box-shadow:inset 0 0 0 3px #e8962f}
@@ -8841,6 +8848,15 @@ function pressStripHTML(){
 }
 /* the pill on Press says what the strip says: parts in place, of eight */
 const pressInPlaceN = () => PRESS_LADDERS.filter(pressInPlace).length;
+/* every Press check point, under the step of the press it belongs to: the
+   one holding each step back first (Elliott, 28 Nov 2026: "we still want
+   these exercises to work on, just in the new format split between the 3
+   parts of the press movement") */
+function pressGroupedHTML(){
+  return PRESS_STEPS.map(pressStepState).map((x,i)=>{
+    const keys=(x.lim ? [x.lim.k] : []).concat(x.parts.map(q=>q.k).filter(k=>!x.lim || k!==x.lim.k));
+    return `<div class="pr-grp${x.held?' held':''}"><div class="pr-gh"><span>${i+1} &middot; ${esc(x.S.n)}</span><small>${x.ok.length} of ${x.parts.length} in place</small></div>${cpListHTML(5, 0, keys)}</div>`; }).join('');
+}
 function pressStepCardHTML(){
   if(!pressStepsOn()) return '';
   const x=pressStepState(PRESS_STEPS[Math.max(0, Math.min(PRESS_STEPS.length-1, prStep))]), S=x.S, P=x.lim;
@@ -8859,18 +8875,15 @@ function pressStepCardHTML(){
     <div class="pr-ck"><span class="kick2" style="color:var(--forest)">STEP ${PRESS_STEPS.indexOf(S)+1} &middot; ${esc(S.n.toUpperCase())}</span><span>${x.ok.length} of ${x.parts.length} in place</span></div>
     <div class="pr-ch">${esc(S.head)}</div>
     ${film}
-    ${ok.length?`<div class="pr-ok">${ok.map(q=>`<span>&#10003; ${esc(q.n)}</span>`).join('')}</div>`:''}
     <div class="pr-hr"></div>
     <div><div class="pr-lab${x.held?' held':''}">${x.held?'HOLDING YOU BACK':x.strong?'STRONG':'IN PLACE, GETTING STRONGER'}</div>
       <div class="pr-fac"><i class="${x.held?'held':''}"></i>${esc(P.n)}</div>
       <div class="pr-why">${esc(x.held ? (P.issue||'')+'.' : P.why||'')}</div>
       ${(guide && P.t!=null)?`<button type="button" class="wk-link" style="display:inline;margin:6px 0 0;padding:0" onclick="openPhaseFilmAt(${Number(P.t)})">Watch this part of the press guide, from ${clock(P.t)}</button>`:''}</div>
     ${c?`<div class="pr-hr"></div>
-    <button class="pr-row pr-work" onclick="climbGo(${jsq(c.k)})" aria-label="${esc(c.n)}, your check point. Open it">
-      ${th?`<span class="pr-thumb" style="width:56px;height:56px"><img src="${esc(th.still)}" alt="" loading="lazy" onerror="this.remove()"></span>`:PR_PH('IMAGE', 56, 56)}
-      <span class="pr-t"><span class="kick2" style="color:var(--forest)">WORK ON</span><b>${esc(c.n)}</b><small>Your check point &middot; ${esc(rungGoal(c))}</small></span>
-      <span class="pr-tick" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span></button>
-    <button type="button" class="btn2" style="width:100%;margin-top:12px" onclick="pressPartSession(${jsq(P.k)})">Train ${esc(P.n.toLowerCase())}, 15 min</button>`:''}
+    <div class="pr-lab">WORK ON ${x.parts.length>1?'EACH PART OF THIS STEP':'THIS PART'}</div>
+    <div class="pr-list hcps${x.held?' held':''}">${cpListHTML(5, 0, [P.k].concat(x.parts.map(q=>q.k).filter(k=>k!==P.k)))}</div>
+    <button type="button" class="btn2" style="width:100%;margin-top:4px" onclick="pressPartSession(${jsq(P.k)})">Train ${esc(P.n.toLowerCase())}, 15 min</button>`:''}
     ${(()=>{ const B=st.pressQuiz ? pressBlock() : null; if(!B || B.due) return '';
       return `<div class="pr-blk">Week ${B.wk} of ${B.of}. The quiz again on ${esc(new Date(B.end).toLocaleDateString('en-GB',{day:'numeric',month:'long'}))}. <button type="button" class="wk-link" style="display:inline;margin:0;padding:0" onclick="openPressQuiz()">Retake it now</button></div>`; })()}
   </div>`;
@@ -11149,7 +11162,7 @@ function trackAskHTML(inSheet){
       onclick="${inSheet?'closeOv();':''}goJoin('track')">Track my progress</button>
   </div>`;
 }
-function cpListHTML(si, peek){
+function cpListHTML(si, peek, only){
   const S=climbState(si);
   if(!S.n) return '';
   const use='log';
@@ -11162,6 +11175,8 @@ function cpListHTML(si, peek){
      page shows them under the pill when the list is folded (27 Nov 2026) */
   let ord=cpListOrder(S);
   if(peek){ const todo=ord.filter(r=>!r.done && !r.c.extra); ord=todo.slice(-peek); if(!ord.length) return ''; }
+  /* only these parts of the press, in this order (a step of the press, 28 Nov 2026) */
+  if(Array.isArray(only)){ ord=only.map(k=>ord.find(r=>r.c.ladder===k)).filter(Boolean); if(!ord.length) return ''; }
   const first=ord.findIndex(r=>!r.done);
   const rows=ord.map((r,ri)=>{
     const th=climbThumb(r.c, false);
@@ -11191,7 +11206,7 @@ function cpListHTML(si, peek){
     </div>`;
   }).join('');
   /* the ladder's next stage means nothing on a coached block */
-  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${(coachedView()||peek)?'':cpNextRow(si, S)}</div>`;
+  return `<div class="lc cl" data-si="${si}" data-use="${use}"><div class="lc-body">${rows}</div>${(coachedView()||peek||only)?'':cpNextRow(si, S)}</div>`;
 }
 /* The build waits until most of the ladder is on screen, because it
    starts at the foot: watching for any of it set it off with only the top
@@ -22740,7 +22755,7 @@ function cpRingRun(el){
     if(tick){ if(tickT<0) tick.hidden=true; else { tick.hidden=false;
       tick.style.transform='scale('+(tickT<.7?1.18*(tickT/.7):1.18-.18*((tickT-.7)/.3)).toFixed(3)+')';
       tick.style.background=hex(lerp([243,169,73],[214,140,16],doneMix)); } }
-    if(num && S.count!=null){ num.textContent=cpCountWords(S.count, S.total||of);
+    if(num && S.count!=null){ num.textContent=(typeof pressStepsOn==='function' && pressStepsOn()) ? pressInPlaceN()+' of '+PRESS_LADDERS.length+' parts in place' : cpCountWords(S.count, S.total||of);
       if(!coachedView() && window._lsMet!==S.count){ window._lsMet=S.count; lsFillPaint(S.count, S.total||of); } }
   };
   const run=(update)=>{ if(svg._raf){ cancelAnimationFrame(svg._raf); svg._raf=0; }
@@ -22928,7 +22943,7 @@ function homeCpsHTML(){
     ${/* free: gone, "Reach all 7 to climb" under the pill says it (Elliott, 15 Nov 2026) */''}
     ${co?`<div class="hcps-line" style="font:400 15px/1.4 var(--sans);color:var(--deep);padding:0 8px 8px">Tick each one off when you can do it. <span style="color:var(--grey)">Any order. ${esc(coachLabel())} signs it off, then it counts.</span></div>`:''}
     ${clearShowing()==null && cpDue() && ((co?cpFor():cpFor(cur))||[]).some(c=>cpLast(c.k)) ? `<div style="padding:0 8px 8px;font:500 13.5px/1.45 var(--sans);color:var(--forest)">It has been a fortnight. Worth running through these again.</div>` : ''}
-    <div data-tour="checkpoints">${cpListHTML(cur)}</div>
+    <div data-tour="checkpoints">${(typeof pressStepsOn==='function' && pressStepsOn()) ? pressGroupedHTML() : cpListHTML(cur)}</div>
     ${trackAskHTML(false)}
     ${(n=>n?`<button class="lrn-all" style="width:calc(100% - 16px);margin:6px 8px 0;border-bottom:0" onclick="openClips()"><span><b>All your clips</b>
       <span style="color:var(--grey)">&middot; ${n}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--grey)"
