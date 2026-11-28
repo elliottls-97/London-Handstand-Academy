@@ -1237,6 +1237,18 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
  font:700 10px/1 var(--sans);color:#8a5a12;pointer-events:none}
 .ls-run.ls-ph .ls-fill,.ls-run.ls-ph .ls-badge{animation:lsFillIn .4s ease calc(2400ms + var(--ls-off,0ms)) both}
 @keyframes lsFillIn{from{opacity:0}to{opacity:1}}
+.stgmv{display:flex;align-items:flex-end;justify-content:center;gap:16px;margin-top:16px}
+.stgmv-f{display:flex;flex-direction:column;align-items:center;gap:5px}
+.stgmv-f .lw-fig{width:54px;height:70px;animation:none}
+.stgmv-f small{font:600 11px/1.2 var(--sans);color:var(--grey)}
+.stgmv-f.a{color:#e8962f;animation:stgFrom 2.6s ease-in-out infinite}
+.stgmv-f.b{color:#2b8ba2;animation:stgTo 2.6s ease-in-out infinite}
+@keyframes stgFrom{0%,25%{color:#e8962f;transform:none}60%,100%{color:#b9d3da;transform:scale(.94)}}
+@keyframes stgTo{0%,25%{color:#b9d3da;transform:scale(.94)}60%,100%{color:#e8962f;transform:scale(1.06)}}
+.stgmv>svg{margin-bottom:32px;animation:stgArrow 2.6s ease-in-out infinite}
+.stgmv.up>svg{--dx:6px}.stgmv.dn>svg{--dx:-6px}
+@keyframes stgArrow{0%,20%{transform:translateX(0);opacity:.5}50%{transform:translateX(var(--dx));opacity:1}100%{transform:translateX(0);opacity:.5}}
+@media (prefers-reduced-motion: reduce){.stgmv-f.a,.stgmv-f.b,.stgmv>svg{animation:none}.stgmv-f.b{color:#e8962f}.stgmv-f.a{color:#b9d3da}}
 .ls-say{margin:12px 0 0;font:400 14px/1.45 var(--sans);color:var(--grey)}
 .ls-say b{font-weight:700;color:var(--ink)}
 .ls-fig .lw-fig{width:49px;height:64px;animation:none}
@@ -17155,7 +17167,7 @@ function drawOv(){
         <div style="flex:1;min-width:0"><b>${si===cur+1 ? 'Reach all '+P.of+' at '+here+' to climb here.' : 'One stage at a time: reach all '+P.of+' at '+here+' first.'}</b>
         <button onclick="closeOv();setTimeout(showCps,120)">See the check points &rarr;</button></div></div>`; })();
     if(stageLocked(si)){ body=climbNote+screenUpgradeBody(si); }
-    else {
+    else { const climbNote='';
     const St=STAGES[si]||STAGES[0];
     const isNow=si===curStage(), isDone=si<curStage();
     const p=cpProgress(si), pc=p.of?Math.round(p.met/p.of*100):0;
@@ -17169,17 +17181,38 @@ function drawOv(){
        training it). The count, one line, the move, and the check points
        as a list of what it asks; the current stage's open on Train. */
     const nm=esc(St.n), own=((st.stageIntro||{})[si]) || STAGE_VIDEO[si], film=stageIntroUid(si);
+    /* the move, said and shown (Elliott, 28 Nov 2026): the stage's picture as
+       the old panel had it, the two figures with the amber passing from the
+       one you are on to the one you are going to, and going up before the
+       check points are reached is a second, quieter button: the first one
+       is to do them. */
+    const curI=curStage(), Pc=cpProgress(curI), leftC=Math.max(0,(Pc.of||0)-(Pc.met||0)), hereN=esc((STAGES[curI]||{}).n||'');
+    const early = !isNow && !isDone && !coachedView() && Pc.of>0 && leftC>0;
+    const shortS = !wide() && innerHeight<740 && !isNow;   /* the small phones: the move has to fit */
+    const stgPic = `<div class="lw-img" style="display:block;width:100%;aspect-ratio:${wide()?'16/9':shortS?'5/2':'2/1'};border-radius:16px;margin-top:${isNow?4:12}px">${lwImg(si)}${lwPlayBtn(si)}</div>`;
+    const stgMove = isNow ? '' : `<div class="stgmv ${isDone?'dn':'up'}" aria-hidden="true">
+        <span class="stgmv-f a">${lwFigSVG(curI)}<small>${hereN}</small></span>
+        <svg width="34" height="20" viewBox="0 0 34 20" fill="none" stroke="var(--forest)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="${isDone?'M32 10H3M10 3L3 10l7 7':'M2 10h29M24 3l7 7-7 7'}"/></svg>
+        <span class="stgmv-f b">${lwFigSVG(si)}<small>${nm}</small></span></div>
+      <div style="margin-top:10px;text-align:center;font:600 14px/1.35 var(--sans);color:var(--deep)">${isDone?'Moving down to ':'Moving up to '}${nm}</div>`;
     const act = isNow
       ? `<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();startDay(-1)">Start a ${mins} min session</button>`
-      : `<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();goToStage(${si})">${isDone?'Move down to ':'Move up to '}${nm}</button>`;
-    const rows=(cpFor(si)||[]).map(c=>{
+      : early ? `<div style="margin-top:14px;padding:13px 15px;border-radius:14px;background:#fdf4e6;border:1px solid rgba(232,150,47,.4);font:400 14px/1.5 var(--sans);color:#5a3d12">
+          <b style="font-weight:700">Finish ${hereN} first.</b> You have ${leftC} check point${leftC===1?'':'s'} left there.</div>
+        <button class="btn" style="width:100%;margin-top:10px" onclick="closeOv();setTimeout(showCps,120)">See my ${leftC} check point${leftC===1?'':'s'}</button>
+        <button class="btn2" style="width:100%;margin-top:8px" onclick="closeOv();goToStage(${si})">Move up to ${nm} anyway</button>`
+      : `<button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();goToStage(${si})">${isDone?'Move down to ':'Move up to '}${nm}</button>
+        ${isDone?`<div style="margin-top:8px;text-align:center;font:400 12.5px/1.4 var(--sans);color:var(--grey)">Your check points on ${hereN} are kept.</div>`:''}`;
+    /* no check point list here (Elliott, 28 Nov 2026): the sheet is the move,
+       and it fits a phone screen; the list lives on Train */
+    const rows=''; const rowsOld=()=>(cpFor(si)||[]).map(c=>{
       const met=cpMet(c), inner=`<span class="stg-d${met?' on':''}" aria-hidden="true">${met?'&#10003;':''}</span>
         <span class="stg-n">${esc(c.n)}</span><span class="stg-g">${esc(rungGoal(c))}</span>`;
       return isNow
         ? `<button class="stg-r" onclick="closeOv();climbGo(${jsq(c.k)})" aria-label="${esc(c.n)}, ${met?'reached':esc(rungGoal(c))}. Log it on Train">${inner}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--grey2)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`
         : `<div class="stg-r">${inner}</div>`; }).join('');
-    const stgFilm = film?`<div class="clr-film" style="margin-top:18px">
+    const stgFilm = (film&&wide())?`<div class="clr-film" style="margin-top:18px">
         <button class="clr-pic" onclick="clrPlay(this,${jsq(film)})" aria-label="Play ${own?nm+', explained':'How the Ladder works'}">
           <img src="${esc(streamThumb(film))}" alt="" loading="lazy"><i aria-hidden="true"><svg width="11" height="12" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#237f95"/></svg></i></button>
         <span><b>${own?nm+', explained':'How the Ladder works'}</b><small>Stage film</small></span></div>`:'';
@@ -17190,14 +17223,16 @@ function drawOv(){
         <span style="flex:none;padding:6px 11px;border-radius:999px;font:700 9.5px/1 var(--sans);
           letter-spacing:.14em;background:${tag[1]};color:${tag[2]}">${tag[0]}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:11px;margin-top:12px">
+      <div style="display:${isNow?'flex':'none'};align-items:center;gap:11px;margin-top:12px">
         <div style="flex:1;height:6px;border-radius:3px;background:rgba(17,17,17,.08);overflow:hidden">
           <div id="cpbar" style="height:100%;border-radius:3px;width:${pc}%;
             background:linear-gradient(90deg,#237f95,#237f95);
             transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div>
         <span id="cpnum" style="flex:none;font:700 13px/1 var(--sans);color:var(--forest)">${p.met}/${p.of}</span>
       </div>
-      <div style="margin-top:14px;font:400 17px/1.4 var(--serif);color:var(--ink)">${esc(St.goal||St.intro||'')}</div>
+      ${stgPic}
+      ${shortS?'':`<div style="margin-top:14px;font:400 17px/1.4 var(--serif);color:var(--ink)">${esc(St.goal||St.intro||'')}</div>`}
+      ${stgMove}
       ${(isMU() && St.goal && St.intro)?`<div style="margin-top:8px;font:400 14px/1.5 var(--sans);color:var(--grey)">${esc(St.intro)}</div>`:''}
       ${act}
       ${isNow?`<div style="margin-top:10px;text-align:center;font:500 13px/1.3 var(--sans);color:var(--grey)">You&rsquo;re training here</div>`:''}
@@ -17207,7 +17242,7 @@ function drawOv(){
         <span id="cpcount" style="font:600 12px/1 var(--sans);color:var(--forest)">${p.met} of ${p.of} reached</span></div>
       <div class="stg-cps">${rows}</div>`:''}
       ${(wide()&&rows) ? '</div></div>' : stgFilm}
-      <div style="height:14px"></div>`;
+      <div style="height:6px"></div>`;
     }
   }
   if(st.ov==='cleared'){
