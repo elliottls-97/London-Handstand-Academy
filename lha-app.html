@@ -15258,6 +15258,7 @@ function filmsFree(node){
 }
 function endPlayer(done){ clearInterval(tick_); tick_=null; letSleep(); liveEnd(done);
   try{ cpTestAfter(!!done, qi); }catch(e){}
+  try{ cpFromSession(); }catch(e){}
   /* their push up's best counted set, onto their check point */
   try{ strFromSession(); }catch(e){}
   try{ if('mediaSession' in navigator) navigator.mediaSession.metadata=null; }catch(e){}
@@ -16145,6 +16146,7 @@ function drawOv(){
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='cptest'){ body=cpTestSheetHTML(); }
+  if(st.ov==='cpask'){ body=cpAskSheetHTML(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='wsbook'){ body=wsBookBody(); }
   if(st.ov==='wsbooked'){ body=wsBookedBody(); }
@@ -25978,6 +25980,75 @@ function cpTestCardHTML(){
       onclick="st.cpTestLater=Date.now();save();render()"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
 }
+/* ── one easy question (28 Nov 2026) ────────────────────────────────
+   Elliott: some check points are push ups, "it's not like people can't do
+   them", they are just never asked at a moment when yes is one tap. A
+   small sheet, once a day at most, on arriving at Train or after an
+   Advent door: the easiest one not reached, its picture, Yes or Not yet.
+   Not a card: Train has enough of those. */
+const CPASK_EASY=['chaturanga','plank','crow','fall-comfort','ch-assist','wall-45','kickup-rate'];
+function cpAskPick(){
+  if(coachedView() || isMU() || (typeof needsLevel==='function' && needsLevel()) || stageLocked(curStage())) return null;
+  const no=st.cpAskNo||{}, list=(cpFor(curStage())||[]).filter(c=>c && !c.extra && !cpAsks(c) && !cpMet(c)
+    && !(no[c.k] && Date.now()-no[c.k] < 7*864e5));
+  if(!list.length) return null;
+  const rank=c=>{ const i=CPASK_EASY.indexOf(c.k); return i<0 ? 50 : i; };
+  return list.slice().sort((a,b)=>rank(a)-rank(b))[0];
+}
+function cpAskDue(){ return st.cpAskDay!==dayKey(Date.now()) && !!cpAskPick(); }
+function cpAskOpen(from){
+  const c=cpAskPick(); if(!c || st.ov) return false;
+  if(document.getElementById('tour') || (document.getElementById('player')||{classList:{contains:()=>false}}).classList.contains('on')) return false;
+  st.cpAskDay=dayKey(Date.now()); st.cpAskK=c.k; st.cpAskFrom=from||''; save();
+  track('cpask'); openOv('cpask'); return true;
+}
+function cpAskSheetHTML(){
+  const c=(cpFor(curStage())||[]).find(x=>x.k===st.cpAskK); if(!c) return '';
+  const th=climbThumb(c, false), aim=cpAim(c), nx=(STAGES[curStage()+1]||{}).n||'';
+  const q = c.kind==='face' ? 'Does '+esc(c.n.toLowerCase())+' feel comfortable yet?'
+    : c.kind==='secs' && aim ? 'Can you hold a '+esc(c.n.toLowerCase())+' for '+esc(aim)+'?'
+    : (c.kind==='count' && Number(c.target)>0 && !c.unit) ? 'Can you do '+esc(String(c.target))+' '+esc(c.n.toLowerCase())+'?'
+    : aim ? esc(c.n)+': '+esc(rungGoal(c).toLowerCase())+'. Can you?' : 'Can you do this one?';
+  return `<div class="kick2" style="color:#8a5a12">${st.cpAskFrom==='adv'?'WHILE YOU ARE HERE':'QUICK ONE'} &middot; CHECK POINT</div>
+    <div style="font:400 27px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px;text-wrap:balance">${q}</div>
+    <button onclick="closeOv();pgDrill(${jsq(c.demo||'')})" aria-label="Watch ${esc(c.n)}" style="display:block;position:relative;width:100%;aspect-ratio:16/9;margin-top:14px;padding:0;border:0;border-radius:16px;overflow:hidden;background:#dbeaee;cursor:pointer">
+      ${th?`<img src="${esc(th.still)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.remove()">`:''}
+      <span style="position:absolute;left:12px;bottom:12px;padding:7px 11px;border-radius:999px;background:rgba(255,255,255,.92);font:600 12.5px/1 var(--sans);color:var(--deep)">${esc(c.n)} &middot; watch it</span></button>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:10px">It is one of the ${cpProgress(curStage()).of} check points on your stage${nx?'. Reach them all and '+esc(nx)+' opens':''}.</div>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="cpAskYes()">Yes, tick it off</button>
+    <button class="btn2" style="width:100%;margin-top:9px" onclick="cpAskNo()">Not yet</button>`;
+}
+function cpAskYes(){
+  const c=(cpFor(curStage())||[]).find(x=>x.k===st.cpAskK); if(!c){ closeOv(); return; }
+  saveCheckpoint(c.k, c.kind==='face' ? 2 : c.kind==='yn' ? 1 : (Number(c.target)||0));
+  track('cpaskyes'); closeOv(); render(); toast(esc(c.n)+': check point reached.');
+}
+function cpAskNo(){
+  st.cpAskNo=st.cpAskNo||{}; st.cpAskNo[st.cpAskK]=Date.now(); save();
+  closeOv(); toast('It is in your sessions. Tick it when you get there.');
+}
+/* on arriving at Train: a moment after the page settles, never over a tour,
+   a sheet or a first visit that has not been shown round yet */
+let cpAskT=null;
+function cpAskSoon(){
+  if(cpAskT || st.tab!=='home' || wide() || !cpAskDue()) return;
+  if(!(st.tourSeen||{}).home || st.tourNext) return;
+  cpAskT=setTimeout(()=>{ cpAskT=null; if(st.tab==='home' && !st.ov && cpAskDue()) cpAskOpen(''); }, 2600);
+}
+/* ── what a session said ───────────────────────────────────────────
+   A number logged in a workout that reaches a check point ticks it: they
+   typed that they held the plank for thirty seconds, so they are not asked
+   again. Only what was logged counts, never a timer that was left to run
+   (Elliott, 28 Nov 2026: "yes if they log it otherwise they may have let
+   the time pass in follow along"). */
+function cpFromSession(){
+  if(coachedView()) return;
+  const got=[];
+  (Q||[]).forEach((x,i)=>{ const n=Number((st.reps||{})['q'+i]); if(!(Number.isFinite(n) && n>0)) return;
+    const c=cpOfDrill(x.it && x.it.v); if(!c || cpMet(c) || c.kind==='face' || c.kind==='yn' || cpAsks(c)) return;
+    if(cpHit(c, n) && got.indexOf(c)<0){ saveCheckpoint(c.k, n); got.push(c); } });
+  if(got.length) setTimeout(()=>toast(got.length===1 ? esc(got[0].n)+': check point reached, from your session.' : got.length+' check points reached, from your session.'), 1200);
+}
 let cpTestRun=false;
 function startCpTest(){
   if(coachedView()) return;
@@ -32022,7 +32093,9 @@ function chLog(day, k, m){
   chPost('/log',{day, k, m: Number(m) || (k==='m' ? 5 : 0), stage:chLevel()})
     .then(j=>{ CH_D.me.d=j.me.d; CH_D.me.fl=j.me.fl; if(st.chLate===day) st.chLate=0; st.chAsk=0; st.chJust=day; st.chJustAt=Date.now(); track('challog', chLevel());
       if(!CH_D.me.film1 && chStartOpen() && st.chFirstLater!==CH_D.day) st.chFirst=2;
-      toast((day===CH_D.day ? 'Door '+day+' open' : 'Day '+day+' logged')+(m?', '+chMinsTxt(m):'')+'.'); render(); chLoad(true); })
+      toast((day===CH_D.day ? 'Door '+day+' open' : 'Day '+day+' logged')+(m?', '+chMinsTxt(m):'')+'.'); render(); chLoad(true);
+      /* and one check point while they are here (28 Nov 2026) */
+      if(!st.chFirst && cpAskDue()) setTimeout(()=>{ if(st.tab==='chal' && !st.ov && !st.chFirst) cpAskOpen('adv'); }, 2200); })
     .catch(e=>toast(e.message));
 }
 function chFlag(day, f){
@@ -32863,6 +32936,7 @@ function chWelcomeHTML(){
 }
 
 function render(){
+  try{ setTimeout(cpAskSoon, 0); }catch(e){}
   if(appIntroH && (st.mode || st.in)) appIntroStop();
   /* the landing screen's first-run look ends when they leave it; the one
      guided tour of Train follows (Elliott, 5 Nov 2026: "the old walk

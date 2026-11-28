@@ -12707,7 +12707,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* whether StoreKit sent the form checks product to the iPhone app (27 Nov 2026) */
                   'iapchecksok', 'iapchecksnone',
                   /* the fortnight's check point test started (28 Nov 2026) */
-                  'cptest'];
+                  'cptest', 'cpask', 'cpaskyes'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -13274,7 +13274,35 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
     const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('push:')}*`).catch(() => [])) || []);
     const FORT = 13 * 864e5;
-    let sent = 0, skipped = 0;
+    let sent = 0, skipped = 0, mailed = 0;
+    const why = { new: 0, coached: 0, mailOff: 0, noStage: 0, logged: 0, already: 0, error: 0 };
+    /* and once, ever, by email, to anybody on the free ladder who has never
+       logged one (Elliott, 28 Nov 2026: 77 of 85 had not, and most have no
+       notifications on). The same guards as any training email. */
+    try {
+      const accs = (await supa.rows('accounts', 'select=email,name,first_seen').catch(() => [])) || [];
+      for (const a of accs) {
+        const e = norm(a.email || ''); if (!e || mailed >= 60) continue;
+        try {
+          if (!a.first_seen || Date.now() - new Date(a.first_seen).getTime() < 3 * 864e5) { why.new++; continue; }
+          if (await isCoached(e)) { why.coached++; continue; }
+          if (!mayEmail(e) || !(await clientMailAllowed(e)) || !(await wantsEmail(e, 'reminders'))) { why.mailOff++; continue; }
+          const st0 = ((await getSetting(`state:${e}`)) || {});
+          if (!(st0.quizDone || (st0.intake && st0.intake.level != null))) { why.noStage++; continue; }   /* a class booker with no stage */
+          const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
+          if (Object.keys(logs).some(k => (logs[k] || []).length)) { why.logged++; continue; }
+          if (!(await supa.insertIfAbsent('nudges', { key: `cptestmail:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { why.already++; continue; }
+          const first = String(a.name || '').trim().split(/\s+/)[0] || '';
+          await email(e, 'Can you do five push ups on your knees?', mail({ title: 'Your first check point.', greeting: first,
+            paras: ['Each stage of the Handstand Ladder has a handful of check points. Reach them all and the next stage opens.',
+              'You may be able to tick some off today. Five push ups on your knees is one. A 30 second plank is another.',
+              'The check point test takes you through all of them in about 13 minutes, one go at each, and you tick off what you can do.'],
+            cta: { href: `${SITE}/lha-app.html?go=cptest`, label: 'Open the check point test' },
+            signoff: { name: 'Elliott, London Handstand Academy' } }), 'reminders');
+          mailed++;
+        } catch (err) { why.error++; /* one person's trouble is not the run's */ }
+      }
+    } catch (err) {}
     for (const r of rows) {
       const e = norm(String(r.key || '').slice(5)), rec = r.value || {};
       if (!e || !((Array.isArray(rec.subs) && rec.subs.length) || (Array.isArray(rec.apns) && rec.apns.length))) { skipped++; continue; }
@@ -13295,7 +13323,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (res && res.sent) sent++;
       } catch (err) { skipped++; }
     }
-    return json({ ok: true, sent, skipped });
+    return json({ ok: true, sent, skipped, mailed, why });
   }
   if (path === '/challenge/remind/run' && request.method === 'POST') {
     const key = String(request.headers.get('x-health-key') || '');
