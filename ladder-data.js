@@ -105,7 +105,7 @@ const CP_SUPPORT={
   'chaturanga':['plank-pose','floor-scapula-push-ups','chaturganga-push-ups'],
   'kickup-rate':['wall-kick-ups-progressions','kick-up-bounces','bunny-hops','knee-to-chest-kick-ups','knee-to-chest-entry-foam-block'],   /* the progressions film first (Elliott, 27 Nov 2026) */
   /* Wall Work */
-  'nose-toes':['chest-to-wall-handstand','wall-scapula-shrugs','lying-back-engagements'],
+  'nose-toes':['wall-walks','chest-to-wall-handstand','wall-scapula-shrugs','lying-back-engagements'],   /* wall walks first, 28 Nov 2026 */
   'wall-steps':['chest-to-wall-handstand','chair-assisted-step-ups','wall-walks'],
   'lat-slide':['chest-to-wall-handstand','wall-step-ups','scapula-shrugs'],
   'pike-levels':['p-pike-pushups-knees','chaturganga-push-ups','floor-scapula-push-ups'],
