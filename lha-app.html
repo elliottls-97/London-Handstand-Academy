@@ -1238,6 +1238,37 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 .ls-run.ls-ph .ls-fill,.ls-run.ls-ph .ls-badge{animation:lsFillIn .4s ease calc(2400ms + var(--ls-off,0ms)) both}
 @keyframes lsFillIn{from{opacity:0}to{opacity:1}}
 .stgmv{display:flex;align-items:flex-end;justify-content:center;gap:16px;margin-top:16px}
+/* arriving on Press: how the stage works, animated (28 Nov 2026) */
+.ph-stage{position:relative;margin-top:16px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ph-cols{position:relative;z-index:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ph-line{position:absolute;z-index:0;left:14%;right:14%;top:56px;height:2px;border-radius:2px;background:var(--forest);opacity:.45;transform-origin:left;transform:scaleX(0);animation:phLine .9s 1.5s cubic-bezier(.4,0,.2,1) forwards}
+.ph-pic{height:112px;border-radius:14px;overflow:hidden;border:2.5px solid rgba(35,127,149,.32);background:rgba(29,85,102,.06);opacity:0;transform:translateY(10px) scale(.92);
+  animation:phIn .55s calc(.25s + var(--i)*.35s) cubic-bezier(.2,.8,.2,1) forwards, phPicHot .5s calc(7.4s + var(--i)*.3s) forwards}
+.ph-pic img{display:block;width:100%;height:100%;object-fit:cover}
+.ph-n{margin-top:6px;text-align:center;font:700 13px/1.2 var(--sans);color:var(--ink);opacity:0;animation:phFade .4s calc(.5s + var(--i)*.35s) forwards}
+.ph-chips{display:flex;flex-direction:column;gap:5px;margin-top:8px}
+.ph-chip{display:block;padding:6px 5px;border-radius:999px;background:#fff;border:1px solid rgba(0,64,61,.14);text-align:center;font:600 11px/1.2 var(--sans);color:var(--deep);
+  opacity:0;transform:translateY(-6px) scale(.9);animation:phIn .4s calc(3.6s + var(--i)*.25s + var(--j)*.14s) cubic-bezier(.2,.8,.2,1) forwards}
+.ph-chip.hot{animation:phIn .4s calc(3.6s + var(--i)*.25s + var(--j)*.14s) cubic-bezier(.2,.8,.2,1) forwards, phHot .5s calc(7.4s + var(--i)*.3s) forwards}
+.ph-caps{position:relative;min-height:46px;margin-top:14px}
+.ph-caps span{position:absolute;inset:0 0 auto 0;font:600 15px/1.4 var(--sans);color:var(--ink);opacity:0}
+.ph-caps .c1{animation:phCap 3.2s .2s forwards}.ph-caps .c2{animation:phCap 3.8s 3.6s forwards}
+.ph-caps .c3{position:relative;animation:phFade .5s 7.4s forwards}
+.ph-again{display:block;margin:6px 0 0;font:500 12px/1 var(--sans);color:var(--grey2);opacity:0;animation:phFade .4s 8.6s forwards}
+.ph-do{display:flex;gap:12px;align-items:center;width:100%;text-align:left;cursor:pointer;background:none;border:0;padding:13px 0;font:inherit;color:inherit;border-top:1px solid rgba(29,85,102,.10)}
+.ph-do .ph-num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--deep);color:#fff;font:700 13px/28px var(--sans);text-align:center}
+.ph-do b{display:block;font:600 15.5px/1.3 var(--sans);color:var(--ink)}
+.ph-do small{display:block;font:400 13px/1.45 var(--sans);color:var(--grey);margin-top:3px}
+.ph-th{position:relative;flex:none;width:92px;height:58px;border-radius:12px;overflow:hidden;background:rgba(29,85,102,.08)}
+.ph-th img{width:100%;height:100%;object-fit:cover;display:block}
+.ph-th i{position:absolute;inset:0;margin:auto;width:26px;height:26px;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+@keyframes phIn{to{opacity:1;transform:none}}
+@keyframes phFade{to{opacity:1}}
+@keyframes phLine{to{transform:scaleX(1)}}
+@keyframes phCap{0%{opacity:0;transform:translateY(6px)}12%,85%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes phHot{to{background:#fdf1df;border-color:#e8962f;color:#8a5a12;box-shadow:0 0 0 3px rgba(232,150,47,.18)}}
+@keyframes phPicHot{to{border-color:#e8962f}}
+@media (prefers-reduced-motion:reduce){.ph-stage *{animation-duration:.01s!important;animation-delay:0s!important}.ph-caps .c1,.ph-caps .c2{display:none}}
 /* your press, unpicked (28 Nov 2026) */
 .pr-top{margin:6px 0 2px}
 .pr-h{font:400 31px/1.06 var(--serif);letter-spacing:-.01em;margin-top:8px}.pr-h em{font-style:normal;color:var(--forest)}
@@ -8742,6 +8773,7 @@ function cpReach(k){
    the quiz "should help put them in the right buckets". */
 let pcI=0;
 const pressLocked = () => { try{ return !coachedView() && !isMU() && curStage()===5 && typeof PRESS_LADDERS!=='undefined'
+  && typeof PRESS_STEPS==='undefined' /* the welcome animation took the cards' place, 28 Nov 2026 */
   && !st.pressSeen && (st.phaseFilm||{})[5]!=='watched'; }catch(e){ return false; } };
 function pressHave(P){
   const top=P.levels.filter(x=>!x.opt).slice(-1)[0]; if(!top) return '';
@@ -9120,6 +9152,59 @@ function pressDiagnosisHTML(){
     <div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:14px">Your sessions work on all three steps at once, what is holding them back first. Three a week for ${PRESS_BLOCK_WEEKS} weeks, then this quiz again.</div>
     <button class="btn" style="width:100%;margin-top:18px" onclick="closeOv();go('home')">See my plan</button>
     <button class="btn2" style="width:100%;margin-top:8px" onclick="openPressQuiz()">Answer again</button>`;
+}
+/* ── arriving on Press (Elliott, 28 Nov 2026) ──────────────────────
+   Once, the first time they land on the stage: an animation of how it
+   works (three steps, each with parts that can hold it back, unpicked all
+   at once), then what to do: watch the intro, longer as it is, and take
+   the quiz as honestly as they can, because it finds their limiting
+   factors and the level of each exercise. It takes the place of the
+   three step cards. The highlighted part in each step is an example. */
+const PH_EG={takeoff:'float', compression:'back', unroll:'unroll'};
+const pressHelloDue = () => { try{ return pressStepsOn() && !st.pressHello && !st.pressQuiz && !st.preview && st.tab==='home'; }catch(e){ return false; } };
+function pressHelloOpen(){
+  if(st.ov || document.getElementById('tour')) return false;
+  st.pressHello=Date.now(); st.pressSeen=st.pressSeen||Date.now(); save();
+  try{ track('presshello'); }catch(e){}
+  openOv('presshi'); return true;
+}
+function pressHelloHTML(){
+  const img=i=>((typeof PRESS_PHASES!=='undefined' && PRESS_PHASES[i]) ? PRESS_PHASES[i].img : '');
+  const u=(typeof phaseFilmUid==='function') ? phaseFilmUid() : '', len=u ? (PHASE_FILM_LEN[u]||'') : '';
+  const cols=PRESS_STEPS.map((S,i)=>{ const parts=S.parts.map(k=>PRESS_LADDERS.find(x=>x.k===k)).filter(Boolean);
+    return `<div class="ph-col" style="--i:${i}">
+      <div class="ph-pic">${img(i)?`<img src="${esc(img(i))}" alt="">`:''}</div>
+      <div class="ph-n">${esc(S.n)}</div>
+      <div class="ph-chips">${parts.map((P,j)=>`<span class="ph-chip${PH_EG[S.k]===P.k?' hot':''}" style="--j:${j}">${esc(P.n)}</span>`).join('')}</div></div>`; }).join('');
+  return `<div class="kick2" style="color:var(--forest)">PHASE SIX &middot; PRESS</div>
+    <div style="font:400 32px/1.05 var(--serif);letter-spacing:-.01em;margin-top:8px">Your press, <em style="color:var(--forest);font-style:normal">unpicked.</em></div>
+    <div class="ph-stage" onclick="pressHelloReplay()" role="img" aria-label="A press is three steps: take-off, compression and unroll. Each has parts that can hold it back, and you work on all three at once.">
+      <div class="ph-line"></div>
+      <div class="ph-cols">${cols}</div>
+      <div class="ph-caps"><span class="c1">A press is three steps.</span><span class="c2">Each step has parts that can hold it back.</span>
+        <span class="c3">You unpick each one. Your sessions work on what is holding each step back, all three at once.</span></div>
+      <span class="ph-again">Tap to play it again</span>
+    </div>
+    <div class="kick2" style="color:var(--forest);margin-top:18px">HOW TO START</div>
+    <div style="margin-top:6px">
+      ${u?`<button class="ph-do" onclick="pressHelloGo('film')"><span class="ph-num">1</span>
+        <span style="flex:1;min-width:0"><b>Watch the intro first${len?' &middot; '+esc(len):''}</b><small>It is longer than the others. Watch it anyway: it shows how every part of the press fits together.</small></span>
+        <span class="ph-th"><img src="${esc(streamThumb(u))}" alt=""><i><svg width="10" height="11" viewBox="0 0 10 11"><path d="M1 1v9l8-4.5z" fill="#237f95"/></svg></i></span></button>`:''}
+      <button class="ph-do" onclick="pressHelloGo('quiz')"><span class="ph-num">${u?2:1}</span>
+        <span style="flex:1;min-width:0"><b>Then the quiz, as honestly as you can</b><small>Eight questions, tried for real with a wall and a chair. It finds your limiting factors and the level of every exercise you train. Guess, and you train the wrong things.</small></span></button>
+    </div>
+    ${u?`<button class="btn" style="width:100%;margin-top:14px" onclick="pressHelloGo('film')">Watch the intro</button>`:''}
+    <button class="${u?'btn2':'btn'}" style="width:100%;margin-top:8px" onclick="pressHelloGo('quiz')">${u?'Straight to the quiz':'Take the quiz'}</button>
+    <button onclick="pressHelloGo('')" style="display:block;width:100%;background:none;border:0;cursor:pointer;padding:12px 0 0;font:500 13px/1.3 var(--sans);color:var(--grey)">Later</button>`;
+}
+/* the animation again: a fresh copy of the stage restarts every keyframe */
+function pressHelloReplay(){ const s=document.querySelector('#ov .ph-stage'); if(s) s.replaceWith(s.cloneNode(true)); }
+function pressHelloGo(k){
+  try{ track('presshello-'+(k||'later')); }catch(e){}
+  closeOv();
+  if(k==='film') setTimeout(()=>{ try{ openPhaseFilm(); }catch(e){} }, 160);
+  else if(k==='quiz') setTimeout(()=>{ try{ openPressQuiz(); }catch(e){} }, 160);
+  else render();
 }
 function pressQuizBody(){
   const N=PRESS_LADDERS.length;
@@ -16769,6 +16854,7 @@ function drawOv(){
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='pressq'){ body=pressQuizBody(); }
   if(st.ov==='presswo'){ body=pressWoSheetHTML(); }
+  if(st.ov==='presshi'){ body=pressHelloHTML(); }
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='cptest'){ body=cpTestSheetHTML(); }
   if(st.ov==='cpask'){ body=cpAskSheetHTML(); }
@@ -26880,6 +26966,9 @@ function cpEasyAll(){
    a sheet or a first visit that has not been shown round yet */
 let cpAskT=null;
 function cpAskSoon(){
+  /* Press first time: the welcome, on a laptop too */
+  if(!cpAskT && pressHelloDue() && (st.tourSeen||{}).home && !st.tourNext){
+    cpAskT=setTimeout(()=>{ cpAskT=null; if(pressHelloDue() && !st.ov) pressHelloOpen(); }, 900); return; }
   if(cpAskT || st.tab!=='home' || wide() || !(cpEasyDue() || cpAskDue())) return;
   if(!(st.tourSeen||{}).home || st.tourNext) return;
   cpAskT=setTimeout(()=>{ cpAskT=null; if(st.tab!=='home' || st.ov) return;
