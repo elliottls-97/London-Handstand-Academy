@@ -15279,13 +15279,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (url.searchParams.get('all') === '1') {
         if (!asking) return json({ error: 'Sign in as yourself to preview the app' }, 400);
         return json({ email: asking, all: true,
-          token: await sign({ scope: 'preview', email: asking, all: true, exp: Date.now() + 8 * 3600000 }) });
+          token: await sign({ scope: 'preview', email: asking, all: true, iat: Date.now(), exp: Date.now() + 8 * 3600000 }) });
       }
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e,
-        token: await sign({ scope: 'preview', email: e, exp: Date.now() + 30 * 60000 }) });
+        /* stamped, or an account that changed its password or signed out
+           everywhere (gone:) refused every preview of it (28 Nov 2026, Angelica) */
+        token: await sign({ scope: 'preview', email: e, iat: Date.now(), exp: Date.now() + 30 * 60000 }) });
     }
 
     /* Which accounts are not people. A list Elliott keeps, on top of the
