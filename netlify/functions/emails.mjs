@@ -867,11 +867,16 @@ ${mBtn(d.pass.href, 'Get the class pass', true)}</div>` : '';
 <td valign="top">${mKick(escH(d.advent.when || '1 to 24 December · Free'))}<div class="s" style="${mf(M_SERIF, 22, 26, 400)};letter-spacing:-.01em;color:${MC.ink}">${mLit('The Handstand Advent Challenge.')}</div>
 <div style="${mf(M_SANS, 14, 21, 400)};color:${MC.grey};margin-top:6px">A door a day to Christmas Eve, opened by practising. A class counts.</div>
 <div style="margin-top:10px"><a href="${escH(d.advent.href)}" style="${mf(M_SANS, 15, 20, 600)};color:${MC.teal};text-decoration:none">Join free &rarr;</a></div></td></tr></table>`, '18px 20px 18px') : '';
-  /* the dates in the top card, under the words (Elliott, 7 Nov 2026: "integrate next dates to the top bit of email") */
-  const review = d.noReview ? '' : reviewCard;
+  /* the review, inside the thank you box straight under "Good to see you"
+     (Elliott, 28 Nov 2026) */
+  const reviewInner = d.noReview ? '' : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 4px"><tr><td bgcolor="#fbf6ee" style="background:#fbf6ee;border:1px solid rgba(243,169,73,.35);border-radius:16px;padding:14px 16px">
+<span style="font-size:15px;letter-spacing:2px;color:${MC.amber}">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+<div style="${mf(M_SANS, 15, 22, 400)};color:${MC.ink};margin-top:4px"><b>Leave a review?</b> ${d.review ? 'One minute on Google. It is how the next class fills.' : 'Reply with a sentence about how you found it. I read every one.'}</div>
+${d.review ? `<div style="margin-top:8px"><a href="${escH(d.review)}" style="${mf(M_SANS, 15, 20, 600)};color:${MC.teal};text-decoration:none">Write a review &rarr;</a></div>` : ''}</td></tr></table>`;
+  const review = '';
   const html = dates.length
-    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>${commonLine ? `<div style="${mf(M_SANS, 13, 18, 600)};letter-spacing:.08em;text-transform:uppercase;color:${MC.teal};padding:0 0 10px">Next classes &middot; ${commonLine}</div>` : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>${passInner}` })) + review + advent + offers)
-    : mShell(d, mHero(Object.assign({}, d, { heroInner: passInner })) + review + mH2('Next dates.') + datesCard + advent + offers);
+    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `${reviewInner}<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>${commonLine ? `<div style="${mf(M_SANS, 13, 18, 600)};letter-spacing:.08em;text-transform:uppercase;color:${MC.teal};padding:0 0 10px">Next classes &middot; ${commonLine}</div>` : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>${passInner}` })) + review + advent + offers)
+    : mShell(d, mHero(Object.assign({}, d, { heroInner: reviewInner + passInner })) + review + mH2('Next dates.') + datesCard + advent + offers);
 
   const T = mTextTop(Object.assign({}, d, { cta: null }));
   T.push('NEXT DATES');
