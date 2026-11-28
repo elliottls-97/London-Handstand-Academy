@@ -5235,6 +5235,29 @@ function reviewDrop(uid){
    Anything the page logs to the console comes back out to the panel, so a
    script error on their data is visible rather than silent. */
 let prevOn=false, prevEmail='', prevErrs=[];
+/* ── recommend a stage (28 Nov 2026) ──────────────────────────────
+   Elliott's own call from their clip: their app says "Elliott recommends
+   Pushing More" where it said what their answers put them on, and offers
+   that stage. Blank takes it off. */
+const recMap={};
+function recSelectHTML(email){
+  if(!email) return '';
+  if(!(email in recMap)){ recMap[email]=undefined;
+    fetch(API+'/recommend?email='+encodeURIComponent(email),{headers:hdr()}).then(r=>r.ok?r.json():null)
+      .then(d=>{ recMap[email]=d&&Number.isInteger(d.stage)?d.stage:null; drawSoon(); }).catch(()=>{ recMap[email]=null; }); }
+  const v=recMap[email], names=(typeof STAGES!=='undefined'?STAGES:[]).map(S=>S.n);
+  return `<label title="The stage you recommend. Their app says so and offers it."
+    style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 13px;font:600 13px/1 var(--sans);color:var(--deep)">Recommend
+    <select onchange="recSet(${jsq(email)},this.value)" style="border:0;background:transparent;font:600 13px/1 var(--sans);color:var(--forest);padding:5px 4px;cursor:pointer">
+      <option value="" ${v==null?'selected':''}>${v===undefined?'…':'From their answers'}</option>
+      ${names.map((n,i)=>`<option value="${i}" ${v===i?'selected':''}>${esc(n)}</option>`).join('')}
+    </select></label>`;
+}
+function recSet(email, val){
+  fetch(API+'/recommend',{method:'POST',headers:hdr(),body:JSON.stringify({email, stage: val===''?null:Number(val)})})
+    .then(r=>r.json()).then(d=>{ if(d.error){ alert(d.error); return; } recMap[email]=d.stage; drawSoon(); })
+    .catch(()=>alert('Could not save that. Check your signal.'));
+}
 function openPreview(email){
   prevEmail=email; prevErrs=[];
   const wrap=previewHost();
@@ -11104,6 +11127,8 @@ function clientScreenHTML(msgs){
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
         See their app</button>
+      <!-- the stage you recommend for them, which their app says (28 Nov 2026) -->
+      ${recSelectHTML(sel)}
       <button onclick="openAcct(${jsq(sel)})" title="Name, email, password, what they have"
         style="background:transparent;border:1px solid var(--line);border-radius:999px;
         padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);color:var(--deep)">Account</button>

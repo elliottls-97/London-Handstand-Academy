@@ -6448,7 +6448,7 @@ const handle = async (request) => {
   const COACH_OWN = new Set(['thread', 'thread/unsend', 'programme', 'progress', 'submissions', 'submission/reviewed',
     'checkpoint/verdict', 'starting', 'seen', 'saidseen', 'cpseen', 'flagseen', 'typing', 'onboarding', 'notes',
     'clips', 'clients', 'blocks', 'week', 'queue', 'questions', 'question/answer', 'formcheck', 'formcheck/reset',
-    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip', 'mufilms']);
+    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip', 'mufilms', 'recommend']);
   const COACH_READ = new Set(['drill', 'transcripts', 'explain', 'bands', 'timing', 'checkpoints', 'story',
     'ladder-media', 'drillmeta', 'fixes', 'stream/videos']);
   if (path.startsWith('/coach/')) {
@@ -6899,6 +6899,8 @@ const handle = async (request) => {
       email: who,
       name: clients()[who] || acct.name || '',
       avatar: avOwn(await getSetting(`avatar:${who}`).catch(() => null)),
+      /* the stage Elliott recommends, from their clip (28 Nov 2026): beats the quiz */
+      rec: await getSetting(`rec:${who}`).then(v => v && Number.isInteger(v.stage) ? v.stage : null).catch(() => null),
       photosOn: chShows((await chCfg()).photos, request),
       coached: coachedNow,
       /* which plan a coached client bought, where a payment recorded it, so
@@ -15342,6 +15344,24 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        the client's own app with it, in an iframe, so anything broken on
        their page is visible rather than described. Half an hour, because
        it is for looking at something now. */
+    /* the stage the coach recommends for somebody on the free ladder (Elliott,
+       28 Nov 2026, Angelica: "I recommend she is on Pushing More"). Their app
+       says so where it said what their answers put them on. null takes it off. */
+    if (path === '/coach/recommend' && request.method === 'GET') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e || !owns(e)) return json({ error: 'Which client?' }, 400);
+      const v = await getSetting(`rec:${e}`).catch(() => null);
+      return json({ stage: v && Number.isInteger(v.stage) ? v.stage : null });
+    }
+    if (path === '/coach/recommend' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e || !owns(e)) return json({ error: 'Which client?' }, 400);
+      const n = body.stage == null || body.stage === '' ? null : Number(body.stage);
+      if (n === null) { await dropSetting(`rec:${e}`).catch(() => {}); return json({ ok: true, stage: null }); }
+      if (!Number.isInteger(n) || n < 0 || n > 5) return json({ error: 'Which stage?' }, 400);
+      await setSetting(`rec:${e}`, { stage: n, at: Date.now() });
+      return json({ ok: true, stage: n });
+    }
     if (path === '/coach/preview' && request.method === 'GET') {
       /* the whole app with everything open, to look over before anything
          is shown to anybody (Elliott, 26 Oct 2026): a preview of the coach's
