@@ -9,7 +9,7 @@
    Bump CACHE_VERSION whenever you change the app HTML, otherwise
    returning users keep the old cached copy.
    ══════════════════════════════════════════════════════════════ */
-const CACHE_VERSION = 'lha-v389';
+const CACHE_VERSION = 'lha-v432p';
 const SHELL_CACHE   = CACHE_VERSION + '-shell';
 /* Films somebody chose to keep for a gym with no signal. Not versioned: a
    new build of the app must not throw away what they saved on purpose. */
@@ -222,7 +222,7 @@ self.addEventListener('push', event => {
     try {
       const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       open.filter(c => isDash(url) ? (isDash(c.url) && c.frameType !== 'nested') : isApp(c))
-        .forEach(c => c.postMessage({ type: 'lha-push', title, body: d.body || '', url, tag: d.tag || '' }));
+        .forEach(c => c.postMessage({ type: 'lha-push', title, body: d.body || '', url, tag: d.tag || '', important: !!d.important }));
     } catch (e) {}
     await self.registration.showNotification(title, {
       body: d.body || '',
@@ -232,6 +232,8 @@ self.addEventListener('push', event => {
          one on the screen without buzzing again */
       renotify: !!d.tag && !d.quiet,
       silent: !!d.quiet,
+      /* what a client sends the coach stays until it is opened */
+      requireInteraction: !!d.important,
       data: { url },
     });
   })());

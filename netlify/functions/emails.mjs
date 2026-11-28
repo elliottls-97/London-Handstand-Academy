@@ -134,8 +134,8 @@ export const EMAILS = {
     "subject": "Fingers first",
     "title": "Your wrists carry the whole thing.",
     "paras": [
-      "Most handstand pain in the first month is wrists, and most of it is skipped warm-ups. Circles, then flexion and extension with the other hand helping, then weight shifts on all fours. Two minutes. The app puts these at the top of every session for a reason.",
-      "On a day the rest of you is not up to it, there is a mobility day in the app: wrists and shoulders, ten minutes, no stage work. It still counts, and it is the day that keeps a habit alive."
+      "Your wrists are about to hold your whole body weight at ninety degrees, which they do not do at any other point in your day. Most handstand pain in the first month is wrists, and most of that is skipped warm ups.",
+      "Two minutes fixes it. Circles both ways, then palm lifts and fingertip lifts in table top, slowly, because that is the range a handstand lives in. Then weight shifts: lean over one hand, tap the other, and back. The app puts these at the top of every session for that reason."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -148,8 +148,8 @@ export const EMAILS = {
     "subject": "Chair, wall walks, then the wall",
     "title": "Get used to upside down first.",
     "paras": [
-      "Before chest to wall, get used to being upside down. The chair assisted handstand first, then wall walks, then learning to fall out safely, and only then all the way in to the chest to wall handstand.",
-      "Underneath every one of them is the same cue: push the floor away. Shoulders up by the ears, arms straight, the whole body reaching upwards rather than sitting in the joints. Every film in the app has captions, so the phone can sit on the floor with the sound off."
+      "Going straight at the chest to wall handstand is how people frighten themselves off handstands. Four steps instead, in an order where each one makes the next one safe: the chair assisted handstand, wall walks, learning to fall, then all the way in.",
+      "What you are looking for is stacked: hips over shoulders, shoulders over hands. Think about standing. You can stand for hours because everything sits in a line. A handstand is the same, and when the effort goes down, that is your alignment telling you it is there."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -159,11 +159,11 @@ export const EMAILS = {
     "vars": [
       "name"
     ],
-    "subject": "Twice a week is the number",
-    "title": "Two sessions a week moves a handstand. One keeps it.",
+    "subject": "Two or three sessions a week",
+    "title": "Two or three sessions a week moves a handstand. One keeps it.",
     "paras": [
-      "Nobody needs an hour. A fifteen minute session in the app is six drills at one set each, and two of those a week beats one heroic Sunday every time.",
-      "Say how long you have and it builds one. It starts further down your stage each time, so Tuesday and Thursday are different workouts, not the same one again."
+      "A handstand is learned by repeating the movement, so how often matters more than how long. One session a week holds what you have. Two or three, of about half an hour each, is where things move, because the next one lands while the last is still in your body.",
+      "Make the handstand the main part of the session, not an extra at the end, and stop before the form goes. An hour every day tires you out and the progress stalls. Say how long you have and the app builds a session to fit."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -176,9 +176,9 @@ export const EMAILS = {
     "subject": "Film yourself, and I will check it free",
     "title": "You cannot feel a bent hip. You can see one.",
     "paras": [
-      "Phone on the floor, side on, whole body in frame. What feels straight almost never is, and thirty seconds of footage teaches more than a month of guessing.",
-      "Then send it to me. Your first form check is free: one clip of up to two minutes, and I reply on video with what I see and the one thing to change next. Most people are surprised by what the film shows.",
-      "Send it from the app, from the Form check tab or the Ask Elliott button, or from the page below. It comes back within a week."
+      "What feels straight almost never is. A bent hip, an arched back, shoulders that have not opened: you cannot feel any of them from inside the handstand, and you can see all of them in a thirty second clip.",
+      "Phone on the floor, side on, hands to toes in frame. Look for one line from wrists to toes. The usual breaks are the shoulders, the ribs and the hips.",
+      "Then send it to me. Your first form check is free: one clip of up to two minutes, and I reply on video with the one thing to change. Send it from the app, from the Form check tab or the Ask Elliott button, or from the page below. It comes back within a week."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -191,8 +191,8 @@ export const EMAILS = {
     "subject": "Falling is a skill",
     "title": "Conquer your fear of falling.",
     "paras": [
-      "The fear of falling is what keeps people leaning on the wall for a year. So before you work on staying up, learn to come down, three ways:",
-      "Practise them until falling out is automatic and you stop thinking about it, so your head and your body both know it is safe. That is when you can really start learning to balance."
+      "Most of what stops people balancing is not strength. It is fear. You build the kick up into a huge deal, so you never commit far enough to learn anything. So before you work on staying up, make falling light, three ways:",
+      "The lighter the fall, the easier every drill gets, because your brain learns it is not a big deal. Practise them until falling out is automatic. That is when you can really start learning to balance."
     ],
     "footnote": "Five of these in the first ten days, then only a note if you go quiet. Reminders off in the app, in the menu at the top left, stops all of it."
   },
@@ -813,8 +813,13 @@ export function afterClassEmail(d) {
 ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) + mBtn(d.review, 'Write a review', true)
   : mPara('Reply with a sentence about how you found it, good or bad. I read every one.', 10)}`);
   const leftTxt = x => x.left != null && x.left > 0 && x.left <= 5 ? `${x.left} ${x.left === 1 ? 'place' : 'places'} left` : '';
+  /* every class at the same place and price (OverGravity, £20): said once
+     above the dates, not on each one (Elliott, 28 Nov 2026) */
+  const same = k => dates.length > 1 && dates.every(x => (x[k] || '') === (dates[0][k] || ''));
+  const samePlace = same('place'), samePrice = same('price');
+  const commonLine = (samePlace || samePrice) ? [samePlace ? dates[0].place : '', samePrice && dates[0].price ? dates[0].price + ' each' : ''].filter(Boolean).map(escH).join(' &middot; ') : '';
   const dateRow = (x, last) => {
-    const bits = [x.time, x.place, x.price].filter(Boolean).map(escH);
+    const bits = [x.time, samePlace ? '' : x.place, samePrice ? '' : x.price].filter(Boolean).map(escH);
     if (leftTxt(x)) bits.push(`<b style="color:${MC.deep}">${leftTxt(x)}</b>`);
     const right = x.booked ? `<span style="${mf(M_SANS, 14, 20, 600)};color:${MC.teal};white-space:nowrap">&#10003; Booked</span>`
       : x.full ? `<span style="${mf(M_SANS, 14, 20, 600)};color:${MC.grey2}">Full</span>`
@@ -840,7 +845,7 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
         'A muscle up plan joins it soon.',
         o.store ? `On iPhone, ${escH(o.iphone || '£9.99')} a month. <a href="${escH(o.store)}" style="color:${MC.teal};font-weight:600">Get it on the App Store</a>` : ''],
       [{ href: `${site}/lha-app.html?ref=classmail&to=classes`, label: 'Open the app' }])
-      .replace('<tr><td class="px" style="padding:', `<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(site)}/lha-app.html?ref=classmail&to=classes"><img src="${escH((d.assets || site) + '/assets/site/app-screens-email.jpg')}" width="598" alt="The Handstand Ladder app: the ladder, a session playing, and a form check" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${mf(M_SANS, 14, 20, 400)};color:${MC.grey}"></a></td></tr>
+      .replace('<tr><td class="px" style="padding:', `<tr><td style="padding:0;line-height:0;font-size:0"><a href="${escH(site)}/lha-app.html?ref=classmail&to=classes"><img src="${escH((d.assets || site) + '/assets/site/app-screens-2026-11.jpg')}" width="598" alt="The Handstand Ladder app: the ladder and check points, a session playing, and a form check" style="display:block;width:100%;max-width:598px;height:auto;border:0;border-radius:23px 23px 0 0;${mf(M_SANS, 14, 20, 400)};color:${MC.grey}"></a></td></tr>
 <tr><td class="px" style="padding:`)
 
     + mOffer('In person &middot; OverGravity', 'A 1-2-1 with Elliott',
@@ -851,11 +856,27 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
         `${escH(o.online)} a month online. ${escH(o.inperson)} with a session in London each month.`, placesLine],
       [{ href: `${site}/#coaching`, label: 'See coaching' }])
     : '';
-  /* the dates in the top card, under the words (Elliott, 7 Nov 2026: "integrate next dates to the top bit of email") */
-  const review = d.noReview ? '' : reviewCard;
+  /* the class pass: any three classes in the next three months (Elliott, 28 Nov 2026) */
+  /* inside the thank you box, under the dates (Elliott, 28 Nov 2026) */
+  const passInner = d.pass && d.pass.href ? `<div style="border-top:1px solid ${MC.line};padding:18px 0 4px">${mKick('Class pass')}<div class="s" style="${mf(M_SERIF, 26, 30, 400)};letter-spacing:-.015em;color:${MC.ink}">${mLit(`${({2:'Two',3:'Three',4:'Four',5:'Five'})[d.pass.n || 3] || escH(String(d.pass.n))} classes for ${escH(d.pass.price || '£50')}.`)}</div>
+${mPara(`Any ${escH(String(d.pass.n || 3))} classes in the next ${escH(String(d.pass.months || 3))} months. Book each one when it suits you.${d.pass.save ? ' You save ' + escH(d.pass.save) + '.' : ''}`, 10)}
+${mBtn(d.pass.href, 'Get the class pass', true)}</div>` : '';
+  /* the Advent challenge, while it is on (Elliott, 28 Nov 2026) */
+  const advent = d.advent && d.advent.href ? mCard(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="74" valign="top" style="padding:0 16px 0 0"><a href="${escH(d.advent.href)}"><img src="${escH((d.assets || site) + '/assets/site/advent-cal-thumb.jpg')}" width="74" alt="The Handstand Advent calendar" style="display:block;width:74px;height:auto;border:0;border-radius:10px"></a></td>
+<td valign="top">${mKick(escH(d.advent.when || '1 to 24 December · Free'))}<div class="s" style="${mf(M_SERIF, 22, 26, 400)};letter-spacing:-.01em;color:${MC.ink}">${mLit('The Handstand Advent Challenge.')}</div>
+<div style="${mf(M_SANS, 14, 21, 400)};color:${MC.grey};margin-top:6px">A door a day to Christmas Eve, opened by practising. A class counts.</div>
+<div style="margin-top:10px"><a href="${escH(d.advent.href)}" style="${mf(M_SANS, 15, 20, 600)};color:${MC.teal};text-decoration:none">Join free &rarr;</a></div></td></tr></table>`, '18px 20px 18px') : '';
+  /* the review, inside the thank you box straight under "Good to see you"
+     (Elliott, 28 Nov 2026) */
+  const reviewInner = d.noReview ? '' : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 4px"><tr><td bgcolor="#fbf6ee" style="background:#fbf6ee;border:1px solid rgba(243,169,73,.35);border-radius:16px;padding:14px 16px">
+<span style="font-size:15px;letter-spacing:2px;color:${MC.amber}">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
+<div style="${mf(M_SANS, 15, 22, 400)};color:${MC.ink};margin-top:4px"><b>Leave a review?</b> ${d.review ? 'One minute on Google. It is how the next class fills.' : 'Reply with a sentence about how you found it. I read every one.'}</div>
+${d.review ? `<div style="margin-top:8px"><a href="${escH(d.review)}" style="${mf(M_SANS, 15, 20, 600)};color:${MC.teal};text-decoration:none">Write a review &rarr;</a></div>` : ''}</td></tr></table>`;
+  const review = '';
   const html = dates.length
-    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>` })) + review + offers)
-    : mShell(d, mHero(d) + review + mH2('Next dates.') + datesCard + offers);
+    ? mShell(d, mHero(Object.assign({}, d, { heroInner: `${reviewInner}<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>${commonLine ? `<div style="${mf(M_SANS, 13, 18, 600)};letter-spacing:.08em;text-transform:uppercase;color:${MC.teal};padding:0 0 10px">Next classes &middot; ${commonLine}</div>` : ''}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${MC.line}">${dates.map((x, i) => dateRow(x, i === dates.length - 1)).join('')}</table><div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>${passInner}` })) + review + advent + offers)
+    : mShell(d, mHero(Object.assign({}, d, { heroInner: reviewInner + passInner })) + review + mH2('Next dates.') + datesCard + advent + offers);
 
   const T = mTextTop(Object.assign({}, d, { cta: null }));
   T.push('NEXT DATES');
@@ -866,6 +887,8 @@ ${d.review ? mPara('One minute on Google. It is how the next class fills.', 10) 
   else T.push('New dates are on the way.', d.more || `${site}/handstand-class`, '');
   if (d.heroAfter) T.push(mPlain(d.heroAfter), '');
   if (d.cta && d.cta.href) T.push(`${d.cta.label || 'Book'}: ${d.cta.href}`, '');
+  if (d.pass && d.pass.href) T.push('CLASS PASS', `${d.pass.n || 3} classes for ${d.pass.price || '£50'}, any in the next ${d.pass.months || 3} months: ${d.pass.href}`, '');
+  if (d.advent && d.advent.href) T.push('THE HANDSTAND ADVENT CHALLENGE', `A door a day until Christmas Eve. Free: ${d.advent.href}`, '');
   if (!d.noReview) T.push('LEAVE A REVIEW');
   if (d.noReview) {} else if (d.review) T.push('One minute on Google. It is how the next class fills.', d.review, '');
   else T.push('Reply with a sentence about how you found it, good or bad. I read every one.', '');
@@ -939,6 +962,17 @@ function pill(b, dark, top = 24) {
 const gap = '<tr><td style="height:16px;line-height:16px">&nbsp;</td></tr>';
 const P = t => `<p style="margin:0 0 16px;font:400 17px/1.65 ${FS};color:#2b2f2e">${t}</p>`;
 const blockHTML = {
+  /* more on the same thing: a film still and a line a row, each a link to
+     the Learn page or the film it comes from (Elliott, 24 Nov 2026: "can we
+     use the learn articles and intro videos to make these more useful") */
+  more: b => !(b.rows || []).length ? '' : `<tr><td class="pad" style="background:#ffffff;border-radius:24px;border:1px solid #e3e8e8;padding:26px 30px 14px">
+    ${kick(b.kicker || 'Go deeper', '#237f95')}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px">${b.rows.map((r, i) => `<tr>
+      <td width="112" valign="top" style="padding:0 0 14px"><a href="${escH(r.href)}"><img src="${escH(r.img)}" width="112" height="84" alt="" style="display:block;width:112px;height:84px;object-fit:cover;border-radius:12px;border:0;background:#cfe6ec"></a></td>
+      <td valign="middle" style="padding:0 0 14px 14px;font:400 14px/1.45 ${FS};color:#5a5a5a">
+        <a href="${escH(r.href)}" style="display:block;font:600 16px/1.3 ${FS};color:#111111;text-decoration:none">${escH(r.title)}</a>
+        <span style="display:block;margin-top:3px">${escH(r.sub)}</span>
+        <a href="${escH(r.href)}" style="display:inline-block;margin-top:5px;font:600 13.5px/1.3 ${FS};color:#237f95;text-decoration:none">${escH(r.go || 'Watch and read')} &rarr;</a></td></tr>`).join('')}</table></td></tr>`,
   /* light: the app's look (Elliott, 22 Oct 2026), a white panel under the
      photo, the headline in ink with its last word in teal, the teal button */
   hero: b => b.light ? `<tr><td style="border-radius:24px 24px 0 0;overflow:hidden;background:#ffffff">${b.img ? `<a href="${escH(b.href || (b.btn && b.btn.href) || SITE)}"><img src="${escH(b.img)}" width="600" alt="${escH(b.alt || '')}" style="display:block;width:100%;max-width:100%;height:auto;border:0;border-radius:24px 24px 0 0"></a>` : ''}</td></tr>
@@ -975,8 +1009,8 @@ const blockHTML = {
       ${b.steps && b.steps.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px">${b.steps.map((s, i) => `<tr>
         ${s.img ? `<td class="col stepimg" width="236" style="padding:0 0 18px;vertical-align:top"><img class="stepph" src="${escH(s.img)}" width="236" alt="${escH(s.alt || s.title || '')}" style="display:block;width:236px;max-width:100%;height:auto;border:0;border-radius:14px"></td>` : ''}
         <td class="col steptxt" style="padding:4px 0 18px ${s.img ? 20 : 0}px;vertical-align:top">
-          <div style="width:28px;height:28px;border-radius:50%;background:#111111;color:#ffffff;font:600 13px/28px Helvetica,Arial,sans-serif;text-align:center">${i + 1}</div>
-          <div style="font:600 17px/1.3 ${FS};color:#111111;margin-top:10px">${escH(s.title)}</div>
+          ${b.steps.length > 1 ? `<div style="width:28px;height:28px;border-radius:50%;background:#111111;color:#ffffff;font:600 13px/28px Helvetica,Arial,sans-serif;text-align:center">${i + 1}</div>` : ''}
+          <div style="font:600 17px/1.3 ${FS};color:#111111;margin-top:${b.steps.length > 1 ? 10 : 0}px">${escH(s.title)}</div>
           ${s.text ? `<div style="font:400 15px/1.55 ${FS};color:#5a5a5a;margin-top:4px">${escH(s.text)}</div>` : ''}</td></tr>`).join('')}</table>` : ''}
       ${b.stepsAfter == null ? '' : (b.paras || []).slice(b.stepsAfter).map(P).join('')}
       ${b.closer ? `<div style="height:1px;background:#e3e8e8;margin:4px 0 18px"></div><p style="margin:0 0 14px;font:400 18px/1.5 ${FS};color:#111111">${b.closer}</p>` : ''}
@@ -1040,7 +1074,7 @@ const TIP_LOOK = {
                { img: filmStill(BAILOUT, 7, 300), title: 'Learn to fall', text: 'Chest to wall bailouts, until coming down is something you do on purpose.' },
                { img: filmStill('58fc55e74e70f2bd27233abfd289d4e8', 5, 300), title: 'Chest to wall handstand', text: 'All the way in. Push the floor away and hold.' }] },
   4: { kicker: 'Day 4 · How often', img: filmStill('aa4d27ce00fb663bc340ccac433d2d43', 6), alt: 'Walking up the wall',
-       points: [['2&times;', 'Twice<br>a week'], ['15', 'Fifteen minutes<br>is enough'], ['6', 'Six drills,<br>one set each'], ['&#8635;&#65038;', 'A different<br>session each time']] },
+       points: [['2 to 3', 'Sessions<br>a week'], ['30', 'About half<br>an hour each'], ['&#10003;&#65038;', 'The handstand<br>is the session'], ['&#8635;&#65038;', 'A different<br>session each time']] },
   7: { kicker: 'Day 7 · Film it', img: filmStill('51a36a15330dd845d7099de1712cf8d2', 3), alt: 'A kick up to the wall, filmed side on',
        points: [['&#9654;&#65038;', 'Side on, phone<br>on the floor'], ['&#9634;&#65038;', 'Your whole body<br>in frame'], ['30s', 'Thirty seconds<br>of film'], ['&#10003;&#65038;', 'Log it as<br>a check point']] },
   10: { kicker: 'Day 10 · Falling', img: filmStill(BAILOUT, 2), alt: 'Walking up the wall for a bailout',
@@ -1048,6 +1082,25 @@ const TIP_LOOK = {
                { title: 'The cartwheel out', text: 'Get your hips over your hands, then fall out to the side, never over the top.' },
                { img: filmStill(BAILOUT, 7, 300), title: 'The chest to wall bailout', text: 'Walk up the wall, take one leg out to the side, step a hand and turn down.' }] },
 };
+/* the Learn pages and films each day's note leads on to: the page of the same
+   name first, with its film, then one or two that answer the next question */
+const TIP_MORE = {
+  1: [['wrists', 'Your wrists carry the whole thing', 'Why they hurt, and the warm up that stops it. Film and article.', 'a7cd457020f580093be946524a84c3af', 3],
+      ['app:intro', 'Foundations, explained', 'Five minutes on what this stage is for and what to train first.', '3933d7757f6a2ba0910ffb16b689ae7f', 12, 'Watch in the app'],
+      ['do-i-need-to-be-strong', 'Do I need to be strong to start?', 'In short, no. What a handstand needs instead.', '7467f41353ab66c13b57543f0a7105d6', 6]],
+  2: [['chair-wall-walks-then-the-wall', 'Chair, wall walks, then the wall', 'The four steps on film, in the order to learn them.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
+      ['how-a-handstand-should-feel', 'How should a handstand feel?', 'Stacked, and relaxed. Two coaches on what to feel for.', 'f84f53ba8026f8bd0348cb6836a46aad', 6],
+      ['where-to-look-in-a-handstand', 'Where should I look?', 'Between your hands. Exactly where, and why.', 'e1ff0eb98d4c9721ede040f7db994acf', 5]],
+  4: [['twice-a-week', 'How often to train', 'Why little and often beats one long Sunday.', 'aa4d27ce00fb663bc340ccac433d2d43', 6],
+      ['how-long-to-learn-a-handstand', 'How long does it take?', 'An honest answer, and what it depends on.', 'd692864081a3d4976dbafaaaff314213', 6]],
+  7: [['film-yourself', 'Film yourself, from the side', 'Where to put the phone and what to look for.', '51a36a15330dd845d7099de1712cf8d2', 3],
+      ['why-cant-i-balance-off-the-wall', 'Why can’t I balance off the wall yet?', 'What the wall is building, and why balance comes after it.', '681e59df476ca15c136c365cbd2cec72', 6]],
+  10: [['fall-out-of-a-handstand-safely', 'How to fall out of a handstand safely', 'Five bail outs, each on film, from the easiest up.', '692ed8ab7e701e52ea14fe5e88103585', 11],
+       ['the-kick-up', 'The kick up', 'Six steps from kick up bounces to the wall, then leaving it.', '045869a0384df496680feb0922bf0acb', 33]],
+};
+const tipMoreRows = (day, site) => (TIP_MORE[day] || []).map(([slug, title, sub, uid, at, go]) => ({
+  href: slug === 'app:intro' ? `${site || SITE}/lha-app.html?ref=tip${day}&go=intro` : `${site || SITE}/learn/${slug}?src=tip${day}`,
+  title, sub, img: filmStill(uid, at, 240), go }));
 export function tipEmail(day, T, first, site) {
   const L = TIP_LOOK[day] || {}, href = `${site || SITE}/lha-app.html?ref=tip${day}`;
   /* day 7 is the free form check (Elliott, 23 Nov 2026: "people should be
@@ -1059,6 +1112,7 @@ export function tipEmail(day, T, first, site) {
       { t: 'card', greeting: first, paras: T.paras, points: L.points, steps: L.steps, stepsAfter: L.steps ? 1 : undefined,
         btn: fc ? { label: 'Send me your clip', sub: 'Your first form check is free', href: fc }
           : L.steps ? { label: 'Train it in the app', sub: 'Foundations · filmed with cues', href } : undefined },
+      { t: 'more', kicker: 'Watch and read more', rows: tipMoreRows(day, site) },
     ],
     sign: 'Elliott, London Handstand Academy', why: T.footnote || '' });
 }

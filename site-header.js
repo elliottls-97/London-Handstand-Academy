@@ -18,6 +18,26 @@
   /* inside the app's own window (an iframe or ?embed=1) the page shows no
      header at all; the website editor's preview keeps it */
   var embedded = (window.self !== window.top || /[?&]embed=1/.test(location.search)) && !/[?&]siteedit=1/.test(location.search);
+  /* Inside the iPhone app (its web view adds LHAiOS to the user agent).
+     Apple lets the app open the legal pages and the in person bookings
+     (classes and 1-2-1s at OverGravity are paid outside Apple, which it
+     allows), never a page that sells the app, coaching or form checks
+     (guideline 3.1.1). So any other page goes straight back into the app,
+     a link to one does the same, and the header is just Back to the app
+     (26 Nov 2026). */
+  var IOSOK = /^\/(privacy|terms|waiver|session|handstand-class)(\.html)?\/?$/;
+  var ios = /LHAiOS/.test(navigator.userAgent) && !/lha-app/.test(location.pathname);
+  if (ios) {
+    if (!IOSOK.test(location.pathname)) { location.replace('/lha-app.html'); return; }
+    var bare = function (h) { return String(h || '').replace(/^www\./, ''); };
+    D.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest && e.target.closest('a[href]'); if (!a) return;
+      var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
+      if (!/^https?:$/.test(u.protocol) || bare(u.hostname) !== bare(location.hostname)) return;
+      if (IOSOK.test(u.pathname) || /^\/(lha-app|api\/|assets\/)/.test(u.pathname)) return;
+      e.preventDefault(); location.href = '/lha-app.html';
+    }, true);
+  }
   var st = {};
   try { st = JSON.parse(localStorage.getItem('lha_app') || '{}') || {}; } catch (e) {}
   var signed = !!st.token, coached = !!(st.in || st.coached);
@@ -32,6 +52,10 @@
   var items = coached
     ? [['co', 'Your programme'], ['hs', 'Training'], ['classes', 'Classes']]
     : [['hs', 'Training'], ['classes', 'Classes'], ['co', 'Coaching']];
+  /* the Advent challenge, while it runs, as in the app's own header (27 Nov 2026,
+     Elliott: "on the website there isn't an advent option on the header"): the
+     page about it when signed out, the calendar in the app when signed in */
+  if (!coached && Date.now() < Date.parse('2026-12-29T00:00:00Z')) items.splice(1, 0, ['adv', 'Advent']);
   var site = [['learn', 'Learn', '/learn/'], ['about', 'About', '/#story']];
 
   var css = ''
@@ -81,9 +105,10 @@
   /* signed out, Classes is the class page itself, with the photos, coaches
      and reviews; signed in, it is the classes in the app (Elliott, 14 Nov 2026:
      "classes main landing page has gone when im not signed in") */
-  /* and Coaching is the free form check page (Elliott, 14 Nov 2026: "coaching
-     not logged in could have the form check landing page") */
-  var hrefOf = function (k) { return (!signed && k === 'classes') ? '/handstand-class' : (!signed && k === 'co') ? '/form-check' : APP + k; };
+  /* and Coaching is the coaching page (25 Nov 2026, launched; it was the free
+     form check page from 14 Nov, which the coaching page now links to) */
+  var hrefOf = function (k) { return k === 'adv' ? (signed ? '/lha-app.html?chal=join' : '/advent')
+    : (!signed && k === 'classes') ? '/handstand-class' : (!signed && k === 'co') ? '/coaching' : APP + k; };
   var nav = items.map(function (x) { return '<a class="lsh-a' + (on === x[0] ? ' on' : '') + '" data-nowin href="' + hrefOf(x[0]) + '">' + esc(x[1]) + '</a>'; }).join('')
     + '<span class="lsh-sep" aria-hidden="true"></span>'
     + site.map(function (x) { return '<a class="lsh-a s' + (on === x[0] ? ' on' : '') + '" href="' + x[2] + '"' + (on === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</a>'; }).join('');
@@ -101,6 +126,12 @@
   if (embedded) { style.textContent = hide ? hide + '{display:none!important}' : ''; D.head.appendChild(style); return; }
   style.textContent = css; D.head.appendChild(style);
   var h = D.createElement('header'); h.className = 'lsh' + (fixed ? ' fixed' : '');
+  if (ios) {
+    h.innerHTML = '<div class="lsh-row"><a class="lsh-logo" href="/lha-app.html" aria-label="Back to the app"><img src="/assets/site/full-logo.png" alt="London Handstand Academy"></a>'
+      + '<span class="lsh-gap"></span><a class="lsh-btn" href="/lha-app.html" style="border:0;color:#f7f4f1;background:linear-gradient(180deg,#2f93a9,#237f95);box-shadow:0 8px 20px rgba(35,127,149,.25),inset 0 1px 0 rgba(255,255,255,.35)">Back to the app</a></div>';
+    if (me && me.parentNode) me.parentNode.insertBefore(h, me); else D.body.insertBefore(h, D.body.firstChild);
+    return;
+  }
   h.innerHTML = '<div class="lsh-row"><a class="lsh-logo" href="/" aria-label="London Handstand Academy, home"><img src="/assets/site/full-logo.png" alt="London Handstand Academy"></a>'
     + '<nav class="lsh-nav" aria-label="Main">' + nav + '</nav><span class="lsh-gap"></span>' + right
     + '<button type="button" class="lsh-mb" aria-label="Menu" aria-expanded="false">' + burger + '</button></div>'

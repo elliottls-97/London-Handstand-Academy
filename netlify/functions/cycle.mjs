@@ -28,6 +28,19 @@ async function emailCopy(key, vars) {
 /* places are shown once a few are taken (Elliott, 8 Nov 2026: "don't show places till a few are taken"): three booked, or five or fewer left */
 const wsLeftShownC = (places, left) => { const p = Number(places) || 0; return p > 0 && left != null && left > 0 && (p - left >= 3 || left <= 5) ? left : 0; };
 const DAY = 24 * 60 * 60 * 1000;
+/* the places this site sells: a class's ClassBento hold is kept back until
+   it fills or is released (app.mjs wsSale, 25 Nov 2026) */
+const wsLiveC = rows => (rows || []).filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved');
+const wsSaleC = (w, rows) => {
+  const p = Math.max(0, Number(w && w.places) || 0), live = wsLiveC(rows);
+  let h = Math.max(0, Math.round(Number(w && w.cbHold) || 0));
+  const rel = Number(w && w.cbRelease) || 0;
+  if (!p || (rel > 0 && w.when && ms(w.when) - Date.now() <= rel * 3600e3)) h = 0;
+  h = Math.min(h, p);
+  const used = Math.min(h, live.filter(b => b.source === 'classbento').length);
+  const places = Math.max(0, p - h), booked = live.length - used;
+  return { places, booked, left: p ? Math.max(0, places - booked) : null, full: p > 0 && booked >= places };
+};
 /* an early bird that has ended reads as the price it went up to, whether or
    not the site has written it in yet (app.mjs wsRoll does that) */
 function wsSettle(all) {
@@ -443,6 +456,10 @@ async function coachingLoop(done, now) {
     for (const k of Object.keys(subsBy)) subsBy[k].sort((a, b) => b.at - a.at);
   } catch { subsBy = null; }
 
+  /* clips cleared on Today (dealt with elsewhere) are not chased by email
+     (25 Nov 2026: the morning email nagged about clips already cleared) */
+  let todayCleared = {};
+  try { for (const r of (await supa.rows('settings', `key=like.${enc('todaydone:')}*&select=key,value`)) || []) Object.assign(todayCleared, r.value || {}); } catch {}
   for (const c of everyone) {
     try {
       if (past[c.email]) { done.skipped++; continue; }
@@ -523,6 +540,7 @@ async function coachingLoop(done, now) {
       for (const s of mine) {
         if (s.status !== 'submitted') continue;
         if (now - (s.at || 0) < REVIEW_HOURS * 60 * 60 * 1000) continue;
+        if (todayCleared['q:' + s.id]) continue;
         const ckey = `chase:${s.id}`;
         if (await supa.row('nudges', `key=eq.${enc(ckey)}&select=key`).catch(() => null)) continue;
         const hrs = Math.round((now - s.at) / 3600000);
@@ -952,7 +970,7 @@ async function workshopMail(done) {
       if (!o || !o.live || !o.when || ms(o.when) <= now) continue;
       const ob = await supa.row('settings', `key=eq.${enc('wsbook:' + o.slug)}&select=value`).catch(() => null);
       const held = ((ob && ob.value) || []).filter(x => x && x.email && x.status !== 'cancelled' && x.status !== 'refunded' && x.status !== 'moved');
-      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : null });
+      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: wsSaleC(o, (ob && ob.value) || []).left, cap: wsSaleC(o, (ob && ob.value) || []).places });
     }
     coming.sort((a, b) => ms(a.w.when) - ms(b.w.when));
     const [pr, pl, store, list] = await Promise.all([
@@ -999,7 +1017,10 @@ async function workshopMail(done) {
           /* the reminder is the moment somebody finds out they cannot come:
              the way to move or cancel goes with it, while it still counts */
           const canChange = hoursTo > WS_CUTOFF_H;
-          const link = canChange && p.session ? await manageLink(w.slug, p.email, p.session, w.when) : '';
+          /* bought on Eventbrite or ClassBento: the money is there, so no
+             cancel link here; a move is still ours to do (25 Nov 2026) */
+          const ext = p.source === 'eventbrite' || p.source === 'classbento';
+          const link = canChange && p.session && !ext ? await manageLink(w.slug, p.email, p.session, w.when) : '';
           /* the health declaration and photos are asked once paid (13 Oct
              2026); anybody who skipped them is asked again here, on the page
              they would have seen. A guest is asked on the day. */
@@ -1008,7 +1029,7 @@ async function workshopMail(done) {
           const went = await email(p.email, T.subject,
             mail({ title: T.title, greeting: String(p.name || '').split(' ')[0],
               paras: T.paras.concat(ask, link ? [`Can't make it after all? <a href="${link}" style="color:#237f95">Move to another date${Number(p.at) >= WS_POLICY_FROM ? ', or cancel for a credit towards another class' : ' or cancel'}</a>, no account needed, before ${new Date(at - WS_CUTOFF_H * 3600e3).toLocaleString('en-GB', { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Europe/London' }).replace(':00', '').replace(/\s+([ap]m)$/i, '$1')}.`]
-                : [`Can't make it after all? Reply to this email.`]),
+                : [ext && canChange ? `Can't make it after all? Reply to this email and we will move your place to another date.` : `Can't make it after all? Reply to this email.`]),
               signoff: { name: 'Elliott, London Handstand Academy' }, footnote: T.footnote || undefined }), undefined, { receipt: true });
           if (!went) { done.held = (done.held || 0) + 1; continue; }
           done.workshops.reminded++;
@@ -1166,7 +1187,7 @@ async function workshopMail(done) {
                 /* every row names its class: one Saturday can have both (8 Nov 2026) */
                 what: String(c.w.topic || '').trim() || c.w.title,
                 price: caliCode && c === caliNext ? `${gbp(offPrice)} with ${caliCode.c}` : c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-                left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e),
+                left: wsLeftShownC(c.cap, c.left), full: c.left === 0, booked: c.who.has(e),
                 /* the calisthenics class is booked on the class page too (24 Oct 2026) */
                 href: caliCode && c === caliNext ? withCode(wsBookHref(c.w)) : wsBookHref(c.w) };
             }),
@@ -1230,7 +1251,7 @@ async function classNews(all, afterData, done) {
       dates: sat.map(c => { const [d0, ...t] = wsWhenTxt(c.w).split(', ');
         return { day: d0, time: t.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
           price: c.w.price ? '£' + (c.w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-          left: wsLeftShownC(c.w.places, c.left), full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
+          left: wsLeftShownC(c.cap, c.left), full: c.left === 0, booked: c.who.has(e), href: wsBookHref(c.w) }; }),
       more: `${SITE}/handstand-class`,
       offers: !A.roster.has(e) && (await wantsEmail(e, 'offers')) ? A.prices : null });
     await email(e, 'Saturdays have changed: every week at 11', M.html, 'offers', { text: M.text });
@@ -1264,7 +1285,7 @@ async function intentMail(done) {
     if (!x || !x.slug) continue;
     const r = await supa.row('settings', `key=eq.${enc('wsbook:' + x.slug)}&select=value`).catch(() => null);
     const rows = (r && r.value) || [];
-    x.__live = rows.filter(b => b && b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved').length;
+    { const sale = wsSaleC(x, rows); x.__live = sale.booked; x.__cap = sale.places; }
     for (const b of rows) if (b && b.email) (heldBy[kind(x)] = heldBy[kind(x)] || new Set()).add(norm(b.email));
   }
   /* one email a person a run, though they looked at both dates */
@@ -1274,7 +1295,7 @@ async function intentMail(done) {
     const at = ms(w.when);
     if (at - now < 3 * 3600e3) continue;
     /* "the place is still open" must be true */
-    if (Number(w.places) > 0 && w.__live >= Number(w.places)) continue;
+    if (Number(w.places) > 0 && w.__live >= w.__cap) continue;
     const ir = await supa.row('settings', `key=eq.${enc('wsintent:' + w.slug)}&select=value`).catch(() => null);
     const intents = ((ir && ir.value) || []).filter(x => x && x.email && now - (x.at || 0) > 2 * 3600e3);
     if (!intents.length) continue;
@@ -1303,7 +1324,7 @@ async function intentMail(done) {
              it were not there. A continue here skipped them for the day. */
           if (!TE.off) {
             const wentE = await email(e, TE.subject, earlyEmail(TE, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-              price: priceE, then: thenE, at: wsEarlyAtC(w), href: wsBookHref(w), left: wsLeftShownC(w.places, Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0) }, SITE));
+              price: priceE, then: thenE, at: wsEarlyAtC(w), href: wsBookHref(w), left: wsLeftShownC(w.__cap, Number(w.places) > 0 ? Math.max(0, w.__cap - w.__live) : 0) }, SITE));
             if (!wentE) { done.held = (done.held || 0) + 1; continue; }
             done.intents.early = (done.intents.early || 0) + 1; toldNow.add(e);
             await supa.upsert('nudges', { key: keyE, sent_at: new Date().toISOString() }, 'key');
@@ -1323,7 +1344,7 @@ async function intentMail(done) {
       if (hadAny && now - ms(hadAny.sent_at) < 14 * DAY) continue;
       const price = w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
       const openSame = Object.values(all).filter(x => x && x.live && x.when && ms(x.when) - now > 3 * 3600e3 && kind(x) === kind(w)
-        && !(Number(x.places) > 0 && x.__live >= Number(x.places))).length;
+        && !(Number(x.places) > 0 && x.__live >= x.__cap)).length;
       /* the multi-booking saving, £5 unless the owner set another */
       const mv = multiRow && multiRow.value && multiRow.value.pence != null ? Math.max(0, Number(multiRow.value.pence) || 0) : 500;
       const pairPence = openSame > 1 ? mv : 0;
@@ -1332,7 +1353,7 @@ async function intentMail(done) {
         link: wsBookHref(w) });
       if (T.off) { done.held = (done.held || 0) + 1; continue; }
       const went = await email(e, T.subject, intentEmail(T, { first: String(p.name || '').split(' ')[0], title: w.title, when: whenTxt, place: w.place,
-        price, href: wsBookHref(w), left: wsLeftShownC(w.places, Number(w.places) > 0 ? Math.max(0, Number(w.places) - w.__live) : 0), pair: pairPence, coach: w.coach || '',
+        price, href: wsBookHref(w), left: wsLeftShownC(w.__cap, Number(w.places) > 0 ? Math.max(0, w.__cap - w.__live) : 0), pair: pairPence, coach: w.coach || '',
         early: wsEarlyLine(w) ? { day: wsEarlyByC(w), then: wsPoundsC(w.early.then) } : null }, SITE));
       if (!went) { done.held = (done.held || 0) + 1; continue; }
       done.intents.reminded++; toldNow.add(e);

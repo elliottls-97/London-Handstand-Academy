@@ -28,8 +28,8 @@ struct LHASessionAttributes: ActivityAttributes {
 
 /* the app's colours: teal on the cool near white, and a lighter teal on
    the island's black, where the dark one disappears */
-private let teal = Color(red: 0, green: 0.4, blue: 0.388)
-private let tealOnBlack = Color(red: 0.247, green: 0.561, blue: 0.549)
+private let teal = Color(red: 0.137, green: 0.498, blue: 0.584)
+private let tealOnBlack = Color(red: 0.247, green: 0.592, blue: 0.659)
 private let ink = Color(red: 0.067, green: 0.067, blue: 0.067)
 private let grey = Color(red: 0.353, green: 0.353, blue: 0.353)
 private let ground = Color(red: 0.957, green: 0.957, blue: 0.961)
@@ -253,11 +253,11 @@ struct Pal {
         }
         if cs == .dark {
             return Pal(card: hex(0x1c1d1e), tile: hex(0x272829), hair: Color.white.opacity(0.10), ink: hex(0xf4f4f5), ink2: hex(0xcfe6ec),
-                       grey: hex(0xa9aaab), grey2: hex(0x9a9b9c), teal: hex(0x0b7a76), tealText: hex(0x5cc1bb), track: Color.white.opacity(0.12),
-                       rung: hex(0x3a5f63), amber: hex(0xf3a949), red: hex(0xe08a74), onTeal: .white, tinted: false)
+                       grey: hex(0xa9aaab), grey2: hex(0x9a9b9c), teal: hex(0x2f93a9), tealText: hex(0x5cb8cb), track: Color.white.opacity(0.12),
+                       rung: hex(0x3a5c68), amber: hex(0xf3a949), red: hex(0xe08a74), onTeal: .white, tinted: false)
         }
-        return Pal(card: .white, tile: hex(0xf4f4f5), hair: hex(0x00403d).opacity(0.10), ink: hex(0x111111), ink2: hex(0x00403d),
-                   grey: hex(0x5a5a5a), grey2: hex(0x686868), teal: hex(0x006663), tealText: hex(0x006663), track: hex(0x006663).opacity(0.14),
+        return Pal(card: .white, tile: hex(0xf4f4f5), hair: hex(0x1d5566).opacity(0.10), ink: hex(0x111111), ink2: hex(0x1d5566),
+                   grey: hex(0x5a5a5a), grey2: hex(0x686868), teal: hex(0x237f95), tealText: hex(0x237f95), track: hex(0x237f95).opacity(0.14),
                    rung: hex(0xcfe6ec), amber: hex(0xf3a949), red: hex(0xa4503c), onTeal: .white, tinted: false)
     }
 }

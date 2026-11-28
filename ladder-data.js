@@ -10,8 +10,8 @@
 
 const CHECKPOINTS={
   0:[
-    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'chair-assisted-knee-lifts', note:'Stacked? How long did you hold it?', why:'Your first time with your weight on your hands, the chair taking the rest. Stacked here is the shape every stage builds on.'},
-    {k:'fall-comfort',n:'Falling off the wall',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable'], why:'Fear of falling holds more people back than strength. Once bailing feels normal you kick up properly and train freely.'},
+    {k:'ch-assist',   n:'Chair-assisted handstand', kind:'secs',  target:20, demo:'p-l-handstand', note:'Stacked? How long did you hold it?', why:'Your first time with your weight on your hands, the chair taking the rest. Stacked here is the shape every stage builds on.'},
+    {k:'fall-comfort',n:'Fear of falling',     kind:'face',  demo:'fear-of-falling-cartwheel', note:'How comfortable does bailing out feel?', faces:['Not really','Getting there','Comfortable'], why:'Fear of falling holds more people back than strength. Once bailing feels normal you kick up properly and train freely.'},
     {k:'wall-45',     n:'45-degree wall hold',      kind:'secs',  target:30, demo:'45-degree-wall-hold', note:'Alignment held, not just time on the clock.', why:'The straight line and the push through the shoulders, at a gentler angle, before you go all the way up.'},
     {k:'plank',       n:'Plank pose',               kind:'secs',  target:60, demo:'plank-pose', why:'Straight arm strength and a braced middle. A handstand is a plank turned upside down.'},
     {k:'crow',        n:'Crow pose',                kind:'secs',  target:10, demo:'crow-pose', why:'Your first balance on your hands, using your fingers to save it, close to the floor where a fall is nothing.'},
@@ -88,6 +88,63 @@ const CHECKPOINTS={
   ]
 };
 
+/* the drills that build towards each check point (27 Nov 2026, Elliott: "supporting
+   exercises ... eg: for chair assisted handstand, doing chair assisted handstand walks,
+   or the chair assisted step ups, or knee lifts"). Drafted by Claude for him to check.
+   Shown under the check point, and a session leans towards the ones for the first two
+   check points not reached yet. A coach edit's own support list wins (ladder:checkpoints). */
+const CP_SUPPORT={
+  /* Foundations */
+  'ch-assist':['chair-assisted-handstand-walks','chair-assisted-step-ups','chair-assisted-knee-lifts','chair-assisted-handstand-shoulder-adjustments'],
+  'fall-comfort':['art:fall-out-of-a-handstand-safely','fear-of-falling-cartwheel','proper-cartwheel','basic-bail-outs','chest-to-wall-bailouts'],   /* art: a Learn article (Elliott, 27 Nov 2026) */
+  'wall-45':['p-l-handstand','chair-assisted-handstand-walks','chair-assisted-handstand-extensions'],   /* L-shaped first: the hardest in Foundations (Elliott, 27 Nov 2026) */
+  /* the plank film itself covers the variations (Elliott, 27 Nov 2026); ex: points at a drill's
+     explainer in DRILL_EXPLAIN, so a plank explainer shows here the day it is added there */
+  'plank':['ex:plank-pose'],
+  'crow':['ex:crow-pose'],   /* the crow pose breakdown, not drills (Elliott, 27 Nov 2026) */
+  'chaturanga':['plank-pose','floor-scapula-push-ups','chaturganga-push-ups'],
+  'kickup-rate':['wall-kick-ups-progressions','kick-up-bounces','bunny-hops','knee-to-chest-kick-ups','knee-to-chest-entry-foam-block'],   /* the progressions film first (Elliott, 27 Nov 2026) */
+  /* Wall Work */
+  'nose-toes':['wall-walks','chest-to-wall-handstand','wall-scapula-shrugs','lying-back-engagements'],   /* wall walks first, 28 Nov 2026 */
+  'wall-steps':['chest-to-wall-handstand','chair-assisted-step-ups','wall-walks'],
+  'lat-slide':['chest-to-wall-handstand','wall-step-ups','scapula-shrugs'],
+  'pike-levels':['p-pike-pushups-knees','chaturganga-push-ups','floor-scapula-push-ups'],
+  'assist-entry':['knee-to-nose-bounces','knee-to-chest-entry-foam-block','slow-entries','wall-kick-ups-progressions'],
+  'chair-shrugs':['chair-assisted-handstand-shoulder-adjustments','chair-assisted-knee-lifts','floor-scapula-push-ups','shoulder-pulses'],
+  'ctw-hold':['wall-walks','nose-to-toes','scapula-shrugs'],
+  'ctw-bail':['basic-bail-outs','fear-of-falling-cartwheel','proper-cartwheel','wall-walks'],
+  /* Pushing More */
+  'entry-clean':['tuck-entries','straddle-entries','straight-entries','slow-entries'],
+  'tuck-depth':['single-leg-tuck-slides','knees-on-box','p-plank-slides','scapula-shrugs'],
+  'straddle-lean':['p-plank-slides','knees-on-box','tuck-slides'],
+  'scap-shrugs':['chair-assisted-handstand-scapula-shrugs','floor-scapula-push-ups','shoulder-pulses'],
+  'sl-tuck':['tuck-slides','lateral-slide-outs','knees-on-box-single-leg-lifts'],
+  'box-time':['knees-on-box','p-plank-slides','chair-assisted-step-ups','tuck-slides'],
+  'step-ups':['chair-assisted-step-ups','single-leg-tuck-slides','lateral-slide-outs','single-leg-wall-removals'],
+  /* Take-Off */
+  'sl-removal':['single-leg-take-off','wall-step-ups','single-leg-tuck-slides'],
+  'side-away':['single-leg-wall-removals','single-leg-take-off','scapula-shrugs'],
+  'box-lifts':['knees-on-box','p-plank-slides','single-leg-tuck-slides'],
+  'box-knee-lifts':['knees-on-box-single-leg-lifts','knees-on-box','single-leg-tuck-take-offs'],
+  'tuck-takeoff':['single-leg-tuck-take-offs','knees-on-box-knee-lift-offs','tuck-slides'],
+  'shape-wall':['tuck-wall-balance','single-leg-wall-removals','slide-away'],
+  'tuck-wall-bal':['tuck-take-offs','knees-on-box-knee-lift-offs','wall-shape-changes'],
+  'free-attempt':['slide-away','tuck-wall-balance','tuck-entries','wall-shape-changes'],
+  /* Freestanding */
+  'tuck-entries':['tuck-take-offs','tuck-wall-balance','tuck-slides'],
+  'straight-entries':['slide-away','straddle-entries','scapula-shrugs'],
+  'straddle-entries':['straddle-handstand-hold','wall-straddle-shoulder-leans','knees-on-box'],
+  'straddle-to-straight':['wall-shape-changes','straddle-handstand-hold','straddle-entries'],
+  'straight-to-tuck-back':['wall-shape-changes','tuck-wall-balance','tuck-entries'],
+  'straddle-to-diamond':['wall-shape-changes','straddle-handstand-hold','straddle-to-straight'],
+  /* Press */
+  't-chair':['pm-chair-handstand-hold','chair-assisted-handstand-walks','press-scapula-shrugs','pm-plank-shoulders-forward-and-back'],
+  't-pancake':['pm-seated-pancake-rocks','pm-box-pancake-activations','pancake-to-wide-standing','pm-jefferson-curls'],
+  't-pike':['p-pike-pushups-knees','p-pike-pushup-negs','press-scapula-shrugs'],
+  't-compress':['p-bench-zombies','pancake-leg-lifts','pm-curved-sit-up-negatives','lolasana-lifts'],
+  't-overhead':['pm-wall-slides','pm-stick-dislocates','pm-overhead-reach-holds','pm-swim-throughs'],
+  't-wallpress':['p-chest-to-wall','press-walks','pm-wall-press-circles','p-solo-press-circles'],
+};
 const CP_KIND={
   /* max is the top of the slider, not a limit on what can be logged. lower
      means a smaller number is the better one, which the breaks kind needs or

@@ -144,6 +144,8 @@
 (function () {
   try {
     if (/lha-app|lha-coach|lha-app-preview/.test(location.pathname)) return;
+    /* nor inside the iPhone app: its web view adds LHAiOS (26 Nov 2026) */
+    if (/LHAiOS/.test(navigator.userAgent)) return;
     if (document.getElementById('cookieBar')) return;
     var KEY = 'lha-cookie-consent', CLARITY_ID = 'xu03z2n3k6', GA_ID = 'G-Q8X7QG1BPE';
     var mine = /(?:^|;\s*)lha_me=1(?:;|$)/.test(document.cookie || '');

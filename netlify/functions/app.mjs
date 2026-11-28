@@ -30,6 +30,7 @@ import * as supa from './supa.mjs';
 import { EMAILS, renderEmail, richEmail, tipEmail, intentEmail, intent2Email, earlyEmail, afterClassEmail, nextStepEmail, offerEmail, classAlertEmail, interestEmail, startLinkEmail, fcLinkEmail } from './emails.mjs';
 import { pushReady, pushSubs, pushSave, pushSend } from './push.mjs';
 import { parseIcs, freeSlots, slotWhy, hoursText, readHours, roomRead, ruleWords } from './slots.mjs';
+import { EB_API, EB_ACTIONS, ebVenueKey, ebVenueBody, ebEventBody, ebDescHTML, ebHash, ebTicketPlan, ebOrderPlace, ebHookTarget, ebPhotos, ebCrop, ebModules } from './eventbrite.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { X509Certificate, verify as nodeVerify } from 'node:crypto';
 import vm from 'node:vm';
@@ -106,7 +107,7 @@ const primaryCoach = () => Object.keys(coaches())[0] || norm(process.env.COACH_E
    month free ends on its own without a job to end it. */
 /* the shipped check point names, so an email can say "Crow pose" rather
    than "crow" when the key is the ladder's rather than a client's */
-const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort':'Falling off the wall',
+const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort':'Fear of falling',
   'wall-45':'45-degree wall hold', plank:'Plank pose', crow:'Crow pose', chaturanga:'Chaturanga push-ups',
   'kickup-rate':'Kick up to the wall','ctw-hold':'Chest-to-wall handstand','scap-shrugs':'Wall scapula shrugs',
   'sl-tuck':'Single-leg tuck slides','pike-neg':'Pike push-up negatives','pike-full':'Pike push-ups, full reps',
@@ -119,6 +120,33 @@ const CHECKPOINT_NAMES = { 'ch-assist':'Chair-assisted handstand','fall-comfort'
    the workshop list and finishing a payment both threw before doing their
    job. Out here it cannot happen again. */
 const wsLive = book => (book || []).filter(b => b.status !== 'cancelled' && b.status !== 'refunded' && b.status !== 'moved');
+/* ── three shops, one room (25 Nov 2026) ───────────────────────────────
+   A class is sold here, on Eventbrite and on ClassBento. Eventbrite's
+   orders come back into the bookings by webhook (source 'eventbrite');
+   ClassBento takes its own bookings and payment, and Elliott adds each
+   one here by hand marked ClassBento (source 'classbento'). cbHold places
+   are kept back for ClassBento until they fill or the release time comes,
+   so this site and Eventbrite only ever sell the rest. Every "is it full"
+   asks wsSale, never places alone, or the held places are sold twice. */
+const wsExtSrc = { eventbrite: 'Eventbrite', classbento: 'ClassBento' };
+const wsExt = b => !!(b && wsExtSrc[b.source]);
+/* what somebody who bought elsewhere is told when they try to change it here */
+const wsExtWords = b => (b && b.source === 'eventbrite')
+  ? 'You booked this place on Eventbrite, so a cancel or refund is done there, from your Eventbrite order. To move to another date instead, reply to any email from us, or write to info@londonhandstandacademy.com, and we will move it for you.'
+  : `You booked this place on ${wsExtSrc[b && b.source] || 'another site'}, so a cancel or refund is done there. To move to another date instead, reply to any email from us, or write to info@londonhandstandacademy.com, and we will move it for you.`;
+const wsCbHold = w => {
+  const p = Math.max(0, Number(w && w.places) || 0), h = Math.max(0, Math.round(Number(w && w.cbHold) || 0));
+  if (!h || !p) return 0;
+  const rel = Number(w.cbRelease) || 0;
+  if (rel > 0 && w.when && ms(w.when) - Date.now() <= rel * 3600e3) return 0;
+  return Math.min(h, p);
+};
+const wsSale = (w, list) => {
+  const p = Math.max(0, Number(w && w.places) || 0), live = wsLive(list), h = wsCbHold(w);
+  const used = Math.min(h, live.filter(b => b.source === 'classbento').length);
+  const places = Math.max(0, p - h), booked = live.length - used;
+  return { places, booked, left: p ? Math.max(0, places - booked) : null, full: p > 0 && booked >= places, held: h - used };
+};
 /* A place that comes free goes to the first person waiting. It was only
    done when somebody cancelled in the app, so a place freed by a refund in
    Stripe sat empty with people waiting for it. */
@@ -184,6 +212,27 @@ async function wsCreditIssue(b, w) {
       code = c; return all; }).catch(() => {});
   }
   return { code, until: until.toISOString() };
+}
+/* ── the class pass (Elliott, 28 Nov 2026) ─────────────────────────
+   Three classes for £50, any of them, booked when it suits, within three
+   months. It is a code like a credit, good for three places: the booking
+   page already takes it, each booking spends one, and a £0 booking needs
+   no card. Filed once per checkout, so Stripe sending it twice makes one. */
+const WS_PASS = { n: 3, pence: 5000, months: 3 };
+async function wsPassIssue(e, name, cs) {
+  let code = '', fresh = false;
+  await changeSetting(`classpass:${cs}`, cur => { if (cur && cur.code) { code = cur.code; return undefined; } fresh = true; return { e, at: Date.now() }; });
+  if (!fresh) return { code, fresh: false };
+  const until = new Date(); until.setMonth(until.getMonth() + WS_PASS.months);
+  for (let i = 0; i < 6 && !code; i++) {
+    const c = 'PASS-' + newId().replace(/[^A-Za-z0-9]/g, '').slice(-5).toUpperCase();
+    await changeSetting('wscodes', cur => { const all = Object.assign({}, cur || {}); if (all[c]) return undefined;
+      all[c] = { place: true, pct: 0, pence: 0, max: WS_PASS.n, until: until.toISOString(), workshop: '', kind: '', for: '', pass: true,
+        note: `Class pass: ${String(name || e || '').slice(0, 40)}`.slice(0, 80), used: 0 };
+      code = c; return all; }).catch(() => {});
+  }
+  await changeSetting(`classpass:${cs}`, cur => Object.assign({}, cur || {}, { code, until: until.toISOString() })).catch(() => {});
+  return { code, until: until.toISOString(), fresh: true };
 }
 /* An early bird (15 Oct 2026). price is what a class costs now; early.then
    is what it goes up to at early.until. The first request after that moment
@@ -492,6 +541,7 @@ async function wsCancelPlace(slug, addr, session, opts = {}) {
   const b = wsPlaces(book).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to cancel', status: 404 };
   const coach = opts.by === 'coach';
+  if (!coach && wsExt(b)) return { error: wsExtWords(b), status: 400 };
   if (!coach && w.when && ms(w.when) < Date.now()) return { error: 'That one has already happened', status: 400 };
   const hours = wsHoursTo(w), early = hours > WS_CUTOFF_H, refundable = wsRefundableAt(b, w);
   if (!coach && !early) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be cancelled or refunded. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
@@ -616,6 +666,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
   if (!coach && w.when && ms(w.when) - Date.now() < WS_CUTOFF_H * 3600e3) return { error: `It is less than ${WS_CUTOFF_H} hours to the class, so it can no longer be moved. Ill, or something serious has come up? Reply to your confirmation email.`, status: 400, late: true };
   const b = wsPlaces((await getSetting(`wsbook:${slug}`)) || []).slice().reverse().find(x => x.email === who && (!session || x.session === session));
   if (!b) return { error: 'No booking to move', status: 404 };
+  if (!coach && wsExt(b)) return { error: wsExtWords(b), status: 400 };
   if (!coach && b.movedFrom && wsNewRule(b)) return { error: 'This place has moved once already. To change it again, cancel it and book the date you want.', status: 400 };
   /* moved inside the refund line: the money stays, wherever it lands */
   const creditOnly = false;   /* the refund follows the booking's own time now, so a move changes nothing */
@@ -625,7 +676,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
     const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
     const held = wsPlaces(l);
     if (held.some(x => x.email === who)) { problem = 'You already have a place on that date'; return undefined; }
-    if (!coach && Number(w2.places) > 0 && held.length >= Number(w2.places)) { problem = 'That date is full'; return undefined; }
+    if (!coach && wsSale(w2, l).full) { problem = 'That date is full'; return undefined; }
     const { status, cancelledAt, ...rest } = b;
     l.push({ ...rest, at: b.at, movedFrom: slug, movedAt: Date.now(), status: 'booked', ...(creditOnly ? { creditOnly: true } : {}),
       ...(b.pair === to ? { pair: undefined } : {}) });
@@ -654,7 +705,7 @@ async function wsMovePlace(slug, addr, session, to, opts = {}) {
 async function wsOfferFreed(slug, w) {
   try {
     const book = (await getSetting(`wsbook:${slug}`)) || [];
-    if (!(Number(w.places) > 0) || wsLive(book).length >= Number(w.places)) return;
+    if (!(Number(w.places) > 0) || wsSale(w, book).full) return;
     if (!w.live || (w.when && ms(w.when) < Date.now())) return;
     /* Everyone waiting hears, and the first to book has it. Only the first
        was taken off the list and told, so if they did not act, or somebody
@@ -664,7 +715,7 @@ async function wsOfferFreed(slug, w) {
     const held = new Set(wsLive(book).map(b => norm(b.email)));
     const wait = ((await getSetting(`wswait:${slug}`)) || []).filter(x => x && x.email && !held.has(norm(x.email))).slice(0, 40);
     if (!wait.length) return;
-    const free = Number(w.places) - wsLive(book).length;
+    const free = wsSale(w, book).left;
     const whenTxt = wsWhenTxt(w);
     const href = wsPageHref(w);
     const day = new Date().toISOString().slice(0, 10);
@@ -677,6 +728,288 @@ async function wsOfferFreed(slug, w) {
         cta: { href, label: 'Book the place' }, signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => {});
     }
   } catch (err) { console.error('waiting list', slug, String(err && err.message || err)); }
+}
+
+/* ── Eventbrite (25 Nov 2026) ──────────────────────────────────────────
+   See eventbrite.mjs for the whole idea. Here: asking Eventbrite, filing
+   its orders as bookings (source 'eventbrite', session 'eb-<order id>'),
+   and setting what it may sell after every change to a class's bookings.
+   Nothing here runs without EVENTBRITE_TOKEN, and nothing is published
+   on Eventbrite except by Elliott pressing Publish in the dashboard. */
+const ebTok = () => process.env.EVENTBRITE_TOKEN || '';
+async function ebApi(path, body, method) {
+  const u = /^https:\/\//.test(path) ? path : EB_API + path;
+  if (!u.startsWith(EB_API + '/')) throw new Error('not an Eventbrite address');
+  /* JSON is said only when JSON is sent: a lookup labelled as JSON with
+     nothing in it had Eventbrite read its arguments from that empty body,
+     so the photo upload's ?type= went unseen ("type - This field is
+     required", 25 Nov 2026) */
+  const r = await fetch(u, { method: method || (body ? 'POST' : 'GET'),
+    headers: { Authorization: 'Bearer ' + ebTok(), ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch {}
+  if (!r.ok) {
+    const err = new Error(String((d && (d.error_description || d.error)) || ('Eventbrite said ' + r.status)).slice(0, 300));
+    err.status = r.status; throw err;
+  }
+  return d || {};
+}
+const ebConf = async () => (await getSetting('eventbrite').catch(() => null)) || {};
+const ebHookUrl = k => `${SITE}/api/app/eventbrite/hook?k=${k}`;
+/* what the class's record says about its Eventbrite side; the dashboard
+   never sends this, the server alone writes it */
+const ebSave = (slug, patch) => changeSetting('workshops', cur => {
+  const c = cur || {}, w = c[slug]; if (!w) return undefined;
+  w.eb = Object.assign({}, w.eb || {}, patch); return c; }).catch(() => {});
+async function ebConnect() {
+  if (!ebTok()) return { error: 'EVENTBRITE_TOKEN is not set in Netlify yet, or the site has not been deployed since it was.', status: 400 };
+  const me = await ebApi('/users/me/organizations/');
+  const org = String((((me && me.organizations) || [])[0] || {}).id || '');
+  if (!org) return { error: 'That token can see no Eventbrite organisation', status: 400 };
+  const conf = await ebConf();
+  const k = (conf.hook && conf.hook.k) || (newId() + newId()).replace(/[^a-z0-9]/g, '').slice(0, 32);
+  let hook = conf.hook && conf.hook.id && conf.hook.org === org ? conf.hook : null, hookErr = '';
+  if (!hook) {
+    try { const h = await ebApi(`/organizations/${org}/webhooks/`, { endpoint_url: ebHookUrl(k), actions: EB_ACTIONS });
+      hook = { id: String(h.id || ''), k, org }; }
+    catch (err) { hookErr = String(err.message || err); hook = { id: '', k, org }; }
+  }
+  await changeSetting('eventbrite', cur => Object.assign({}, cur || {}, { org, hook, at: Date.now() }));
+  return { ok: true, org, hookOk: !!hook.id, hookErr };
+}
+async function ebVenue(w, conf) {
+  const key = ebVenueKey(w);
+  if (conf.venues && conf.venues[key]) return conf.venues[key];
+  const v = await ebApi(`/organizations/${conf.org}/venues/`, ebVenueBody(w));
+  const id = String(v.id || '');
+  await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.venues = Object.assign({}, c.venues, { [key]: id }); return c; });
+  return id;
+}
+const ebWhere = w => w && w.place && !/overgravity/i.test(w.place) ? String(w.place)
+  : `OverGravity, ${wsArch(w)}, Arches 160 to 163, Sutton Street, London E1 0DB`;
+async function ebDescribe(id, modules) {
+  let v = 1;
+  try { const cur = await ebApi(`/events/${id}/structured_content/`); v = (Number(cur.page_version_number) || 0) + 1; } catch {}
+  await ebApi(`/events/${id}/structured_content/${v}/`, { modules, publish: true, purpose: 'listing' });
+}
+/* A photo from the site, uploaded to Eventbrite once and remembered: ask
+   for an upload slot, post the file to where it says, then hand the token
+   back (with the 2:1 crop for a main image). Eventbrite's own steps, from
+   its image upload guide. type: image-event-logo or image-structured-content */
+async function ebMedia(file, type) {
+  const key = type + ':' + file, have = ((await ebConf()).media || {})[key];
+  if (have) return have;
+  /* each step says which it was when it fails: the first real try came
+     back "type: this field is required" with no way to tell where */
+  const step = async (what, fn) => { try { return await fn(); } catch (err) { throw new Error(`${what}: ${String(err.message || err).replace(/\.+$/, '')}`); } };
+  const ins = await step('asking for an upload', () => ebApi(`/media/upload/?type=${enc(type)}`));
+  const img = await fetch(`${SITE}/assets/site/${enc(file)}`);
+  if (!img.ok) throw new Error(`the photo ${file} did not load`);
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(ins.upload_data || {})) fd.append(k, String(v));
+  fd.append(ins.file_parameter_name || 'file', new Blob([await img.arrayBuffer()], { type: 'image/jpeg' }), file);
+  const up = await fetch(String(ins.upload_url || ''), { method: ins.upload_method || 'POST', body: fd });
+  if (!up.ok) throw new Error(`sending the photo: the upload said ${up.status}`);
+  const crop = type === 'image-event-logo' ? ebCrop(file) : null;
+  /* As Eventbrite's guide has it: the token and the crop, no type. The
+     "type is required" of 25 Nov came from the first step (see ebApi), and
+     sending the type here was then refused as unknown. Should Eventbrite
+     ever ask for it here after all, it is sent on a second try. */
+  const finish = withType => ebApi('/media/upload/', { upload_token: ins.upload_token, ...(withType ? { type } : {}), ...(crop ? { crop_mask: crop } : {}) });
+  const done = await step('finishing the upload', () => finish(false).catch(err => {
+    if (/\btype\b.*required/i.test(String(err && err.message))) return finish(true);
+    throw err; }));
+  const id = String((done && done.id) || '');
+  if (!id) throw new Error('Eventbrite gave no id for the photo');
+  await changeSetting('eventbrite', cur => { const c = Object.assign({}, cur || {}); c.media = Object.assign({}, c.media, { [key]: id }); return c; });
+  return id;
+}
+/* Set what each ticket may sell from what is left here. Reads Eventbrite's
+   own sold counts first, so an order it has taken and not yet sent us is
+   never offered again. */
+async function ebTickets(slug, w, eb) {
+  const book = (await getSetting(`wsbook:${slug}`)) || [];
+  const now = Date.now(), sale = wsSale(w, book);
+  const open = !!w.live && !eb.off && ms(w.when) > now;
+  const sold = {};
+  if (eb.tcs && (eb.tcs.std || eb.tcs.early))
+    for (const t of ((await ebApi(`/events/${eb.id}/ticket_classes/`)).ticket_classes || [])) sold[String(t.id)] = Number(t.quantity_sold) || 0;
+  const filed = {};
+  for (const b of wsLive(book)) if (b.source === 'eventbrite' && b.ebEvent === eb.id) filed[b.ebTc || ''] = (filed[b.ebTc || ''] || 0) + 1;
+  const plan = ebTicketPlan(w, { left: sale.left || 0, open, now, tcs: eb.tcs || {}, filed, sold, stdStart: eb.stdStart || 0 });
+  eb.tcs = Object.assign({}, eb.tcs);
+  for (const t of plan.tickets) {
+    if (t.id) await ebApi(`/events/${eb.id}/ticket_classes/${t.id}/`, t.body);
+    else if (t.make) {
+      const made = await ebApi(`/events/${eb.id}/ticket_classes/`, t.body);
+      eb.tcs[t.key] = String(made.id || '');
+      await ebSave(slug, { tcs: eb.tcs });
+    }
+  }
+  eb.stdStart = plan.stdStart;
+  eb.sold = Object.values(sold).reduce((a, n) => a + n, 0);
+  eb.selling = open ? (sale.left || 0) : 0;
+}
+/* opts: { create, details, publish }. details sends the name, the times,
+   the place and the words as well as the tickets. */
+async function ebSync(slug, opts = {}) {
+  if (!ebTok()) return { error: 'Eventbrite is not connected: EVENTBRITE_TOKEN is not set', status: 400 };
+  const conf = await ebConf();
+  if (!conf.org) return { error: 'Connect Eventbrite first, from the button above', status: 400 };
+  const w = ((await getSetting('workshops')) || {})[slug];
+  if (!w) return { error: 'No such class', status: 404 };
+  const eb = Object.assign({}, w.eb || {});
+  if (!eb.id && !opts.create) return { ok: true, note: 'not on Eventbrite' };
+  if (!eb.id) {
+    if (!w.when) return { error: 'Give the class a date first', status: 400 };
+    if (ms(w.when) < Date.now()) return { error: 'That class has already happened', status: 400 };
+    if (!(Number(w.places) > 0)) return { error: 'Set the places first: Eventbrite needs a number to sell', status: 400 };
+  }
+  if (opts.publish && !w.live) return { error: 'Put it live on the site first. Eventbrite sells from the same places, so a class that is off the site sells nothing there.', status: 400 };
+  const warn = [];
+  try {
+    if (!eb.id || opts.details) {
+      const mins = wsMins(w);
+      const body = ebEventBody(w, { venueId: await ebVenue(w, conf), mins });
+      if (!eb.id) {
+        const ev = await ebApi(`/organizations/${conf.org}/events/`, body);
+        Object.assign(eb, { id: String(ev.id || ''), url: ev.url || '', status: 'draft', made: Date.now() });
+        /* kept at once: a failure further on must not leave an event on
+           Eventbrite that this site has forgotten */
+        await ebSave(slug, { id: eb.id, url: eb.url, status: 'draft', made: eb.made, on: true });
+      } else {
+        const ev = await ebApi(`/events/${eb.id}/`, body);
+        if (ev.url) eb.url = ev.url;
+      }
+      /* the main photo, from the class page by the date's room; set once
+         for each photo, so one Elliott puts on Eventbrite himself stays */
+      const ph = ebPhotos(w, wsRoomOf(w));
+      if (ph.cover && eb.logoFile !== ph.cover) {
+        try { const id = await ebMedia(ph.cover, 'image-event-logo');
+          await ebApi(`/events/${eb.id}/`, { event: { logo_id: id } }); eb.logo = id; eb.logoFile = ph.cover; }
+        catch (err) { warn.push('The main photo did not go: ' + String(err.message || err).replace(/\.+$/, '') + '.'); console.error('eventbrite photo', String(err && err.message || err)); }
+      }
+      /* the description's photos first (each uploaded once, then remembered),
+         so a photo that goes later is a change and the words are sent again */
+      const ids = []; let photoErr = '';
+      for (const f of ph.more) { try { ids.push(await ebMedia(f, 'image-structured-content')); } catch (err) { photoErr = photoErr || String(err.message || err); } }
+      if (photoErr) { warn.push('A photo for the description did not go: ' + photoErr.replace(/\.+$/, '') + '.'); console.error('eventbrite photo', photoErr); }
+      const html = ebDescHTML(w, { mins, where: ebWhere(w), coachLine: wsCoachLine(w), waiver: `${SITE}/waiver` }), h = ebHash(html + '|' + ids.join(','));
+      if (h !== eb.descH) {
+        /* the photos under the words; if Eventbrite will not take them there,
+           the words alone, so a photo never costs the description */
+        try { await ebDescribe(eb.id, ebModules(html, ids)); eb.descH = h; }
+        catch (err) {
+          try { await ebDescribe(eb.id, ebModules(html, [])); eb.descH = ebHash(html + '|'); if (ids.length) warn.push('The photos in the description did not go: ' + String(err.message || err) + '.'); }
+          catch (err2) { warn.push('The description did not go: ' + String(err2.message || err2) + '.'); }
+        }
+      }
+    }
+    await ebTickets(slug, w, eb);
+    if (opts.publish) {
+      await ebApi(`/events/${eb.id}/publish/`, {});
+      eb.status = 'live'; eb.publishedAt = Date.now();
+    }
+    eb.err = warn.join(' '); eb.at = Date.now(); eb.on = true;
+  } catch (err) {
+    /* what went wrong, and anything that went wrong before it: the first
+       real draft's photo message was lost under its ticket error */
+    eb.err = [String(err.message || err).replace(/\.*$/, '.')].concat(warn).join(' ').slice(0, 600); eb.at = Date.now();
+    await ebSave(slug, eb);
+    return { error: 'Eventbrite: ' + eb.err, status: 502, eb };
+  }
+  await ebSave(slug, eb);
+  return { ok: true, eb, warn: eb.err };
+}
+/* after any change to these classes' bookings, Eventbrite's numbers follow */
+async function ebPushMany(slugs) {
+  if (!ebTok() || !slugs.length) return;
+  const all = (await getSetting('workshops').catch(() => null)) || {};
+  for (const sl of slugs) {
+    const w = all[sl];
+    if (!w || !w.eb || !w.eb.id || !w.when || ms(w.when) < Date.now()) continue;
+    await ebSync(sl, {}).catch(err => console.error('eventbrite push', sl, String(err && err.message || err)));
+  }
+}
+/* the request's own list of classes whose bookings changed (changeSetting
+   adds to it), sent on to Eventbrite once the reply has gone */
+function ebTouched(k) {
+  if (!String(k).startsWith('wsbook:')) return;
+  const box = ALERTS.getStore(); if (!box) return;
+  (box.eb || (box.eb = new Set())).add(String(k).slice(7));
+}
+async function ebAlarm(title, paras) {
+  try { await coachAlert(null, 'business', { title, body: String(paras[0] || '').replace(/<[^>]+>/g, '').slice(0, 140), tag: 'eventbrite:' + title.slice(0, 30) }); } catch {}
+  try { await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, title,
+    mail({ title: esc(title) + '.', paras, cta: { href: 'https://www.eventbrite.co.uk/organizations/events', label: 'Open Eventbrite' } })); } catch {}
+}
+/* One Eventbrite order, filed. Safe to run any number of times: the
+   session is the order, so the webhook and the hourly check agree. */
+async function ebFile(order) {
+  const o = ebOrderPlace(order);
+  if (!o.id || !o.event) return { ok: true, note: 'not an order' };
+  const all = (await getSetting('workshops')) || {};
+  const w = Object.values(all).find(x => x && x.eb && x.eb.id === o.event);
+  if (!w) return { ok: true, note: 'not one of ours' };
+  const slug = w.slug, session = 'eb-' + o.id;
+  if (o.live && !wsMailOk(o.email)) {
+    await ebAlarm('An Eventbrite order could not be filed', [`Order ${esc(o.id)} for ${esc(w.title)}, ${esc(wsWhenTxt(w))}, has no usable email address (${esc(o.email || 'none')}). It is not in the bookings here. Add them by hand from the Bookings page.`]);
+    return { ok: true, note: 'no email' };
+  }
+  let did = '', over = false, twice = false, row = null;
+  await changeSetting(`wsbook:${slug}`, cur => {
+    did = ''; over = false; twice = false; row = null;
+    const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+    const ex = l.find(x => x.session === session);
+    if (o.live) {
+      if (ex) return undefined;
+      const lv = wsLive(l);
+      twice = lv.some(x => x.email === o.email);
+      over = wsSale(w, l).full;
+      row = { email: o.email, name: o.name, at: o.at || Date.now(), session, paid: o.paid, unit: o.paid, status: 'booked',
+        source: 'eventbrite', src: 'eventbrite', ebEvent: o.event, ebOrder: o.id, ebTc: o.tc };
+      l.push(row); did = 'booked'; return l;
+    }
+    if (!ex || (ex.status || 'booked') !== 'booked') return undefined;
+    ex.status = o.refunded ? 'refunded' : 'cancelled'; if (o.refunded) ex.refunded = Number(ex.paid) || 0;
+    ex.cancelledAt = Date.now(); ex.cancelledBy = 'eventbrite'; row = ex; did = 'gone'; return l;
+  });
+  /* moved here by the coach to another date: the refund follows it there */
+  if (!did && !o.live) for (const sl of Object.keys(all)) {
+    if (sl === slug) continue;
+    await changeSetting(`wsbook:${sl}`, cur => {
+      const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
+      const ex = l.find(x => x.session === session && (x.status || 'booked') === 'booked'); if (!ex) return undefined;
+      ex.status = o.refunded ? 'refunded' : 'cancelled'; if (o.refunded) ex.refunded = Number(ex.paid) || 0;
+      ex.cancelledAt = Date.now(); ex.cancelledBy = 'eventbrite'; row = ex; did = 'gone'; return l; }).catch(() => {});
+    if (did) { await wsOfferFreed(sl, all[sl]); break; }
+  }
+  if (did === 'booked') {
+    try { await ensureAcct(o.email, o.name); } catch {}
+    await changeSetting(`wsmine:${o.email}`, cur => { const l = Array.isArray(cur) ? cur.slice() : []; if (l.includes(slug)) return undefined; l.push(slug); return l; }).catch(() => {});
+    if (over) await ebAlarm('Eventbrite sold a place the class did not have', [
+      `<b>${esc(o.name || o.email)}</b> booked <b>${esc(w.title)}</b>, ${esc(wsWhenTxt(w))}, on Eventbrite at the same moment the last place went here, so the class is one over.`,
+      'They are in the bookings. Either keep them (the room usually has space for one more), or refund the order on Eventbrite and it comes off here by itself.']);
+    else if (twice) await ebAlarm('Booked twice: once here, once on Eventbrite', [
+      `<b>${esc(o.name || o.email)}</b> (${esc(o.email)}) already had a place on <b>${esc(w.title)}</b>, ${esc(wsWhenTxt(w))}, and has bought another on Eventbrite.`,
+      'If it is for a friend, put the friend\'s name and email on that place from the Bookings page. If it is a mistake, refund it on Eventbrite.']);
+    else await coachAlert(null, 'business', { title: 'Booked on Eventbrite: ' + (o.name || o.email), body: `${w.title}: ${wsWhenTxt(w)}`, tag: 'ebbook:' + o.id });
+  } else if (did === 'gone') {
+    await coachAlert(null, 'business', { title: (o.refunded ? 'Refunded on Eventbrite: ' : 'Cancelled on Eventbrite: ') + (o.name || o.email), body: `${w.title}: ${wsWhenTxt(w)}`, tag: 'ebgone:' + o.id });
+    await wsOfferFreed(slug, w);
+  }
+  return { ok: true, slug, did: did || 'nothing', over, twice };
+}
+/* every order on one class's event, for anything the webhook missed */
+async function ebPull(w) {
+  let token = '', n = 0;
+  for (let page = 0; page < 6; page++) {
+    const d = await ebApi(`/events/${w.eb.id}/orders/?status=all_not_deleted&expand=attendees${token ? '&continuation=' + enc(token) : ''}`);
+    for (const o of d.orders || []) { await ebFile(o); n++; }
+    const p = d.pagination || {};
+    if (!p.has_more_items || !p.continuation) break;
+    token = p.continuation;
+  }
+  return n;
 }
 
 /* the date is set on a workshop that took names first: the list hears, and
@@ -699,7 +1032,7 @@ const caWhoDue = async () => {
   const now = Date.now();
   const onSale = [];
   for (const c of Object.values((await getSetting('workshops')) || {}).filter(c => c && c.live && c.when && ms(c.when) > now).sort((a, b) => ms(a.when) - ms(b.when))) {
-    const cap = Number(c.places) || 0, left = cap ? Math.max(0, cap - wsPlaces((await getSetting(`wsbook:${c.slug}`)) || []).length) : 0;
+    const sale = wsSale(c, (await getSetting(`wsbook:${c.slug}`)) || []), cap = Number(c.places) ? sale.places : 0, left = cap ? sale.left : 0;
     onSale.push({ c, cap, left, full: !!cap && !left });
   }
   const due = [];
@@ -717,7 +1050,7 @@ async function caSendDue() {
     if (!due.length) return 0;
     const pl = c => c.price ? '£' + (c.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free';
     const row = (o, newSet) => ({ title: o.c.title, when: wsWhenTxt(o.c), room: caKindOf(o.c) === 'workshop' ? '' : wsRoomOf(o.c),
-      price: pl(o.c), left: wsLeftShown(o.c.places, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
+      price: pl(o.c), left: wsLeftShown(o.cap, o.left), full: o.full, href: wsPageHref(o.c, 'alert'), isNew: newSet.has(o.c.slug), coach: o.c.coach, place: o.c.place, cap: o.cap });
     for (const { e, x, fresh } of due.slice(0, 90)) {
       const newSet = new Set(fresh.map(o => o.c.slug));
       const news = fresh.map(o => row(o, newSet)), all = onSale.map(o => row(o, newSet));
@@ -842,6 +1175,15 @@ async function journeyReport(days, full) {
     step('sitefitsend', 'Sent a coaching application', n(cur, 'sitefitsend'), n(prev, 'sitefitsend')),
     step('sessionbook', 'Started booking a 1-2-1', n(cur, 'sessionbook'), n(prev, 'sessionbook')),
   ];
+  /* the Advent challenge, in the app (26 Nov 2026) */
+  const advent = [
+    step('chaljoin', 'Joined Advent', n(cur, 'chaljoin'), n(prev, 'chaljoin')),
+    step('challog', 'Opened a door', n(cur, 'challog'), n(prev, 'challog')),
+    step('chalfilm', 'Sent a start or end film', n(cur, 'chalfilm'), n(prev, 'chalfilm')),
+    step('chalplan', 'Saw the plan card', n(cur, 'chalplan'), n(prev, 'chalplan')),
+    step('chalplango', 'Tapped the plan card', n(cur, 'chalplango'), n(prev, 'chalplango')),
+    step('chalbuy', 'Started Help from me', n(cur, 'chalbuy'), n(prev, 'chalbuy')),
+  ];
   const top = (m, k) => Object.entries(m || {}).sort((a, b) => b[1] - a[1]).slice(0, k).map(([key, c]) => ({ key, n: c }));
   /* where it was put down, against how often each screen was seen */
   const leaves = top(cur.leaveAt, 15).map(x => ({ ...x, seen: (cur.scrAt && cur.scrAt[x.key]) || 0 }));
@@ -935,7 +1277,7 @@ async function journeyReport(days, full) {
     open: n(x.r, 'open'), quiz: n(x.r, 'quiz'), start: n(x.r, 'start'), finish: n(x.r, 'finish'),
     signup: n(x.r, 'signup'), paywall: n(x.r, 'paywall'), subscribed: n(x.r, 'subscribed'), leave: n(x.r, 'leave'),
     site: pv(x.r), workshoppaid: n(x.r, 'workshoppaid'), sitefitsend: n(x.r, 'sitefitsend') }));
-  return { at: new Date(now).toISOString(), days, app, site, leaves, quiz, quit, stories,
+  return { at: new Date(now).toISOString(), days, app, site, advent, leaves, quiz, quit, stories,
     paywall: top(cur.paywallAt, 10), errs, films, stalled, daily, skips,
     sources: { accounts: srcAccounts, events: srcEvents },
     /* the screen, step and drill counts start on the day these went live */
@@ -1540,14 +1882,16 @@ function newsParas(body) {
    are a still from one of the drill films or a photo already on the site,
    never an address typed in. Reviews are the Google ones, word for word. */
 const NEWS_PHOTOS = ['class-group-overgravity.jpg', 'hero-image.jpg', 'workshop-big-group-handstand-pic.jpg', 'coach-elliott-handstand-image.jpg',
-  'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg'];
+  'latest-workshop-group-handstand-picture.jpg', 'class-upside-down-wide.jpg', 'app-screens-email.jpg', 'suryava-training-photo.jpg', 'class-2025-hall.jpg',
+  /* the Advent challenge, from its page (28 Nov 2026) */
+  'app-screens-2026-11.jpg', 'advent-cal-thumb.jpg', 'advent-hero-email.jpg', 'advent-doors-email.jpg', 'advent-log-email.jpg', 'advent-films-email.jpg', 'advent-board-email.jpg'];
 const NEWS_REVIEWS = [
   { text: 'Really enjoyed the handstand workshop with Elliott and Suryava. The group was small, only 6 or 7 people so had plenty of attention from the two coaches. Learned some new useful techniques to improve my handstands and am looking forward to the next workshop.', by: 'Kate, Google review' },
   { text: 'Elliott and Sav were great instructors, taking time to give individual feedback. I’m going to do the shoulder exercises they gave us to build up my shoulder strength.', by: 'Diana, Google review' },
   { text: 'Both great teachers with a lot of experience... Also felt very safe in class.', by: 'Anna, Google review' },
 ];
 const NEWS_LINKS = { app: ['/lha-app.html?ref=newsletter', 'Open the app'], formcheck: ['/form-check?src=newsletter', 'Send me your clip'], learn: ['/learn/?src=newsletter', 'Read Learn'], appstore: ['https://apps.apple.com/gb/app/london-handstand-academy/id6818646346', 'Get it on the App Store'], class: ['/handstand-class?src=newsletter#book', 'Book a class'],
-  coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'] };
+  coaching: ['/?src=newsletter#coaching', 'See coaching'], session: ['/session?src=newsletter', 'Book a 1-2-1'], call: ['/call', 'Book a free call'], advent: ['/advent?src=newsletter', 'Join free'] };
 const STREAM_UID = /^[a-f0-9]{32}$/;
 function newsPhoto(x) {
   if (x && STREAM_UID.test(String(x.uid || ''))) return filmStillOf(x.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)));
@@ -1569,8 +1913,11 @@ async function newsBlocks(list, first, classOf) {
       if (!greeted) { c.greeting = first; greeted = true; }
       if (b.t === 'points') c.points = (Array.isArray(b.points) ? b.points : []).slice(0, 4).filter(p => p && p.text)
         .map(p => [esc(str(p.icon, 3)) || '&#10003;&#65038;', esc(str(p.text, 50))]);
-      if (b.t === 'steps' && STREAM_UID.test(String(b.uid || ''))) c.steps = (Array.isArray(b.items) ? b.items : []).slice(0, 5).filter(x => x && x.title)
-        .map(x => ({ img: filmStillOf(b.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)), 300), title: str(x.title, 60), text: str(x.text, 160) }));
+      /* a step's picture is a still from the section's film, or a site photo of its own (28 Nov 2026) */
+      const okUid = STREAM_UID.test(String(b.uid || ''));
+      if (b.t === 'steps') c.steps = (Array.isArray(b.items) ? b.items : []).slice(0, 5).filter(x => x && x.title)
+        .map(x => ({ img: NEWS_PHOTOS.includes(String(x.photo || '')) ? `${SITE}/assets/site/${x.photo}` : okUid ? filmStillOf(b.uid, Math.max(0, Math.min(600, Number(x.sec) || 2)), 300) : '',
+          title: str(x.title, 60), text: str(x.text, 160) }));
       c.btn = newsBtn(b);
       out.push(c);
     } else if (b.t === 'class') { const k = await classOf(b.slug); if (k) out.push(k); }
@@ -1584,9 +1931,9 @@ async function newsRender({ subject, body, slug, blocks }, test) {
   /* a class, from the dashboard's list: its date, places and price */
   const classOf = async sl => {
     const w = sl ? all[String(sl).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24)] : null; if (!w) return null;
-    const left = Math.max(0, (Number(w.places) || 0) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length);
+    const sale = wsSale(w, (await getSetting(`wsbook:${w.slug}`)) || []), left = sale.left || 0;
     return { t: 'dark', light: true, kicker: 'Next class', head: '', hi: w.title || 'Handstand class',
-      card: { kicker: (wsLeftShown(w.places, left) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
+      card: { kicker: (wsLeftShown(sale.places, left) ? `${left} place${left === 1 ? '' : 's'} left` : 'Book a place'), title: wsWhenTxt(w),
         line: [w.place || 'OverGravity, Shadwell', Number(w.price) ? wsPounds(w.price) : 'Free'].join(' · ') },
       btn: { label: 'Book your place', sub: /all levels|handstand and calisthenics/i.test(w.title || '') ? `All levels · ${wsMins(w)} minutes` : '', href: newsClassHref(w, w.slug) } };
   };
@@ -1729,9 +2076,26 @@ async function sendCoachAlert(client, items) {
     const to = norm(client ? coachOf(client) : primaryCoach());
     if (!to) return;
     const rec = await pushSubs(to, 'pushcoach');
-    if (!rec.subs.length) return;
+    if (!rec.subs.length && !(Array.isArray(rec.apns) && rec.apns.length)) return;
     const on = Object.assign({}, COACH_ALERT_KINDS, rec.kinds || {});
-    const mine = items.filter(it => on[it.kind]);
+    const all = items.filter(it => on[it.kind]);
+    if (!all.length) return;
+    const send = async payload => {
+      const at = payload.t ? '&t=' + payload.t : '';
+      const r = await pushSend(to, Object.assign({
+        url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
+      }, payload, { t: undefined }), 'pushcoach');
+      await mailNote(to, 'Dashboard: ' + String(payload.title || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+    };
+    /* what a client sends you, a message, a clip or a question, is its own
+       notification: never bundled, never silent, never replacing the one
+       before, and it stays on screen until it is opened (Elliott, 25 Nov:
+       "I can't trust that when a notification comes in, that's the most
+       recent thing ... it's not clear that Hannah's sending a new clip") */
+    const imp = client ? all.filter(it => it.kind === 'messages') : [];
+    for (let i = 0; i < imp.length; i++)
+      await send(Object.assign({}, imp[i].payload || {}, { tag: 'm:' + norm(client) + ':' + Date.now() + ':' + i, important: true, quiet: false }));
+    const mine = all.filter(it => !imp.includes(it));
     if (!mine.length) return;
     const last = mine[mine.length - 1].payload || {};
     let payload = Object.assign({}, last);
@@ -1748,15 +2112,12 @@ async function sendCoachAlert(client, items) {
       if (lines.length > 1) {
         payload = { title: first + ': ' + lines.length + ' updates', body: lines.join(' \u00b7 ').slice(0, 180), t: last.t };
       }
-      /* one per client on the phone, and a repeat inside the window is quiet */
+      /* the routine news (check points, how it felt, sessions): one per
+         client on the phone, and a repeat inside the window is quiet */
       payload.tag = 'c:' + who;
       if (open) payload.quiet = true;
     }
-    const at = payload.t ? '&t=' + payload.t : '';
-    const r = await pushSend(to, Object.assign({
-      url: '/lha-coach.html' + (client ? '#c=' + encodeURIComponent(norm(client)) + at : '#today'),
-    }, payload, { t: undefined }), 'pushcoach');
-    await mailNote(to, 'Dashboard: ' + String(payload.title || '').slice(0, 70), 'coach', !!r.sent, r.why || '');
+    await send(payload);
   } catch {}
 }
 const firstNameOf = e => String(clients()[norm(e)] || '').split(' ')[0] || norm(e);
@@ -2379,6 +2740,78 @@ const fcFull = (used, max = FC_CLIPS) => max === 1
 const LONDON_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' });
 const londonDayNo = t => { const p = LONDON_DAY.formatToParts(new Date(t)), g = k => +p.find(x => x.type === k).value;
   return Math.round(Date.UTC(g('year'), g('month') - 1, g('day')) / 864e5); };
+/* ── the handstand advent challenge (24 Nov 2026; 24 days from 25 Nov) ──
+   Elliott: a free one for the accountability group, paid extras on top,
+   1 to 24 December, an advent calendar. Free: the 24 days, logging, the board, the Sunday test.
+   Paid (£29 early, then £39): two video replies (the first and last day), the
+   whole Ladder until a week after it ends, and the weekly live call. Each
+   person is one setting, chal:<email>, so the board is one read. The dates
+   and the call link can be changed in the dashboard (chalcfg). */
+const CH = { id: 'dec26', start: '2026-12-01', days: 24, price: 3900, early: 2900,
+  earlyUntil: '2026-11-30T00:00:00Z', boardMin: 2, replies: 2 };
+async function chCfg() {
+  const o = (await getSetting('chalcfg').catch(() => null)) || {};
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(o.start || '')) ? o.start : CH.start;
+  const earlyUntil = o.earlyUntil && !isNaN(Date.parse(o.earlyUntil)) ? o.earlyUntil : CH.earlyUntil;
+  return { start, days: CH.days, price: CH.price, early: CH.early, earlyUntil,
+    call: String(o.call || '').slice(0, 300), callNote: String(o.callNote || 'Wednesdays, 7:30pm').slice(0, 120),
+    group: String(o.group || '').slice(0, 300),
+    /* the group's target, in hours, for the team total (25 Nov 2026) */
+    goalH: Number(o.goalH) > 0 ? Math.round(Number(o.goalH)) : 100,
+    /* photos and films on the leaderboard (26 and 27 Nov 2026): 'off', 'web' (the website
+       only, never inside the iPhone app, while Apple has not approved 1.0.1) or 'all' */
+    photos: chMode(o.photos), films: chMode(o.films) };
+}
+const chMode = v => (v === true || v === 'all') ? 'all' : v === 'web' ? 'web' : 'off';
+/* whether this request may see them: the iPhone app says so in its user agent */
+const chShows = (mode, request) => mode === 'all' || (mode === 'web' && !/LHAiOS/.test((request && request.headers.get('user-agent')) || ''));
+/* a start or end film on the board (27 Nov 2026): film1 / filmEnd = { uid, at, share (they
+   asked for it on the board), ok (Elliott approved it), hidden (reported: off until he looks) }.
+   Elliott always sees it; nobody else does until all of that says yes. */
+const chFilmState = f => (!f || !f.uid || !f.share) ? '' : f.hidden ? 'off' : f.ok ? 'on' : 'wait';
+const chFilmShown = f => chFilmState(f) === 'on';
+/* day 1 is the start date in London; 0 or less is before it */
+const chDay = (cfg, t = Date.now()) => londonDayNo(t) - londonDayNo(Date.parse(cfg.start + 'T12:00:00Z')) + 1;
+const chPrice = cfg => Date.now() < Date.parse(cfg.earlyUntil) ? cfg.early : cfg.price;
+/* London midnight after the last day, plus a week, for the Ladder they paid for */
+const chLadderUntil = cfg => Date.parse(cfg.start + 'T00:00:00Z') + (cfg.days + 7) * 864e5;
+/* the prizes (25 Nov 2026): a set of parallettes for the most improved,
+   picked by Elliott from the first and last day films, and three months of the
+   Ladder for three people drawn from everyone who logs 20 of the 24 days.
+   Each flagged day takes one off the 20, down to 12. Free entry: the extras
+   do not change anybody's chances. */
+/* the draw (25 Nov 2026, Elliott): four drawn, the first gets three months
+   of the app, the other three a free class in January */
+const CH_PRIZE = { need: 20, floor: 12, drawN: 4, appN: 1, months: 3 };
+const chLogged = v => Object.keys((v && v.d) || {}).filter(k => +k >= 1 && +k <= CH.days).length;
+const chNeed = v => Math.max(CH_PRIZE.floor, CH_PRIZE.need - Object.keys((v && v.fl) || {}).filter(k => +k >= 1 && +k <= CH.days).length);
+const chEligible = v => chLogged(v) >= chNeed(v);
+/* the months given on top of whatever Ladder they already have */
+async function chGiveDays(e, days) {
+  const u = await getSetting(`plusuntil:${e}`).catch(() => null);
+  const from = Math.max(Date.now(), u ? ms(u) : 0);
+  await setSetting(`plusuntil:${e}`, iso(from + days * 864e5));
+}
+const CH_KINDS = ['s', 'm', 'f', 'c', 'o'];
+const CH_FLAGS = ['rest', 'ill', 'injured', 'away', 'other'];
+/* what the app may show of somebody else: a first name or initials, and their dots */
+/* a profile photo (26 Nov 2026): avatar:<email> = { id (an img: blob, owned), at, board (they
+   asked for it on the leaderboard), ok (Elliott approved it there), hidden + reported (someone
+   reported it: off the board until Elliott looks) }. Their own account and the dashboard show it
+   at once; the board only once all of that says yes. */
+/* a person's id on the public board (27 Nov 2026): reports and blocks name it, never the email */
+const CH_BAD_NAME = /\b(fuck\w*|shit(s|ty|head)?|cunts?|bitch\w*|twats?|wank\w*|dickhead|cocks|pussy|sluts?|whores?|rap(e|ist)|nazis?|hitler|porn\w*|sex|nude|tits)\b|nigg|fagg|retard/i;
+const chRowId = async e => (await sha256hex('lha-board:' + (process.env.SIGNING_SECRET || '') + ':' + e)).slice(0, 14);
+const avShown = v => !!(v && /^[a-z0-9]{8,40}$/i.test(String(v.id || '')) && v.board && v.ok && !v.hidden);
+const avOwn = v => (v && v.id) ? { id: v.id, board: !!v.board, ok: !!v.ok, hidden: !!v.hidden } : null;
+const chPublic = (v, cfg) => {
+  const nm = String(v.n || '').trim(), first = nm.split(/\s+/)[0] || 'Someone';
+  const ini = nm.split(/\s+/).filter(Boolean).map(w => w[0].toUpperCase()).join('').slice(0, 3) || '?';
+  let d = '';
+  for (let i = 1; i <= cfg.days; i++) { const x = (v.d || {})[i]; d += x ? x.k : ((v.fl || {})[i] ? 'x' : '.'); }
+  const mins = Object.values(v.d || {}).reduce((t, x) => t + (Number(x && x.m) || 0), 0);
+  return { n: v.show === 'initials' ? ini : first, d, st: Number.isInteger(v.st) ? v.st : null, mins };
+};
 /* Form checks through Apple (31 Oct 2026): a second subscription in the
    Ladder's group, ranked above it, so a Ladder subscriber upgrades and Apple
    works out the difference. It opens the Ladder too, as the £35 does. */
@@ -2510,7 +2943,7 @@ async function changeSetting(k, fn, tries = 8) {
     const next = await fn(cur ? cur.value : null);
     if (next === undefined) return cur ? cur.value : null;
     if (!cur) {
-      if (await supa.insertIfAbsent('settings', { key: k, value: next, updated_at: nowISO() }, 'key')) return next;
+      if (await supa.insertIfAbsent('settings', { key: k, value: next, updated_at: nowISO() }, 'key')) { ebTouched(k); return next; }
       continue;
     }
     /* strictly later than what was read, so the next writer's check fails
@@ -2518,7 +2951,7 @@ async function changeSetting(k, fn, tries = 8) {
     const was = cur.updated_at, stamp = new Date(Math.max(Date.now(), Date.parse(was || 0) + 1)).toISOString();
     const done = await supa.update('settings', `key=eq.${enc(k)}` + (was ? `&updated_at=eq.${enc(was)}` : '&updated_at=is.null'),
       { value: next, updated_at: stamp });
-    if (Array.isArray(done) && done.length) return next;
+    if (Array.isArray(done) && done.length) { ebTouched(k); return next; }
     await new Promise(r => setTimeout(r, 15 + Math.random() * 40 * (i + 1)));
   }
   throw new Error('could not change ' + k + ': it kept changing underneath');
@@ -3927,7 +4360,12 @@ export default (request, context) => ALERTS.run({ q: [], ctx: context }, async (
       'Stripe sends it again for up to three days, so it files itself once this is fixed. The buyer may be waiting for their email.']); } catch {}
     throw err;
   }
-  finally { try { await flushAlerts(box); } catch {} }
+  finally {
+    try { await flushAlerts(box); } catch {}
+    /* the classes whose bookings this request changed: Eventbrite is told
+       what it may still sell, after the reply where Netlify allows */
+    try { if (box.eb && box.eb.size && ebTok()) { const slugs = [...box.eb]; box.eb = null; await later(() => ebPushMany(slugs)); } } catch {}
+  }
 });
 /* one entry in What broke, from a phone, a website page or the server
    itself, counted against the same message and place */
@@ -4612,6 +5050,43 @@ const handle = async (request) => {
        is recorded and answered here and never touches plus. The payer may
        have no account yet; one is made for them, and the app is opened for
        the days the workshop grants. */
+    /* ── the challenge's extras, paid by card (24 Nov 2026) ──────────
+       Marks them paid, adds the two video replies as form check credits
+       and opens the Ladder until a week after the end. Filed once per
+       checkout, so Stripe sending it twice does not give four replies. */
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.classpass) {
+      if (!csPaid(obj) || !e) return json({ ok: true, note: 'class pass payment pending' });
+      const nm = String(obj.metadata.name || (obj.customer_details && obj.customer_details.name) || '').slice(0, 60);
+      const p = await wsPassIssue(e, nm, obj.id);
+      if (p.fresh && p.code) {
+        const till = new Date(p.until).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });
+        await email(e, `Your class pass: ${p.code}`, mail({ title: 'Your class pass.', greeting: nm.split(' ')[0] || '',
+          paras: [`Three classes, any of them, until <b>${esc(till)}</b>.`,
+            `Your code is <b style="font-size:20px;letter-spacing:.06em">${esc(p.code)}</b>. Pick a date on the class page, type the code where it asks for one, and the place is yours with nothing to pay. Each booking uses one of the three.`],
+          cta: { href: `${SITE}/handstand-class?src=pass#book`, label: 'Book a class' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true }).catch(() => {});
+        await coachAlert(null, 'business', { title: 'Class pass: ' + (nm || e), body: '£' + ((Number(obj.amount_total) || 0) / 100).toFixed(2) + ' · ' + p.code, tag: 'pass:' + e }).catch(() => {});
+      }
+      return json({ ok: true, classpass: p.code || '' });
+    }
+    if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.challenge) {
+      if (!csPaid(obj) || !e) return json({ ok: true, note: 'challenge payment pending' });
+      const cfg = await chCfg();
+      let fresh = false;
+      await changeSetting(`chal:${e}`, cur => {
+        const v = Object.assign({ at: Date.now(), n: String(obj.metadata.name || '').slice(0, 60), show: 'name', d: {}, fl: {}, wk: {} }, cur || {});
+        if (v.cs === obj.id) { fresh = false; return undefined; }
+        fresh = true;
+        return Object.assign(v, { paid: true, paidAt: Date.now(), cs: obj.id, amount: Number(obj.amount_total) || 0 });
+      });
+      if (fresh) {
+        await changeSetting(`fccredits:${e}`, cur => Object.assign({}, cur || {}, { n: (Number((cur || {}).n) || 0) + CH.replies, chal: obj.id })).catch(() => {});
+        const until = chLadderUntil(cfg), was = await getSetting(`plusuntil:${e}`).catch(() => null);
+        if (!was || ms(was) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
+        await coachAlert(null, 'business', { title: 'Challenge extras: ' + (obj.metadata.name || e), body: '£' + ((Number(obj.amount_total) || 0) / 100).toFixed(2), tag: 'chal:' + e }).catch(() => {});
+      }
+      return json({ ok: true, challenge: e });
+    }
     if (ev.type === 'checkout.session.completed' && obj.metadata && obj.metadata.workshop) {
       /* one session, or several joined with commas (the booking route takes
          up to seven): one payment, a place on each, and each one's share of
@@ -4672,7 +5147,7 @@ const handle = async (request) => {
           fresh = true;
           const live = wsLive(l);
           problem = live.some(b => b.email === pp.e) ? 'twice'
-            : (Number(w.places) > 0 && live.length >= Number(w.places)) ? 'full'
+            : wsSale(w, l).full ? 'full'
             : (w.when && ms(w.when) < Date.now()) ? 'past' : '';
           l.push({ email: pp.e, name: pp.nm, at: Date.now(), session: String(obj.id || ''), paid: share, pi: piNow,
             ...(n > 1 ? { pair: slugs.filter(x => x !== slug)[0] } : {}),
@@ -5973,7 +6448,7 @@ const handle = async (request) => {
   const COACH_OWN = new Set(['thread', 'thread/unsend', 'programme', 'progress', 'submissions', 'submission/reviewed',
     'checkpoint/verdict', 'starting', 'seen', 'saidseen', 'cpseen', 'flagseen', 'typing', 'onboarding', 'notes',
     'clips', 'clients', 'blocks', 'week', 'queue', 'questions', 'question/answer', 'formcheck', 'formcheck/reset',
-    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip', 'mufilms']);
+    'preview', 'email', 'setpw', 'past', 'sessions', 'roster', 'coaches', 'push', 'push/test', 'clip', 'mufilms', 'recommend']);
   const COACH_READ = new Set(['drill', 'transcripts', 'explain', 'bands', 'timing', 'checkpoints', 'story',
     'ladder-media', 'drillmeta', 'fixes', 'stream/videos']);
   if (path.startsWith('/coach/')) {
@@ -6130,21 +6605,19 @@ const handle = async (request) => {
        work; the welcome waits, and the coach hears once rather than per
        account. */
     const dayN = await rateHit('signup:all', 24 * 3600000);
-    if (dayN === 16) {
+    /* once a day at most, and only for a day that looks like accounts made in bulk */
+    if (dayN === 41) {
       await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL, 'A lot of sign ups today',
-        `<p style="font:16px/1.6 system-ui">More than fifteen new app accounts today. The sign up
-         emails to you stop here until tomorrow, to keep the day's email allowance for sign in
-         codes and receipts. The accounts all work. If this
-         is not a campaign or a reel doing well, it may be somebody making accounts in bulk.</p>`);
+        `<p style="font:16px/1.6 system-ui">More than forty new app accounts today. The accounts
+         all work. If this is not a campaign or a reel doing well, it may be somebody making
+         accounts in bulk.</p>`);
     }
     /* No welcome email: the welcome is the coach's line in the app (above),
-       and email is kept for what has to be email, a hundred a day at most. */
+       and email is kept for what has to be email, a hundred a day at most.
+       No email to Elliott per sign up either (27 Nov 2026: "i don't need these,
+       i just can look in coach dashboard"); a notification only if he has
+       switched sign ups on in Settings, Notifications. */
     await coachAlert(null, 'signups', { title: 'New sign-up', body: e, tag: 'signup:' + e });
-    if (dayN <= 15 && await coachMail(null, 'signups'))
-    await email(process.env.COACH_EMAIL || process.env.FROM_EMAIL,
-      `New app sign-up: ${e}`,
-      `<p style="font:16px/1.6 system-ui">${esc(e)} started the Handstand Ladder.
-       Marketing consent: ${acct.marketing ? 'yes' : 'no'}.</p>`);
   };
 
   /* ── create an account ───────────────────────────────────────────
@@ -6425,6 +6898,10 @@ const handle = async (request) => {
       trialRefusedWhy: (tr && tr.why) || '',
       email: who,
       name: clients()[who] || acct.name || '',
+      avatar: avOwn(await getSetting(`avatar:${who}`).catch(() => null)),
+      /* the stage Elliott recommends, from their clip (28 Nov 2026): beats the quiz */
+      rec: await getSetting(`rec:${who}`).then(v => v && Number.isInteger(v.stage) ? v.stage : null).catch(() => null),
+      photosOn: chShows((await chCfg()).photos, request),
       coached: coachedNow,
       /* which plan a coached client bought, where a payment recorded it, so
          the app does not offer Inner Circle to somebody already in it */
@@ -6786,6 +7263,29 @@ const handle = async (request) => {
      checkout lasts a day and the email may be opened in a week. Each click
      makes a fresh checkout for the plan and sessions the coach agreed, with
      their email already filled in. */
+  /* the class pass checkout: from the after class email (a signed link that
+     fills in their email) or the class page (28 Nov 2026) */
+  if (path === '/classpass' && request.method === 'GET') {
+    const back = Response.redirect(`${url.origin}/handstand-class?src=pass`, 302);
+    if (!stripeKey()) return back;
+    const tk = await verify(String(url.searchParams.get('t') || '')).catch(() => null);
+    const pe = tk && tk.k === 'pass' && tk.e ? norm(tk.e) : '';
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(WS_PASS.pence),
+        'line_items[0][price_data][product_data][name]': `Class pass: any ${WS_PASS.n} classes in ${WS_PASS.months} months`,
+        'line_items[0][quantity]': '1',
+        'metadata[classpass]': '1', 'metadata[src]': String(url.searchParams.get('src') || 'site').replace(/[^a-z0-9-]/gi, '').slice(0, 20),
+        ...(pe ? { customer_email: pe, client_reference_id: pe } : {}),
+        'custom_text[submit][message]': `Your code comes by email straight away. Use it for any ${WS_PASS.n} classes until three months from today.`,
+        success_url: `${url.origin}/handstand-class?pass=done#book`,
+        cancel_url: `${url.origin}/handstand-class?src=pass`,
+      });
+      return Response.redirect(sess.url, 303);
+    } catch (err) { console.warn('class pass', err && err.message); return back; }
+  }
   if (path === '/start' && request.method === 'GET') {
     const t = String(url.searchParams.get('t') || '').replace(/[^a-z0-9]/gi, '').slice(0, 40);
     const L = t ? await getSetting(`startl:${t}`) : null;
@@ -7596,7 +8096,7 @@ const handle = async (request) => {
   const wsBare = t => String(t || '').replace(/\b(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?)\.?(?:,?\s+\d{4})?\b/gi, ' ').replace(/\(\s*\)/g,' ').replace(/[\s,.\u00b7(-]+$/, '').replace(/\s{2,}/g, ' ').trim();
   const wsPublic = (w, booked) => ({ slug: w.slug, title: w.title, when: w.when, place: w.place, price: w.price,
     priceLabel: w.price ? '£' + (w.price / 100).toFixed(2).replace(/\.00$/, '') : 'Free',
-    places: w.places, booked, left: Math.max(0, (Number(w.places) || 0) - booked),
+    places: Number(w.places) > 0 ? (booked.places || Number(w.places)) : 0, booked: booked.booked, left: booked.left || 0,
     desc: w.desc, who: w.who || '', film: w.film || '', coach: w.coach || '', mins: wsMins(w), topic: w.topic || '', room: wsRoomOf(w),
     early: wsEarlyOn(w) ? { until: w.early.until, then: Number(w.early.then),
       thenLabel: '£' + (Number(w.early.then) / 100).toFixed(2).replace(/\.00$/, ''), day: wsEarlyDay(w), by: wsEarlyBy(w), at: wsEarlyAt(w) } : null });
@@ -7609,7 +8109,7 @@ const handle = async (request) => {
        seconds old can never sell a place twice. */
     const open = Object.values(all).filter(w => w && w.live && !(w.when && ms(w.when) < Date.now() - 6 * 3600e3));
     const [books, multiOff] = await Promise.all([Promise.all(open.map(w => getSetting(`wsbook:${w.slug}`).catch(() => null))), wsMultiOff()]);
-    const out = open.map((w, i) => wsPublic(w, wsLive(books[i] || []).length));
+    const out = open.map((w, i) => wsPublic(w, wsSale(w, books[i] || [])));
     out.sort((a, b) => ms(a.when) - ms(b.when));
     /* two dates booked together cost this, when the owner has set it */
     /* Shared between every edge now (durable). And the copy the class page
@@ -7901,7 +8401,7 @@ const handle = async (request) => {
     for (const w of Object.values(all)) {
       if (!w || !w.slug) continue;
       const book = (await getSetting(`wsbook:${w.slug}`)) || [];
-      taken[w.slug] = wsPlaces(book).length;
+      taken[w.slug] = wsSale(w, book).left;
       for (const b of wsLive(book)) {
         const e = norm(b.email); if (!e) continue;
         const x = booked[e] || (booked[e] = { n: 0, last: '' });
@@ -7919,7 +8419,7 @@ const handle = async (request) => {
       total: x.total || (x.todo || []).length, done: x.i || 0, fails: (x.fails || []).length, error: x.error || '', sentAt: x.sentAt || 0 }));
     const classes = Object.values(all).filter(w => w && w.when && ms(w.when) > Date.now())
       .sort((a, b) => ms(a.when) - ms(b.when)).map(w => ({ slug: w.slug, title: w.title, when: w.when, live: !!w.live, whenTxt: wsWhenTxt(w),
-        price: w.price || 0, places: w.places || 0, left: Math.max(0, (Number(w.places) || 0) - (taken[w.slug] || 0)) }));
+        price: w.price || 0, places: w.places || 0, left: taken[w.slug] || 0 }));
     return json({ list, sends, classes, appYes, from: (await newsConf()).from, ready: !!newsKey(), ownKey: !!process.env.RESEND_NEWS_KEY,
       owner: await isOwner(), sync: sync ? { ok: !!sync.ok, why: sync.why || '', off: sync.off || 0 } : null });
   }
@@ -8170,7 +8670,7 @@ const handle = async (request) => {
     if (w.when && ms(w.when) < Date.now()) return json({ error: 'That one has already happened' }, 409);
     const book = (await getSetting(`wsbook:${slug}`)) || [];
     const live = wsLive(book);
-    if (Number(w.places) > 0 && live.length >= Number(w.places)) return json({ error: 'That one is full', full: true }, 409);
+    if (wsSale(w, book).full) return json({ error: 'That one is full', full: true }, 409);
     if (live.some(b => b.email === e)) return json({ error: 'You already have a place on this date under that email. To book a place for someone else, put their name and email in as the booker.' }, 409);
     /* ── both dates together ───────────────────────────────────────────
        A second date in the same booking: one payment at the pair price the
@@ -8184,8 +8684,8 @@ const handle = async (request) => {
       const x = all[sl];
       if (!x || !x.live) return json({ error: 'One of those dates is not open for booking' }, 404);
       if (x.when && ms(x.when) < Date.now()) return json({ error: `${wsWhenTxt(x)} has already happened` }, 409);
-      const lv = wsLive((await getSetting(`wsbook:${sl}`)) || []);
-      if (Number(x.places) > 0 && lv.length >= Number(x.places)) return json({ error: `${wsWhenTxt(x)} is full. Book the others, and join its waiting list.`, full: true, fullSlug: sl }, 409);
+      const lvAll = (await getSetting(`wsbook:${sl}`)) || [], lv = wsLive(lvAll);
+      if (wsSale(x, lvAll).full) return json({ error: `${wsWhenTxt(x)} is full. Book the others, and join its waiting list.`, full: true, fullSlug: sl }, 409);
       if (lv.some(b => b.email === e)) return json({ error: `You are already booked on ${wsWhenTxt(x)}. Pick the ones you have not got.` }, 409);
       extras.push([sl, x]);
     }
@@ -8201,9 +8701,9 @@ const handle = async (request) => {
     if (fr && fr.e === e) return json({ error: 'The person coming with you needs their own email address' }, 400);
     const people = fr ? [[e, nm], [fr.e, fr.nm]] : [[e, nm]];
     for (const [tSlug, tw] of targets) {
-      const held = wsLive((await getSetting(`wsbook:${tSlug}`)) || []);
+      const heldAll = (await getSetting(`wsbook:${tSlug}`)) || [], held = wsLive(heldAll), sale = wsSale(tw, heldAll);
       if (fr && held.some(b => b.email === fr.e)) return json({ error: `${fr.nm} already has a place on ${tSlug === slug ? 'that date' : wsWhenTxt(tw)}.` }, 409);
-      if (fr && Number(tw.places) > 0 && held.length + 2 > Number(tw.places)) return json({ error: (tSlug === slug ? 'That date' : wsWhenTxt(tw)) + ' has only one place left.', full: held.length >= Number(tw.places) }, 409);
+      if (fr && Number(tw.places) > 0 && sale.left < 2) return json({ error: (tSlug === slug ? 'That date' : wsWhenTxt(tw)) + ' has only one place left.', full: sale.full }, 409);
     }
     const units = targets.length * people.length;
     const base = wsNowCost(targets.flatMap(([tSlug, tw]) => people.map(([pe]) => ({ slug: tSlug, who: pe, unit: tw.price }))), multi);
@@ -8225,7 +8725,7 @@ const handle = async (request) => {
           taken = '';
           const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
           const lv = wsLive(l);
-          if (Number(tw.places) > 0 && lv.length >= Number(tw.places)) { taken = 'full'; return undefined; }
+          if (wsSale(tw, l).full) { taken = 'full'; return undefined; }
           if (lv.some(b => b.email === pe)) { taken = 'twice'; return undefined; }
           l.push({ email: pe, name: pn, at: Date.now(), session: sid, paid: 0, q: qn, exp, code: disc.code || '', ...(disc.code ? { codePct: disc.pct || 0, codePence: disc.pence || 0 } : {}), status: 'booked', unit: Number(tw.price) || 0, multiOff: multi, multiPer: 1, bundle: 1, ...(src ? { src } : {}),
             ...wsConsentRow(consent, pe === e),
@@ -8418,7 +8918,7 @@ const handle = async (request) => {
         paras: [`<b>${esc(w.title)}</b>${w.when ? ', ' + esc(wsWhenTxt(w)) : ''}${w.place ? ', at ' + esc(w.place) : ''}.`,
           wsWhereHTML(w),
           w.when ? `<a href="${SITE}/api/app/workshop/ics?slug=${slug}" style="color:#237f95">Add it to your calendar</a>.` : '',
-          early ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
+          wsExt(b) ? esc(wsExtWords(b)) : early ? wsChangeHTML(`<a href="${link}" style="color:#237f95">Move or cancel your booking</a>`, [w], b.payer ? { payer: '' } : Number(b.paid) > 0, false, b) : `Can't make it? Reply to this email.`].filter(Boolean),
         signoff: { name: 'Elliott, London Handstand Academy' } }), undefined, { receipt: true });
       r = went ? { ok: true } : { error: 'The email did not go: check the email switch in Settings, Admin', status: 502 };
     } else if (act === 'move') r = await wsMovePlace(slug, e, session, wsSlug(body.to), { by: 'coach' });
@@ -8450,9 +8950,9 @@ const handle = async (request) => {
     const price = Number(w.price) || 0;
     const off = d.pct ? Math.round(price * Math.min(100, Number(d.pct)) / 100) : Math.min(price, Math.round(Number(d.pence) || 0));
     if (!(off > 0)) return json({ error: code + ' takes nothing off this class' }, 400);
-    const book = wsLive((await getSetting(`wsbook:${slug}`)) || []);
-    const left = Number(w.places) > 0 ? Math.max(0, Number(w.places) - book.length) : 0;
-    if (Number(w.places) > 0 && !left) return json({ error: 'That class is full' }, 400);
+    const bookAll = (await getSetting(`wsbook:${slug}`)) || [], book = wsLive(bookAll);
+    const left = Number(w.places) > 0 ? wsSale(w, bookAll).left : 0;
+    if (wsSale(w, bookAll).full) return json({ error: 'That class is full' }, 400);
     /* booked on any date of the same class counts as booked */
     const held = new Set();
     for (const o of Object.values(all)) if (o && o.slug && wsKindOf(o) === wsKindOf(w))
@@ -8476,15 +8976,14 @@ const handle = async (request) => {
        priced now (a code made for one date does not carry over) */
     let nextW = null;
     for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > ms(w.when) && wsKindOf(o) === wsKindOf(w)).sort((a, b) => ms(a.when) - ms(b.when))) {
-      const n = wsLive((await getSetting(`wsbook:${o.slug}`)) || []).length;
-      if (!(Number(o.places) > 0) || n < Number(o.places)) { nextW = o; break; }
+      if (!wsSale(o, (await getSetting(`wsbook:${o.slug}`)) || []).full) { nextW = o; break; }
     }
     const nextLine = nextW ? (() => { const np = Number(nextW.price) || 0, nb = wsPageHref(nextW, 'offer');
       const nh = nb.includes('?') ? nb.replace('?', `?date=${enc(nextW.slug)}&`) : nb.replace('#', `?date=${enc(nextW.slug)}#`);
       return `Can't make it? The next one is <b>${esc(wsWhenTxt(nextW))}</b>, ${np ? pounds(np) : 'free'}${np === price - off ? ', the same price, with no code needed' : ''}. <a href="${nh}" style="color:#237f95;font-weight:600">Book that date instead</a>.`; })() : '';
     const make = first => offerEmail({ title: `A place for ${day.split(' ')[0]}, ${pounds(price - off)}.`,
       paras: [`You started booking <b>${esc(w.title)}</b>, ${esc(whenTxt)}${w.place ? ', at ' + esc(w.place) : ''}, and did not quite finish. No payment was taken.`,
-        `${wsLeftShown(w.places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
+        `${wsLeftShown(wsSale(w, bookAll).places, left) ? 'There ' + (left === 1 ? 'is one place' : 'are ' + left + ' places') + ' left. ' : ''}If you would still like one, code <b>${esc(code)}</b> takes ${pounds(off)} off, which brings it to <b>${pounds(price - off)}</b>. It works until ${esc(until)}, and the button above puts it in for you.`, ...(nextLine ? [nextLine] : [])],
       footnote: 'You are getting this because you started booking this class. It is the only offer you will get about it.' },
       { first, title: w.title, when: whenTxt, place: w.place, price: pounds(price), now: pounds(price - off), off: pounds(off), code, until, left, coach: w.coach || '', href }, SITE);
     const subject = `A place on ${day}, ${pounds(price - off)} with your code`;
@@ -8530,8 +9029,8 @@ const handle = async (request) => {
       || 'https://search.google.com/local/writereview?placeid=ChIJo6P50TJyjGQRZIUQzoUnXLo';
     const coming = [];
     for (const o of Object.values(all).filter(o => o && o.live && o.when && ms(o.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when)).slice(0, 3)) {
-      const held = wsLive((await getSetting(`wsbook:${o.slug}`)) || []);
-      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : null });
+      const heldAll = (await getSetting(`wsbook:${o.slug}`)) || [], held = wsLive(heldAll);
+      coming.push({ w: o, who: new Set(held.map(x => norm(x.email))), left: wsSale(o, heldAll).left, cap: wsSale(o, heldAll).places });
     }
     const pr = (await getSetting('prices')) || {}, L = (k, d) => (pr[k] && pr[k].label) || d;
     const trial = Number(pr.trialDays);
@@ -8540,6 +9039,10 @@ const handle = async (request) => {
     const roster = new Set(rosterList().map(c => norm(c.email)));
     const day = new Date(ms(w.when)).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Europe/London' });
     const saved = (await getSetting('emails')) || {};
+    const passSave = (Number((coming[0] && coming[0].w.price) || w.price) || 0) * WS_PASS.n - WS_PASS.pence;
+    const chc = await chCfg().catch(() => ({ start: CH.start, days: CH.days }));
+    const adventEnd = Date.parse(chc.start + 'T00:00:00Z') + chc.days * DAY;
+    const adventWhen = Date.now() < Date.parse(chc.start + 'T00:00:00Z') ? '1 to 24 December · Free' : 'On now, until Christmas Eve · Free';
     const make = async (t) => {
       const T = renderEmail('wsThanks', { name: esc(t.first), title: esc(w.title), day: esc(day), review_line: '', app_line: '' }, saved);
       const pitch = !roster.has(t.email) && (await wantsEmail(t.email, 'offers'));
@@ -8549,9 +9052,14 @@ const handle = async (request) => {
         dates: coming.map(c => {
           const [d0, ...tt] = wsWhenTxt(c.w).split(', ');
           return { day: d0, time: tt.join(', '), place: c.w.place || '', what: String(c.w.topic || '').trim() || c.w.title,
-            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.w.places, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
+            price: c.w.price ? wsPounds(c.w.price) : 'Free', left: wsLeftShown(c.cap, c.left), full: c.left === 0, booked: c.who.has(t.email), href: wsPageHref(c.w, 'email') };
         }),
-        more: `${SITE}/handstand-class`, offers: pitch ? prices : null });
+        more: `${SITE}/handstand-class`, offers: pitch ? prices : null,
+        /* the class pass, with their email already in (28 Nov 2026) */
+        pass: { href: `${SITE}/api/app/classpass?src=classmail&t=${await sign({ k: 'pass', e: t.email, exp: Date.now() + 60 * DAY })}`, n: WS_PASS.n, months: WS_PASS.months,
+          price: wsPounds(WS_PASS.pence), save: passSave > 0 ? wsPounds(passSave) : '' },
+        /* the Advent challenge, until its last door */
+        advent: Date.now() < adventEnd ? { href: `${SITE}/advent?src=classmail`, when: adventWhen } : null });
       return { T, M };
     };
     if (only && !to.length) return json({ error: had.length ? 'They have had the thank you for this class already' : 'They are not booked on this class, or are marked No show' }, 400);
@@ -8595,13 +9103,15 @@ const handle = async (request) => {
       return { e, nm };
     }).filter(Boolean);
     if (!rows.length) return json({ error: 'No email addresses in that' }, 400);
+    /* booked on ClassBento: paid there, and one of the places held for it */
+    const cb = body.source === 'classbento';
     let added = 0, had = 0;
     await changeSetting(`wsbook:${slug}`, cur => {
       added = 0; had = 0;
       const l = Array.isArray(cur) ? cur.map(x => ({ ...x })) : [];
       for (const r of rows) {
         if (l.some(x => x.email === r.e && (x.status || 'booked') === 'booked')) { had++; continue; }
-        l.push({ email: r.e, name: r.nm, at: Date.now(), session: 'ext-' + newId(), paid: 0, status: 'booked', source: 'setmore' });
+        l.push({ email: r.e, name: r.nm, at: Date.now(), session: 'ext-' + newId(), paid: 0, status: 'booked', ...(cb ? { source: 'classbento', src: 'classbento' } : { source: 'setmore' }) });
         added++;
       }
       return added ? l : undefined;
@@ -8664,6 +9174,70 @@ const handle = async (request) => {
     const href = `${SITE}/api/app/calendar/coach.ics?t=${t}`;
     return json({ ok: true, url: href, webcal: href.replace(/^https?:/, 'webcal:'), made: cur.at || 0 });
   }
+  /* ── Eventbrite, from the dashboard (25 Nov 2026) ──────────────────
+     GET: is it connected. POST action: connect (find the organisation and
+     add the webhook), draft (make or update the class's event, not on
+     sale), publish (Elliott's press only), sync, stop and resume selling
+     there, check (fetch its orders now). Owner only: it is selling. */
+  if (path === '/coach/eventbrite') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const state = async () => { const conf = await ebConf();
+      return { ready: !!ebTok(), org: conf.org || '', hookOk: !!(conf.hook && conf.hook.id),
+        hookUrl: conf.hook && conf.hook.k ? ebHookUrl(conf.hook.k) : '', at: conf.at || 0 }; };
+    if (request.method === 'GET') return json(await state());
+    if (!(await isOwner())) return json(ownerOnly, 403);
+    const act = String(body.action || ''), slug = wsSlug(body.slug || '');
+    let r;
+    try {
+      if (act === 'connect') r = await ebConnect();
+      else if (act === 'draft') r = await ebSync(slug, { create: true, details: true });
+      else if (act === 'publish') r = await ebSync(slug, { create: true, details: true, publish: true });
+      else if (act === 'sync') r = await ebSync(slug, { details: true });
+      else if (act === 'stop' || act === 'resume') { await ebSave(slug, { off: act === 'stop' }); r = await ebSync(slug, {}); }
+      else if (act === 'check') {
+        const w = ((await getSetting('workshops')) || {})[slug];
+        if (!w || !w.eb || !w.eb.id) r = { error: 'That class is not on Eventbrite', status: 400 };
+        else { const n = await ebPull(w); r = await ebSync(slug, {}); if (!r.error) r.orders = n; }
+      }
+      else r = { error: 'Nothing asked', status: 400 };
+    } catch (err) { r = { error: 'Eventbrite: ' + String(err.message || err).slice(0, 300), status: 502 }; }
+    if (r.error) return json(r, r.status || 400);
+    const all = (await getSetting('workshops')) || {};
+    return json(Object.assign({}, r, await state(), slug && all[slug] ? { workshop: all[slug], bookings: (await getSetting(`wsbook:${slug}`)) || [] } : {}));
+  }
+  /* Eventbrite's webhook: an order placed, refunded or changed. The body
+     only names the order; it is read back from Eventbrite with our own
+     token, so nothing in the call itself is trusted. A failure answers
+     500 and Eventbrite sends it again. */
+  if (path === '/eventbrite/hook' && request.method === 'POST') {
+    const conf = await ebConf();
+    if (!conf.hook || !conf.hook.k || url.searchParams.get('k') !== conf.hook.k || !ebTok()) return json({ error: 'Nope' }, 401);
+    const t = ebHookTarget(body && body.api_url);
+    if (!t || t.kind === 'other') return json({ ok: true, note: 'nothing to do' });
+    const withAtt = u => u + (u.includes('?') ? '&' : '?') + 'expand=attendees';
+    let order;
+    if (t.kind === 'order') order = await ebApi(withAtt(t.url));
+    else { const a = await ebApi(t.url); if (!a.order_id) return json({ ok: true, note: 'no order' }); order = await ebApi(withAtt(`/orders/${a.order_id}/`)); }
+    return json(await ebFile(order));
+  }
+  /* the hourly check (eb-sync.mjs): every class on Eventbrite still to
+     come, or just gone (late refunds), has its orders read and its numbers
+     set again, which also catches a ClassBento hold released or an early
+     bird ending at its hour */
+  if (path === '/eventbrite/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    if (!ebTok()) return json({ ok: true, note: 'Eventbrite is not connected' });
+    const all = (await getSetting('workshops')) || {};
+    const out = [];
+    for (const w of Object.values(all)) {
+      if (!w || !w.eb || !w.eb.id || !w.when || ms(w.when) < Date.now() - 2 * DAY) continue;
+      try { const n = await ebPull(w); const r = ms(w.when) > Date.now() ? await ebSync(w.slug, {}) : { ok: true };
+        out.push({ slug: w.slug, orders: n, ...(r.error ? { error: r.error } : {}) }); }
+      catch (err) { out.push({ slug: w.slug, error: String(err.message || err).slice(0, 200) }); }
+    }
+    return json({ ok: true, classes: out });
+  }
   if (path === '/coach/workshops') {
     if (!(await isCoach())) return json({ error: 'Nope' }, 401);
     const all = (await getSetting('workshops')) || {};
@@ -8714,9 +9288,20 @@ const handle = async (request) => {
             + 'Refund them in Stripe and cancel their places first, or tick the box to delete it anyway.',
             bookings: held.length }, 409);
         }
+        /* on Eventbrite as well: a draft goes, one never sold is cancelled,
+           and one with orders stops selling and stays for Elliott to settle */
+        let ebNote = '';
+        const gw = all[slug];
+        if (gw && gw.eb && gw.eb.id && ebTok()) {
+          try {
+            if (gw.eb.status !== 'live') { await ebApi(`/events/${gw.eb.id}/`, null, 'DELETE'); ebNote = 'The Eventbrite draft is deleted too.'; }
+            else if (!(gw.eb.sold > 0)) { await ebApi(`/events/${gw.eb.id}/cancel/`, {}); ebNote = 'It is cancelled on Eventbrite too.'; }
+            else { await ebSave(slug, { off: true }); const r = await ebSync(slug, {}); if (r.error) throw new Error(r.error); ebNote = 'It has orders on Eventbrite, so it is still there but no longer selling. Refund or cancel them on Eventbrite.'; }
+          } catch (err) { ebNote = 'Eventbrite did not take it down: ' + String(err.message || err) + '. Do it on Eventbrite.'; }
+        }
         delete all[slug];
         await setSetting('workshops', all);
-        return json({ ok: true, workshops: await withBook() });
+        return json({ ok: true, workshops: await withBook(), ebNote });
       }
       const f = body.workshop || {};
       let slug = wsSlug(f.slug || f.title);
@@ -8759,7 +9344,14 @@ const handle = async (request) => {
         film: /^[a-f0-9]{32}$/.test(str(f.film, 40)) ? str(f.film, 40) : '',
         live: owner ? !!f.live : !!(all[slug] || all[wsSlug(body.was || '')] || {}).live,
         createdAt: (all[slug] || {}).createdAt || Date.now(),
+        /* places kept back for ClassBento, and how many hours before the
+           class any still unfilled come back to this site and Eventbrite
+           (25 Nov 2026). Empty is none held. */
+        cbHold: Math.max(0, Math.min(200, Math.round(Number(f.cbHold) || 0))) || undefined,
+        cbRelease: Math.max(0, Math.min(720, Math.round(Number(f.cbRelease) || 0))) || undefined,
       };
+      /* the Eventbrite side is the server's to write: what is stored stands */
+      { const pe = (all[slug] || all[wsSlug(body.was || '')] || {}).eb; if (pe) w.eb = pe; }
       /* when it first went on sale, for the new dates alerts */
       /* one already on sale before this existed counts from when it was made,
          so editing it does not tell anybody about a date that is not new */
@@ -8812,7 +9404,14 @@ const handle = async (request) => {
       if (w.live && w.when && !hadDate) told = await wsTellDated(slug, w);
       /* who asked for new dates of this kind hears at 9am, or on Send now */
       let alertsDue = 0; try { alertsDue = (await caWhoDue()).due.length; } catch {}
-      return json({ ok: true, workshop: w, workshops: await withBook(), told, alertsDue });
+      /* on Eventbrite too: the name, time, place, words, price and places follow */
+      let ebNote = '';
+      if (w.eb && w.eb.id && w.when && ms(w.when) > Date.now() && ebTok()) {
+        const r = await ebSync(slug, { details: true }).catch(err => ({ error: String(err.message || err) }));
+        ebNote = r.error ? r.error : 'Eventbrite updated too.';
+        const fresh = ((await getSetting('workshops')) || {})[slug]; if (fresh) Object.assign(w, { eb: fresh.eb });
+      }
+      return json({ ok: true, workshop: w, workshops: await withBook(), told, alertsDue, ebNote });
     }
     return json({ error: 'Nope' }, 405);
   }
@@ -9674,12 +10273,12 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         ics: w.when ? `/api/app/workshop/ics?slug=${enc(slug)}` : '',
         /* a workshop with no date yet reads as 1970, so it counted as already
            over: it could be booked and paid for and never cancelled */
-        canCancel: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_CUTOFF_H,
+        canCancel: (b.status || 'booked') === 'booked' && wsHoursTo(w) > WS_CUTOFF_H && !wsExt(b), via: wsExtSrc[b.source] || '',
         refundable: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsRefundableAt(b, w),
         back: (b.status || 'booked') === 'booked' && wsRefundableAt(b, w) ? (await wsRefundFor(b, slug)).back : 0,
         credit: (b.status || 'booked') === 'booked' && (b.paid || 0) > 0 && wsNewRule(b) && wsHoursTo(w) > WS_CUTOFF_H && !wsRefundableAt(b, w),
         moved: !!b.movedFrom && wsNewRule(b), newRule: wsNewRule(b), cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, refundH: WS_REFUND_BEFORE_H, guest: !!b.payer,
-        moveTo: (b.status || 'booked') === 'booked' && !(b.movedFrom && wsNewRule(b)) && wsHoursTo(w) > WS_CUTOFF_H
+        moveTo: (b.status || 'booked') === 'booked' && !(b.movedFrom && wsNewRule(b)) && wsHoursTo(w) > WS_CUTOFF_H && !wsExt(b)
           ? Object.values(all).filter(o => o && o.live && o.slug !== slug && o.when && ms(o.when) > Date.now()
               && wsKindOf(o) === wsKindOf(w)
               /* not a date that costs more now: the move refuses it, and the
@@ -9752,7 +10351,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
          moves: the payer moved and the friend was left behind */
       if (body.action === 'move' && who.length > 1) {
         const toSlug = wsSlug(body.to), to = all[toSlug];
-        const room = to && Number(to.places) > 0 ? Number(to.places) - wsPlaces((await getSetting(`wsbook:${toSlug}`)) || []).length : 99;
+        const room = to && Number(to.places) > 0 ? wsSale(to, (await getSetting(`wsbook:${toSlug}`)) || []).left : 99;
         if (room < who.length) return json({ error: `That date has ${room > 0 ? 'only ' + room + (room === 1 ? ' place' : ' places') : 'no places'} left, not enough for ${who.length} of you. Move just you, or pick another date.` }, 409);
       }
       let r = { error: 'Nothing asked', status: 400 }, refunded = 0, credits = [], done = 0, last = null;
@@ -9792,16 +10391,17 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     for (const o of Object.values(all)) {
       if (!o || !o.live || o.slug === slug || !o.when || ms(o.when) < Date.now()) continue;
       if (wsKindOf(o) !== wsKindOf(w)) continue;
-      const held = wsPlaces((await getSetting(`wsbook:${o.slug}`)) || []);
+      const heldAll = (await getSetting(`wsbook:${o.slug}`)) || [], held = wsPlaces(heldAll);
       const mine = held.some(x => x.email === t.e);
-      const left = Number(o.places) > 0 ? Math.max(0, Number(o.places) - held.length) : 99;
+      const left = Number(o.places) > 0 ? wsSale(o, heldAll).left : 99;
       others.push({ slug: o.slug, when: o.when, left, mine });
     }
     others.sort((x, y) => ms(x.when) - ms(y.when));
     return json({ slug, title: w.title, when: w.when, place: w.place, name: b.name || '', status: b.status || 'booked', creditCode: b.credit || '',
-      paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H,
+      paid: Number(b.paid) || 0, back, pair: b.pair || '', guest: !!b.payer, group: !!b.with || !!b.pair, canChange: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !wsExt(b),
+      via: wsExtSrc[b.source] || '', viaWords: wsExt(b) ? wsExtWords(b) : '',
       credit: (b.status || 'booked') === 'booked' && (Number(b.paid) || 0) > 0 && wsNewRule(b) && hoursTo > WS_CUTOFF_H && !wsRefundableAt(b, w),
-      canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !(b.movedFrom && wsNewRule(b)), moved: !!b.movedFrom && wsNewRule(b),
+      canMove: (b.status || 'booked') === 'booked' && hoursTo > WS_CUTOFF_H && !(b.movedFrom && wsNewRule(b)) && !wsExt(b), moved: !!b.movedFrom && wsNewRule(b),
       creditOnly: !!b.creditOnly, newRule: wsNewRule(b),
       mates, backAll, cutoff: WS_CUTOFF_H, mindH: WS_MIND_H, refundH: WS_REFUND_BEFORE_H, others });
   }
@@ -10043,7 +10643,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     const all = Object.values((await getSetting('workshops')) || {});
     const w = all.filter(x => x && x.live && x.when && ms(x.when) > Date.now()).sort((a, b) => ms(a.when) - ms(b.when))[0]
       || { slug: 'sample', title: 'All Levels Handstand Class', when: new Date(Date.now() + 9 * 864e5).toISOString(), place: 'OverGravity, Shadwell', price: 2500, places: 14 };
-    const left = Number(w.places) ? Math.max(0, Number(w.places) - wsPlaces((await getSetting(`wsbook:${w.slug}`)) || []).length) : 0;
+    const left = Number(w.places) ? wsSale(w, (await getSetting(`wsbook:${w.slug}`)) || []).left : 0;
     const me1 = String(clients()[await me()] || coaches()[await me()] || 'Elliott').split(' ')[0];
     const whenTxt = wsWhenTxt(w), price = Number(w.price) ? wsPounds(w.price) : 'Free';
     /* an early bird shows as it will be sent; without one, the preview makes
@@ -10069,7 +10669,9 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       const M = key === 'wsThanks'
         ? afterClassEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, review: `${SITE}/review`,
             /* no photo on the thank you (Elliott, 7 Nov 2026) */ headshot: '/assets/site/coach-elliott-headshot.jpg',
-            preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }] })
+            preheader: 'Thank you for coming.', dates: [{ day: d0, time: t0.join(', '), place: w.place || '', price, left, href: `${SITE}/handstand-class#book` }],
+            pass: { href: `${SITE}/api/app/classpass?src=classmail`, n: WS_PASS.n, months: WS_PASS.months, price: wsPounds(WS_PASS.pence) },
+            advent: Date.now() < Date.parse(CH.start + 'T00:00:00Z') + CH.days * DAY ? { href: `${SITE}/advent?src=classmail` } : null })
         : nextStepEmail({ site: SITE, first: me1, title: T.title, paras: T.paras, footnote: T.footnote, kicker: w.title, s60: P.s60, s90: P.s90, call: `${SITE}/?src=workshop#apply`,
             photo: { src: '/assets/email/elliott-one-arm.jpg', alt: 'Elliott in a one arm handstand' }, headshot: '/assets/site/coach-elliott-headshot.jpg', preheader: '' });
       html = M.html.replace(/(src|href)="\//g, `$1="${SITE}/`);
@@ -11148,11 +11750,10 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     return json({ videos });
   }
 
-  if (path === '/coach/clip' && request.method === 'GET') {
-    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
-    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
-    if (!uid) return json({ error: 'Which clip?' }, 400);
-
+  /* a Stream film as one MP4 file, at the address the redirect lands on (that
+     one carries the CORS header). Downloads are off per video until asked for,
+     so it asks, and Stream builds the file in the background. */
+  const streamFile = async uid => {
     /* signed where the library is locked, or the resolve below is a 403 */
     const base = `https://customer-pns1oongdltmkjwa.cloudflarestream.com/${await signedSeg(uid)}/downloads/default.mp4`;
     const ask = async () => {
@@ -11167,11 +11768,28 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (r.status >= 300 && r.status < 400) return r.headers.get('location') || null;
       return r.ok ? base : null;
     };
-
     let src = await resolve();
     if (!src) { await ask(); src = await resolve(); }
+    return src;
+  };
+  if (path === '/coach/clip' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const uid = String(url.searchParams.get('uid') || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+    if (!uid) return json({ error: 'Which clip?' }, 400);
+    const src = await streamFile(uid);
     if (!src) return json({ error: 'Stream is still building this one. Try again in a minute.', building: true }, 202);
     return json({ uid, src });
+  }
+  /* their own start or end film as a file, to post wherever they like (27 Nov 2026) */
+  if (path === '/challenge/filmfile' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const mine = await getSetting(`chal:${who}`).catch(() => null), f = mine && (Number(body.which) === 1 ? mine.film1 : mine.filmEnd);
+    if (!f || !/^[a-f0-9]{32}$/.test(String(f.uid || ''))) return json({ error: 'Send the film first' }, 400);
+    if ((await rateHit(`filmfile:${who}`, 3600000)) > 30) return json({ error: 'Try again in a little while' }, 429);
+    const src = await streamFile(f.uid);
+    if (!src) return json({ building: true }, 202);
+    return json({ src });
   }
 
   if (path === '/coach/drill') {
@@ -11764,6 +12382,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           cur.intake = out;
         }
         if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
+        /* the form check reply watched, so every phone knows (28 Nov 2026) */
+        if (Number.isFinite(Number(body.seenReview)) && Number(body.seenReview) > (Number(cur.seenReview) || 0)) cur.seenReview = Math.min(Number(body.seenReview), Date.now() + 864e5);
         /* the difficulty dial per stage: Easier 1, As written 2, Harder 3. It
            was saved on the phone only, so it reset on every new one (13 Oct 2026) */
         if (body.lvl && typeof body.lvl === 'object') {
@@ -11854,7 +12474,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        again described something that had never worked. */
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
       time: out.time || 0, perWeek: out.perWeek || 0, wk: out.wk || null,
-      intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {},
+      intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {}, seenReview: Number(out.seenReview) || 0,
       stage: Number.isInteger(out.stage) ? out.stage : null,
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
@@ -12161,7 +12781,18 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* why a session was stopped, by the reason picked */
                   'why',
                   /* a drill skipped in the follow along, by which (30 Oct 2026) */
-                  'skip'];
+                  'skip',
+                  /* the Advent challenge (26 Nov 2026): the app sent these from the
+                     start but they were not on this list, so none was ever counted.
+                     chalplan* is the plan card under the calendar: seen once a
+                     visit, its button, and its cross */
+                  'chaljoin', 'challog', 'chalfilm', 'chalbuy', 'chalshare', 'chalsharecal',
+                  'chalchat', 'chaltab', 'chalbanner', 'chaltrain', 'chalprizes',
+                  'chalplan', 'chalplango', 'chalplanx', 'chalsharefilm', 'chalfilmshow', 'chalfilmplay',
+                  /* whether StoreKit sent the form checks product to the iPhone app (27 Nov 2026) */
+                  'iapchecksok', 'iapchecksnone',
+                  /* the fortnight's check point test started (28 Nov 2026) */
+                  'cptest', 'cpask', 'cpaskyes', 'cpeasy', 'cpeasyall', 'cpeasyyes', 'cpeasyno', 'cpeasyquiz'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
@@ -12346,7 +12977,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (ep.length) paras.push(`<b>What broke on people's phones in the last day:</b><br>` + li(ep.slice(0, 20).map(x => `${esc(x.m)}${x.n > 1 ? ' (' + x.n + ' times)' : ''}${x.who.length ? ' &middot; ' + esc(x.who.slice(0, 3).join(', ')) : ''}${x.isNew ? ' &middot; new' : ''}`)));
       paras.push(`The full list is in the dashboard, Settings, App.`);
       if (to) await email(to, `LHA: ${[fp.length ? fp.length + ' film' + (fp.length === 1 ? '' : 's') : '', ep.length ? ep.length + ' thing' + (ep.length === 1 ? '' : 's') + ' broke' : ''].filter(Boolean).join(', ')}`,
-        mail({ title: 'Something needs a look.', paras, cta: { href: `${SITE}/lha-coach.html#settings`, label: 'Open the dashboard' } }), undefined, { essential: true }).catch(() => {});
+        mail({ title: 'Something needs a look.', paras, cta: { href: `${SITE}/lha-coach.html#settings-app`, label: 'Open the dashboard' } }), undefined, { essential: true }).catch(() => {});
       await sendCoachAlert(null, [{ kind: 'business', payload: { title: ep.length ? `${ep.length} thing${ep.length === 1 ? '' : 's'} broke on people's phones` : `${fp.length} film${fp.length === 1 ? '' : 's'} need a look`,
         body: (ep[0] ? ep[0].m : fp[0].name + ': ' + fp[0].what).slice(0, 140), tag: 'health' } }]);
     }
@@ -12554,6 +13185,483 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      WORKSHOP26 on a screen at the end of a workshop. The comp button in the
      dashboard does this per account by hand; this is the same thing a
      person types themselves. Codes carry a number of days and a limit. */
+  /* ── the handstand advent challenge (24 Nov 2026) ───────────────── */
+  if (path === '/challenge' && request.method === 'GET') {
+    const who = await me(), cfg = await chCfg(), day = chDay(cfg);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || [])
+      .filter(r => r.value && typeof r.value === 'object');
+    const mine = who ? (rows.find(r => r.key === `chal:${who}`) || {}).value || null : null;
+    const picsOn = chShows(cfg.photos, request), filmsOn = !!mine && chShows(cfg.films, request);
+    const pics = picsOn ? Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []))
+      .filter(r => avShown(r.value)).map(r => [r.key.slice(7), r.value.id])) : {};
+    const blocked = new Set(who ? (((await getSetting(`chblock:${who}`).catch(() => null)) || {}).ids || []) : []);
+    const ids = await Promise.all(rows.map(r => chRowId(r.key.slice(5))));
+    const pub = rows.map((r, i) => Object.assign(chPublic(r.value, cfg), { id: ids[i], me: r.key === `chal:${who}`, logged: Object.keys(r.value.d || {}).length },
+      pics[r.key.slice(5)] ? { pic: pics[r.key.slice(5)] } : {},
+      /* their films, only to others on the challenge, once Elliott has approved them */
+      filmsOn && !r.value.offBoard && chFilmShown(r.value.film1) ? { v1: r.value.film1.uid } : {},
+      filmsOn && !r.value.offBoard && chFilmShown(r.value.filmEnd) ? { vE: r.value.filmEnd.uid } : {}))
+      .filter((x, i) => x.me || (!rows[i].value.offBoard && !blocked.has(x.id)));
+    /* the board shows once somebody else is on it (Elliott, 25 Nov: "wheres the chat, or
+       way to see other peoples progress"): a small group sees each other from day one */
+    const board = pub.length >= CH.boardMin ? pub.sort((a, b) => (b.me - a.me) || (b.logged - a.logged)).map(({ logged, ...x }) => x) : null;
+    /* the Sunday test, among people on the same stage: improvement on their first result */
+    const myStage = mine && Number.isInteger(mine.st) ? mine.st : null;
+    const week = myStage == null ? [] : rows.filter(r => r.value.st === myStage && Object.keys(r.value.wk || {}).length)
+      .map(r => { const wk = r.value.wk || {}, ks = Object.keys(wk).map(Number).sort((a, b) => a - b);
+        const first = Number(wk[ks[0]]), last = Number(wk[ks[ks.length - 1]]);
+        return { n: chPublic(r.value, cfg).n, me: r.key === `chal:${who}`, first, last, up: last - first, weeks: ks.length }; })
+      .sort((a, b) => (b.up - a.up) || (b.last - a.last)).slice(0, 50);
+    const out = { cfg: { start: cfg.start, days: cfg.days, price: cfg.price, early: cfg.early, earlyUntil: cfg.earlyUntil, now: chPrice(cfg), callNote: cfg.callNote,
+        need: CH_PRIZE.need, floor: CH_PRIZE.floor },
+      team: { mins: pub.reduce((t, x) => t + (x.mins || 0), 0), goalH: cfg.goalH },
+      day, count: rows.length, board, week, me: null, photos: picsOn, films: filmsOn };
+    if (mine) out.me = { at: mine.at, n: mine.n || '', show: mine.show || 'name', paid: !!mine.paid, d: mine.d || {}, fl: mine.fl || {}, wk: mine.wk || {},
+      st: Number.isInteger(mine.st) ? mine.st : null, ...(mine.paid ? { call: cfg.call } : {}),
+      /* the WhatsApp group is the accountability group's own (Elliott, 25 Nov:
+         "its only for that group"), so only people who came from its link see it */
+      group: mine.src === 'whatsapp' ? cfg.group : '',
+      film1: !!(mine.film1 && mine.film1.uid), filmEnd: !!(mine.filmEnd && mine.filmEnd.uid), need: chNeed(mine),
+      /* their own two films, to watch side by side at the end */
+      f1: (mine.film1 && mine.film1.uid) || '', fEnd: (mine.filmEnd && mine.filmEnd.uid) || '',
+      /* whether each is on the board: '', 'wait', 'on' or 'off' */
+      sh1: chFilmState(mine.film1), shE: chFilmState(mine.filmEnd),
+      remind: mine.remind !== false };
+    /* a coaching client sees the challenge only when Elliott has switched it on
+       for them in the dashboard (25 Nov 2026, first for Beth's demo account) */
+    if (who) { const cs = await getSetting(`chalshow:${who}`).catch(() => null); if (cs && cs.on) out.coachOk = true; }
+    /* the winners, once Elliott has said to show them: first names only */
+    const pz = (await getSetting('chalprize').catch(() => null)) || {};
+    if (pz.announced) {
+      const nameOf = e => { const r = rows.find(x => x.key === `chal:${e}`); return r ? chPublic(r.value, cfg).n : ''; };
+      const drawn = (pz.draw && pz.draw.winners) || [];
+      out.winners = { most: pz.most ? nameOf(pz.most) : '', app: drawn.slice(0, CH_PRIZE.appN).map(nameOf).filter(Boolean),
+        cls: drawn.slice(CH_PRIZE.appN).map(nameOf).filter(Boolean),
+        mine: !!who && (pz.most === who || ((pz.draw && pz.draw.winners) || []).includes(who)) };
+    }
+    return json(out);
+  }
+  if (path === '/challenge/join' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Make an account first, so your days are kept' }, 401);
+    const n = String(body.name || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const show = body.show === 'initials' ? 'initials' : 'name';
+    /* the name shows on the board to everyone taking part, so the obvious
+       words are refused here (27 Nov 2026, App Store 1.2: a filter as well as
+       reports, hiding and Elliott's eye) */
+    if (CH_BAD_NAME.test(n)) return json({ error: 'Please use your first name.' }, 400);
+    const stg = Number(body.stage);
+    const v = await changeSetting(`chal:${who}`, cur => Object.assign({ at: Date.now(), d: {}, fl: {}, wk: {} }, cur || {},
+      { n: n || (cur && cur.n) || who.split('@')[0], show }, Number.isInteger(stg) && stg >= 0 && stg <= 9 ? { st: stg } : {},
+      body.src ? { src: String(body.src).slice(0, 20) } : {}));
+    return json({ ok: true, me: v });
+  }
+  if (path === '/challenge/log' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), today = chDay(cfg), day = Number(body.day);
+    if (!Number.isInteger(day) || day < 1 || day > cfg.days) return json({ error: 'That is not a challenge day' }, 400);
+    if (day > today) return json({ error: 'That day has not come yet' }, 400);
+    /* any day so far, not only the last two (Elliott, 25 Nov: "if i missed a
+       day, i trained but didn't log, allow me to click on open days and log
+       i trained"); nothing changes once the films have closed */
+    if (today > cfg.days + 3) return json({ error: 'The challenge has finished' }, 400);
+    const k = String(body.k || ''), flag = String(body.flag || '');
+    const v = await changeSetting(`chal:${who}`, cur => {
+      if (!cur) return undefined;
+      const x = Object.assign({}, cur, { d: Object.assign({}, cur.d || {}), fl: Object.assign({}, cur.fl || {}) });
+      if (body.undo) { delete x.d[day]; delete x.fl[day]; }
+      else if (CH_FLAGS.includes(flag)) { x.fl[day] = flag; delete x.d[day]; }
+      else if (CH_KINDS.includes(k)) {
+        const m = Math.max(0, Math.min(240, Math.round(Number(body.m) || 0)));
+        x.d[day] = { k, m, at: Date.now(), ...(body.auto ? { auto: 1 } : {}) }; delete x.fl[day];
+      } else return undefined;
+      const stg = Number(body.stage); if (Number.isInteger(stg) && stg >= 0 && stg <= 9) x.st = stg;
+      return x;
+    });
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, me: { d: v.d, fl: v.fl } });
+  }
+  /* the start and end films, for the most improved: uploaded through /upload
+     like any clip, then recorded here. The start film goes in when they
+     start (Elliott, 25 Nov): from joining, even before day 1, up to day 7,
+     or within three days of joining late. The end film from two days before
+     the last day to three days after. which is 1 (start) or the last day. */
+  if (path === '/challenge/film' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg), which = Number(body.which), uid = String(body.uid || '');
+    if (![1, cfg.days].includes(which)) return json({ error: 'Day 1 or day ' + cfg.days }, 400);
+    if (!/^[a-f0-9]{32}$/.test(uid)) return json({ error: 'That clip did not upload' }, 400);
+    const mine0 = await getSetting(`chal:${who}`).catch(() => null);
+    if (!mine0) return json({ error: 'Join the challenge first' }, 400);
+    const lateJoin = Date.now() - (Number(mine0.at) || 0) < 3 * 864e5;
+    if (which === 1 && !(day <= cfg.days - 3 && (day <= 7 || lateJoin))) return json({ error: 'Start films closed on day 7, or three days after joining' }, 400);
+    if (which === cfg.days && (day < cfg.days - 2 || day > cfg.days + 3)) return json({ error: 'Your end film goes in from day ' + (cfg.days - 2) }, 400);
+    const slot = which === 1 ? 'film1' : 'filmEnd';
+    const share = typeof body.share === 'boolean' ? body.share : !!(mine0[slot] && mine0[slot].share);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { [slot]: { uid, at: Date.now(), share, ok: false } }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    if (share && (await chCfg()).films !== 'off')
+      await coachAlert(null, 'told', { title: 'A film to look at', body: `${who} would like their ${which === 1 ? 'start' : 'end'} film on the Advent board` }).catch(() => {});
+    return json({ ok: true, film1: !!v.film1, filmEnd: !!v.filmEnd, sh1: chFilmState(v.film1), shE: chFilmState(v.filmEnd) });
+  }
+  /* on the board or not, their choice, any time; Elliott approves it before anyone else sees it */
+  if (path === '/challenge/filmshare' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), which = Number(body.which), slot = which === 1 ? 'film1' : which === cfg.days ? 'filmEnd' : '';
+    if (!slot || typeof body.share !== 'boolean') return json({ error: 'Which film?' }, 400);
+    const before = await getSetting(`chal:${who}`).catch(() => null);
+    if (!before || !before[slot] || !before[slot].uid) return json({ error: 'Send the film first' }, 400);
+    const v = await changeSetting(`chal:${who}`, cur => cur && cur[slot] ? Object.assign({}, cur, { [slot]: Object.assign({}, cur[slot], { share: body.share }) }) : undefined);
+    if (!v) return json({ error: 'Send the film first' }, 400);
+    if (body.share && !before[slot].ok && cfg.films !== 'off')
+      await coachAlert(null, 'told', { title: 'A film to look at', body: `${who} would like their ${which === 1 ? 'start' : 'end'} film on the Advent board` }).catch(() => {});
+    return json({ ok: true, sh1: chFilmState(v.film1), shE: chFilmState(v.filmEnd) });
+  }
+  if (path === '/challenge/week' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg), wk = Math.ceil(Math.max(1, day) / 7), w = Number(body.w), val = Number(body.v);
+    /* week 0 is their starting point (Elliott, 25 Nov: "make sure they log
+       their stage point at the beginning"): from joining, up to day 7, or
+       within three days of joining late, the same as the start film */
+    if (w === 0) {
+      const m0 = await getSetting(`chal:${who}`).catch(() => null);
+      if (!m0) return json({ error: 'Join the challenge first' }, 400);
+      if (!(day <= cfg.days - 3 && (day <= 7 || Date.now() - (Number(m0.at) || 0) < 3 * 864e5))) return json({ error: 'Starting points closed on day 7' }, 400);
+    } else if (!Number.isInteger(w) || w < 1 || w > Math.min(wk, 5)) return json({ error: 'That week has not come yet' }, 400);
+    if (!Number.isFinite(val) || val < 0 || val > 999) return json({ error: 'That number does not look right' }, 400);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { wk: Object.assign({}, cur.wk || {}, { [w]: Math.round(val * 10) / 10 }) }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, wk: v.wk });
+  }
+  /* the evening reminder, on unless they turn it off (25 Nov 2026) */
+  if (path === '/challenge/remind' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const v = await changeSetting(`chal:${who}`, cur => cur ? Object.assign({}, cur, { remind: body.on !== false }) : undefined);
+    if (!v) return json({ error: 'Join the challenge first' }, 400);
+    return json({ ok: true, remind: v.remind !== false });
+  }
+  /* 7pm, from chal-remind.mjs: a notification to everyone whose door is still
+     shut today, once a day each. Notifications only, never email. */
+  /* ── the fortnight's check point test, to the phone (28 Nov 2026) ──────
+     Elliott: "build it fortnightly but get it to trigger on push, maybe in
+     late afternoon or weekend". Run on Saturday afternoon by cptest.mjs.
+     One notification to anybody on the free ladder with a phone who has
+     not logged a check point for a fortnight (or ever, a few days in), and
+     not again for a fortnight. Never an email, never a coached client,
+     and only with training reminders on. */
+  if (path === '/cptest/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('push:')}*`).catch(() => [])) || []);
+    const FORT = 13 * 864e5;
+    let sent = 0, skipped = 0, mailed = 0;
+    const why = { new: 0, coached: 0, mailOff: 0, noStage: 0, logged: 0, already: 0, error: 0 };
+    /* and once, ever, by email, to anybody on the free ladder who has never
+       logged one (Elliott, 28 Nov 2026: 77 of 85 had not, and most have no
+       notifications on). The same guards as any training email. */
+    /* each stage's check points as the app shows them: the shipped list from
+       ladder-data.js with the dashboard's own names, targets, order and
+       switched off ones laid over it, so the email names what is left on
+       the stage they are on (Elliott, 28 Nov 2026: "explain the ladder and
+       the checkpoints they have left to do, depending on the level") */
+    let LCP = null;
+    const cpGoal = c => { if (c.goal) return String(c.goal); const t = Number(c.target);
+      return c.kind === 'face' ? 'until it feels comfortable' : c.kind === 'yn' ? 'once'
+        : c.kind === 'secs' ? `hold ${t} seconds` : c.kind === 'rate' ? `${t} of 10 attempts`
+        : c.kind === 'breaks' ? `ten in ${t} goes or fewer` : /out of ten/i.test(c.note || '') ? `${t} of 10 attempts land`
+        : (c.unit ? `${t}${c.unit}` : `${t} reps`); };
+    const stageCps = async si => {
+      if (!LCP) { LCP = {};
+        try { const src = await fetch(`${SITE}/ladder-data.js`).then(r => r.ok ? r.text() : '').catch(() => '');
+          if (src) LCP.all = vm.runInNewContext(src + `\n;(typeof CHECKPOINTS !== 'undefined' ? CHECKPOINTS : null)`, { window: {}, console: { log() {}, warn() {}, error() {} } }, { timeout: 1500 });
+        } catch (err) { console.error('cptest ladder', String(err && err.message || err)); }
+        LCP.over = (await getSetting('ladder:checkpoints').catch(() => null)) || {}; }
+      const base = ((LCP.all || {})[si] || []).map(c => Object.assign({}, c)), o = LCP.over[String(si)] || {};
+      let list = base.map(c => Object.assign(c, (o.edit || {})[c.k] || {})).filter(c => !c.extra && !c.pushCp && (o.off || []).indexOf(c.k) < 0);
+      if (Array.isArray(o.order)) list.sort((a, b) => { const x = o.order.indexOf(a.k), y = o.order.indexOf(b.k); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
+      return list;
+    };
+    try {
+      const accs = (await supa.rows('accounts', 'select=email,name,first_seen').catch(() => [])) || [];
+      for (const a of accs) {
+        const e = norm(a.email || ''); if (!e || mailed >= 60) continue;
+        try {
+          if (!a.first_seen || Date.now() - new Date(a.first_seen).getTime() < 3 * 864e5) { why.new++; continue; }
+          if (await isCoached(e)) { why.coached++; continue; }
+          if (!mayEmail(e) || !(await clientMailAllowed(e)) || !(await wantsEmail(e, 'reminders'))) { why.mailOff++; continue; }
+          const st0 = ((await getSetting(`state:${e}`)) || {});
+          if (!(st0.quizDone || (st0.intake && st0.intake.level != null))) { why.noStage++; continue; }   /* a class booker with no stage */
+          const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
+          if (Object.keys(logs).some(k => (logs[k] || []).length)) { why.logged++; continue; }
+          const si = Math.max(0, Math.min(PLAN_STAGES.length - 1, Number(st0.stage) || 0)), stage = PLAN_STAGES[si], next = PLAN_STAGES[si + 1] || '';
+          const cps = await stageCps(si);
+          if (!cps.length) { why.noStage++; continue; }
+          if (!(await supa.insertIfAbsent('nudges', { key: `cptestmail:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { why.already++; continue; }
+          const first = String(a.name || '').trim().split(/\s+/)[0] || '';
+          await email(e, next ? `Your ${cps.length} check points to ${next}` : `Your ${cps.length} check points on ${stage}`,
+            mail({ title: next ? `${stage} to ${next}.` : `${stage}.`, greeting: first,
+            paras: [`The Handstand Ladder has six stages: ${PLAN_STAGES.slice(0, -1).join(', ')} and ${PLAN_STAGES[PLAN_STAGES.length - 1]}. You are on <b>${esc(stage)}</b>. ${esc(PLAN_GOALS[si] || '')}`,
+              next ? `You move up by reaching check points. ${esc(stage)} has ${cps.length}. Reach them all and ${esc(next)} opens.`
+                   : `You finish it by reaching check points. ${esc(stage)} has ${cps.length}.`,
+              'You have not ticked any off yet, and you may be able to do some of them today. The check point test takes you through them in about 13 minutes, one go at each.'],
+            box: { title: `Your check points on ${stage}`, numbered: true, items: cps.map(c => `${c.n}: ${cpGoal(c)}`) },
+            cta: { href: `${SITE}/lha-app.html?go=cptest`, label: 'Open the check point test' },
+            signoff: { name: 'Elliott, London Handstand Academy' } }), 'reminders');
+          mailed++;
+        } catch (err) { why.error++; /* one person's trouble is not the run's */ }
+      }
+    } catch (err) {}
+    for (const r of rows) {
+      const e = norm(String(r.key || '').slice(5)), rec = r.value || {};
+      if (!e || !((Array.isArray(rec.subs) && rec.subs.length) || (Array.isArray(rec.apns) && rec.apns.length))) { skipped++; continue; }
+      try {
+        if (await isCoached(e)) { skipped++; continue; }
+        if (!(await wantsPush(e, 'reminders')) || !mayEmail(e) || !(await clientMailAllowed(e))) { skipped++; continue; }
+        const logs = ((await getSetting(`track:${e}`)) || {}).checkpoints || {};
+        let last = 0; for (const k of Object.keys(logs)) for (const x of (logs[k] || [])) if (x && Number(x.at) > last) last = Number(x.at);
+        const acc = await supa.row('accounts', `email=eq.${enc(e)}&select=first_seen`).catch(() => null);
+        const since = acc && acc.first_seen ? Date.now() - new Date(acc.first_seen).getTime() : 0;
+        if (last ? Date.now() - last < FORT : since < 3 * 864e5) { skipped++; continue; }
+        const nk = `pushcptest:${e}`;
+        const was = await supa.row('nudges', `key=eq.${enc(nk)}&select=sent_at`).catch(() => null);
+        if (was && was.sent_at && Date.now() - new Date(was.sent_at).getTime() < FORT) { skipped++; continue; }
+        await supa.upsert('nudges', { key: nk, stage: 0, sent_at: nowISO() }, 'key').catch(() => {});
+        const res = await pushSend(e, { title: 'Check point test', body: 'About 15 minutes. See which check points you can tick off today.',
+          url: '/lha-app.html?go=cptest', tag: 'cptest' }).catch(() => ({ sent: 0 }));
+        if (res && res.sent) sent++;
+      } catch (err) { skipped++; }
+    }
+    return json({ ok: true, sent, skipped, mailed, why });
+  }
+  if (path === '/challenge/remind/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg);
+    if (day < 1 || day > cfg.days) return json({ ok: true, day, sent: 0, note: 'not a challenge day' });
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let sent = 0, skipped = 0;
+    for (const r of rows) {
+      const v = r.value || {}, e = r.key.slice(5);
+      if (v.remind === false || (v.d || {})[day] || (v.fl || {})[day]) { skipped++; continue; }
+      if (!(await supa.insertIfAbsent('nudges', { key: `chalremind:${e}:${day}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { skipped++; continue; }
+      const res = await pushSend(e, { title: `Door ${day} is still shut`, body: 'Practised today? Open it in your advent calendar. Any practice counts.',
+        url: '/lha-app.html?chal=open', tag: `chal:${day}` }).catch(() => ({ sent: 0 }));
+      if (res && res.sent) sent++;
+    }
+    return json({ ok: true, day, sent, skipped });
+  }
+  /* the morning door 1 opens (Elliott, 25 Nov: "one Door 1 is open email on 1
+     December to everyone who joined"): an email to everyone, and a
+     notification to anyone who turned them on. Once each, on day 1 only. */
+  if (path === '/challenge/door1/run' && request.method === 'POST') {
+    const key = String(request.headers.get('x-health-key') || '');
+    if (!key || !process.env.SIGNING_SECRET || key !== process.env.SIGNING_SECRET) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), day = chDay(cfg);
+    if (day !== 1 && !body.anyway) return json({ ok: true, day, mailed: 0, note: 'only on day 1' });
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let mailed = 0, pushed = 0, skipped = 0;
+    for (const r of rows) {
+      const v = r.value || {}, e = r.key.slice(5);
+      if (!v.at || !(await supa.insertIfAbsent('nudges', { key: `chaldoor1:${e}`, stage: 0, sent_at: nowISO() }, 'key').catch(() => false))) { skipped++; continue; }
+      const first = String(v.n || '').trim().split(/\s+/)[0] || '';
+      const res = await pushSend(e, { title: 'Door 1 is open', body: 'Your handstand advent starts today. Practise, then open door 1.',
+        url: '/lha-app.html?chal=open', tag: 'chal:1' }).catch(() => ({ sent: 0 }));
+      if (res && res.sent) pushed++;
+      if (mayEmail(e)) {
+        await email(e, 'Door 1 is open', mail({ title: 'Door 1 is open.', greeting: first,
+          paras: ['Your Handstand Advent Challenge starts today. Practise however you like, then open door 1 in the app. Any practice counts, five minutes included.',
+            'Film your first clip too: anything you like, 30 seconds at most. It is how you will see how far you come, and how the most improved is picked.',
+            'One door a day until Christmas Eve. Miss one? Tap it later and log it.'],
+          cta: { href: `${SITE}/lha-app.html?chal=open`, label: 'Open door 1' },
+          signoff: { name: 'Elliott, London Handstand Academy' } }), 'chal').catch(() => {});
+        mailed++;
+      }
+    }
+    return json({ ok: true, day, mailed, pushed, skipped });
+  }
+  if (path === '/challenge/checkout' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Make an account first' }, 401);
+    if (!stripeKey()) return json({ error: 'Payments are not set up' }, 503);
+    const cfg = await chCfg(), mine = await getSetting(`chal:${who}`).catch(() => null);
+    if (mine && mine.paid) return json({ error: 'You have the extras already' }, 409);
+    if (chDay(cfg) > cfg.days) return json({ error: 'The challenge has finished' }, 410);
+    const amount = chPrice(cfg), nm = String(body.name || (mine && mine.n) || '').slice(0, 60);
+    try {
+      const sess = await stripe('/checkout/sessions', {
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'gbp',
+        'line_items[0][price_data][unit_amount]': String(amount),
+        'line_items[0][price_data][product_data][name]': 'Handstand Advent Challenge: help from Elliott',
+        'line_items[0][price_data][product_data][description]': 'The app\'s sessions for your level until a week after the end, my video feedback on your first and last day films, and the weekly live call.',
+        'line_items[0][quantity]': '1',
+        'payment_method_types[0]': 'card',
+        'metadata[challenge]': CH.id, 'metadata[name]': nm,
+        client_reference_id: who, customer_email: who,
+        expires_at: String(Math.floor(Date.now() / 1000) + 35 * 60),
+        success_url: `${url.origin}/lha-app.html?chal=paid&bs={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${url.origin}/lha-app.html?chal=open`,
+      });
+      return json({ url: sess.url });
+    } catch (err) { return json({ error: String(err.message || err) }, 502); }
+  }
+  /* the dashboard: everyone in it, with their email, and the settings */
+  if (path === '/coach/challenge' && request.method === 'GET') {
+    if (!(await isCoach())) return json({ error: 'Nope' }, 401);
+    const cfg = await chCfg(), rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    /* what each said they could do in the level questions, beside their films (25 Nov) */
+    const intakes = Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('intake:')}*`).catch(() => [])) || []))
+      .map(r => [r.key.slice(7), (r.value && r.value.skills) || null]));
+    return json({ cfg, day: chDay(cfg), people: rows.filter(r => r.value && typeof r.value === 'object').map(r => Object.assign(chPublic(r.value, cfg), { said: intakes[r.key.slice(5)] || null },
+      { email: r.key.slice(5), name: r.value.n || '', at: r.value.at || 0, paid: !!r.value.paid, paidAt: r.value.paidAt || 0, amount: r.value.amount || 0,
+        comp: !!r.value.comp, wk: r.value.wk || {}, fl: r.value.fl || {}, src: r.value.src || '',
+        reported: r.value.reported ? { at: r.value.reported.at || 0, n: r.value.reported.n || 1 } : null, offBoard: !!r.value.offBoard,
+        film1: (r.value.film1 && r.value.film1.uid) || '', filmEnd: (r.value.filmEnd && r.value.filmEnd.uid) || '',
+        sh1: chFilmState(r.value.film1), shE: chFilmState(r.value.filmEnd),
+        logged: chLogged(r.value), need: chNeed(r.value), eligible: chEligible(r.value),
+        dm: Array.from({ length: cfg.days }, (_, i) => Number(((r.value.d || {})[i + 1] || {}).m) || 0), remind: r.value.remind !== false,
+        given: r.value.prize3m || 0, month: r.value.month || 0 })),
+      prize: (await getSetting('chalprize').catch(() => null)) || {}, rules: CH_PRIZE,
+      coachShow: (((await supa.rows('settings', `select=key,value&key=like.${enc('chalshow:')}*`).catch(() => [])) || [])
+        .filter(r => r.value && r.value.on).map(r => r.key.slice(9))) });
+  }
+  /* profile photos for the dashboard (26 Nov 2026): every one, the ones asking
+     for the leaderboard first, and approve, take off the board, or delete */
+  if (path === '/coach/avatars' && request.method === 'GET') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can see this' }, 401);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || [])
+      .filter(r => r.value && r.value.id);
+    const chal = Object.fromEntries((((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []))
+      .map(r => [r.key.slice(5), (r.value && r.value.n) || '']));
+    return json({ photos: rows.map(r => ({ email: r.key.slice(7), name: chal[r.key.slice(7)] || clients()[r.key.slice(7)] || '',
+      id: r.value.id, at: r.value.at || 0, board: !!r.value.board, ok: !!r.value.ok, hidden: !!r.value.hidden,
+      reported: r.value.reported ? { at: r.value.reported.at || 0 } : null }))
+      .sort((a, b) => (+!!b.reported - +!!a.reported) || (+(b.board && !b.ok) - +(a.board && !a.ok)) || (b.at - a.at)) });
+  }
+  if (path === '/coach/avatar' && request.method === 'POST') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can change this' }, 401);
+    const e = norm(body.email || '');
+    const cur = e ? await getSetting(`avatar:${e}`).catch(() => null) : null;
+    if (!cur) return json({ error: 'No photo for that address' }, 404);
+    if (body.remove === true) {
+      if (cur.id) await db.delete(`img:${cur.id}`).catch(() => {});
+      await dropSetting(`avatar:${e}`).catch(() => {});
+      return json({ ok: true });
+    }
+    const v = Object.assign({}, cur);
+    if (typeof body.ok === 'boolean') { v.ok = body.ok; if (body.ok) { v.hidden = false; delete v.reported; } }
+    if (body.hide === true) v.hidden = true;
+    await setSetting(`avatar:${e}`, v);
+    return json({ ok: true });
+  }
+  if (path === '/coach/challenge' && request.method === 'POST') {
+    if (!(await isOwner())) return json({ error: 'Only the owner can change the challenge' }, 401);
+    /* a film on the board: approve it, or take it off */
+    if (body.film && typeof body.film === 'object' && typeof body.film.ok === 'boolean') {
+      const e = norm(body.film.email || ''), slot = Number(body.film.which) === 1 ? 'film1' : 'filmEnd';
+      const v = await changeSetting(`chal:${e}`, cur => cur && cur[slot] && cur[slot].uid
+        ? Object.assign({}, cur, { [slot]: Object.assign({}, cur[slot], { ok: body.film.ok, hidden: !body.film.ok }) }) : undefined);
+      if (!v) return json({ error: 'No film there' }, 404);
+      return json({ ok: true });
+    }
+    if (typeof body.offBoard === 'string') {
+      const e = norm(body.offBoard);
+      await changeSetting(`chal:${e}`, cur => cur ? Object.assign({}, cur, { offBoard: body.on !== false, ...(body.on === false ? { reported: null } : {}) }) : undefined);
+      return json({ ok: true });
+    }
+    if (body.cfg && typeof body.cfg === 'object') {
+      const c = body.cfg;
+      await changeSetting('chalcfg', cur => {
+        const x = Object.assign({}, cur || {});
+        if (typeof c.call === 'string') x.call = c.call.trim().slice(0, 300);
+        if (typeof c.callNote === 'string') x.callNote = c.callNote.trim().slice(0, 120);
+        if (Number(c.goalH) > 0) x.goalH = Math.min(9999, Math.round(Number(c.goalH)));
+        if (typeof c.photos === 'boolean' || ['off', 'web', 'all'].includes(c.photos)) x.photos = chMode(c.photos);
+        if (['off', 'web', 'all'].includes(c.films)) x.films = c.films;
+        /* the accountability group's WhatsApp link, shown only to people who joined from its link (?src=whatsapp) */
+        if (typeof c.group === 'string') x.group = /^https:\/\//.test(c.group.trim()) || !c.group.trim() ? c.group.trim().slice(0, 300) : x.group;
+        if (typeof c.start === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.start)) x.start = c.start;
+        if (typeof c.earlyUntil === 'string' && !isNaN(Date.parse(c.earlyUntil))) x.earlyUntil = new Date(c.earlyUntil).toISOString();
+        return x;
+      });
+    }
+    /* the prizes: draw three from everyone who reached it, pick the most
+       improved, give the months, and show the winners in the app */
+    if (body.draw === true) {
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      /* one prize each: the most improved is left out of the draw */
+      const most = ((await getSetting('chalprize').catch(() => null)) || {}).most || '';
+      const pool = rows.filter(r => r.value && chEligible(r.value)).map(r => r.key.slice(5)).filter(e => e !== most);
+      const pick = [];
+      while (pool.length && pick.length < CH_PRIZE.drawN) {
+        const i = crypto.getRandomValues(new Uint32Array(1))[0] % pool.length;
+        pick.push(pool.splice(i, 1)[0]);
+      }
+      await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { draw: { at: Date.now(), winners: pick, from: pick.length + pool.length } }));
+    }
+    if (typeof body.most === 'string') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { most: norm(body.most) }));
+    if (typeof body.showFor === 'string' && /@/.test(body.showFor))
+      await changeSetting(`chalshow:${norm(body.showFor)}`, () => ({ on: !!body.on, at: Date.now() }));
+    /* a class winner booked in (or not), so the dashboard can tick them off */
+    if (typeof body.classDone === 'string') {
+      const e = norm(body.classDone);
+      await changeSetting('chalprize', cur => { const x = Object.assign({}, cur || {}), m = Object.assign({}, x.classDone || {});
+        if (m[e]) delete m[e]; else m[e] = Date.now(); x.classDone = m; return x; });
+    }
+    if (typeof body.announced === 'boolean') await changeSetting('chalprize', cur => Object.assign({}, cur || {}, { announced: body.announced }));
+    if (body.give) {
+      const e = norm(body.give); let fresh = false;
+      await changeSetting(`chal:${e}`, cur => { if (!cur || cur.prize3m) return undefined; fresh = true; return Object.assign({}, cur, { prize3m: Date.now() }); });
+      if (fresh) await chGiveDays(e, CH_PRIZE.months * 30);
+    }
+    /* the films, deleted from Stream once the challenge is over (Elliott,
+       25 Nov: "i don't need to keep it after the end of the challenge") */
+    let filmsGone = 0;
+    if (body.deleteFilms === true) {
+      const cfg = await chCfg();
+      if (chDay(cfg) <= cfg.days + 3 && !body.anyway) return json({ error: 'End films are still coming in. Delete them after day ' + (cfg.days + 3) + '.' }, 400);
+      if (!CF_TOK()) return json({ error: 'Stream is not set up' }, 503);
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      for (const r of rows) {
+        const v = r.value || {}, uids = [v.film1 && v.film1.uid, v.filmEnd && v.filmEnd.uid].filter(u => /^[a-f0-9]{32}$/.test(String(u || '')));
+        if (!uids.length) continue;
+        for (const uid of uids) {
+          const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCT()}/stream/${uid}`,
+            { method: 'DELETE', headers: { Authorization: `Bearer ${CF_TOK()}` } }).catch(() => null);
+          if (res && (res.ok || res.status === 404)) filmsGone++;
+        }
+        await changeSetting(r.key, cur => cur ? Object.assign({}, cur, { film1: null, filmEnd: null, filmsDeleted: Date.now() }) : undefined).catch(() => {});
+      }
+    }
+    /* a free month for everyone who reached it, once each */
+    let monthN = 0;
+    if (body.monthAll === true) {
+      const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+      for (const r of rows) {
+        if (!r.value || !chEligible(r.value) || r.value.month) continue;
+        const e = r.key.slice(5); let fresh = false;
+        await changeSetting(r.key, cur => { if (!cur || cur.month) return undefined; fresh = true; return Object.assign({}, cur, { month: Date.now() }); });
+        if (fresh) { await chGiveDays(e, 30); monthN++; }
+      }
+    }
+    /* given the extras by hand: a comp for somebody, or taken back after a refund */
+    if (body.email && typeof body.paid === 'boolean') {
+      const e = norm(body.email), cfg = await chCfg();
+      let was = false;
+      await changeSetting(`chal:${e}`, cur => { if (!cur) return undefined; was = !!cur.paid; return Object.assign({}, cur, { paid: body.paid, comp: body.paid ? !cur.cs : false }); });
+      if (body.paid && !was) {
+        await changeSetting(`fccredits:${e}`, cur => Object.assign({}, cur || {}, { n: (Number((cur || {}).n) || 0) + CH.replies })).catch(() => {});
+        const until = chLadderUntil(cfg), u = await getSetting(`plusuntil:${e}`).catch(() => null);
+        if (!u || ms(u) < until) await setSetting(`plusuntil:${e}`, iso(until)).catch(() => {});
+      }
+    }
+    return json({ ok: true, cfg: await chCfg(), prize: (await getSetting('chalprize').catch(() => null)) || {}, monthN, filmsGone });
+  }
   if (path === '/redeem' && request.method === 'POST') {
     const who = await me();
     if (!who) return json({ error: 'Sign in first' }, 401);
@@ -12910,6 +14018,72 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
     await db.set(`img:${id}`, buf,
       { metadata: { type: m[1], owner: who, at: Date.now() } });
     return json({ id });
+  }
+
+  /* ── a profile photo (26 Nov 2026) ───────────────────────────────
+     The picture goes up through /image like any other, so it is theirs and
+     goes with the account; this only says which one it is, whether they
+     want it on the Advent leaderboard, or that it should go. A new photo
+     waits for Elliott again before the board shows it. */
+  if (path === '/avatar' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const cur = (await getSetting(`avatar:${who}`).catch(() => null)) || null;
+    if (body.remove === true) {
+      if (cur && cur.id) await db.delete(`img:${cur.id}`).catch(() => {});
+      await dropSetting(`avatar:${who}`).catch(() => {});
+      return json({ ok: true, avatar: null });
+    }
+    if (typeof body.id === 'string') {
+      const id = body.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+      const m = id ? await db.getMetadata(`img:${id}`).catch(() => null) : null;
+      if (!m || !m.metadata || m.metadata.owner !== who) return json({ error: 'That photo did not upload. Try again.' }, 400);
+      if (cur && cur.id && cur.id !== id) await db.delete(`img:${cur.id}`).catch(() => {});
+      const v = { id, at: Date.now(), board: !!(cur && cur.board), ok: false, hidden: false };
+      await setSetting(`avatar:${who}`, v);
+      if (v.board) await coachAlert(null, 'told', { title: 'A leaderboard photo to look at', body: `${who} changed their photo` }).catch(() => {});
+      return json({ ok: true, avatar: avOwn(v) });
+    }
+    if (typeof body.board === 'boolean') {
+      if (!cur || !cur.id) return json({ error: 'Add a photo first' }, 400);
+      const v = Object.assign({}, cur, { board: body.board });
+      await setSetting(`avatar:${who}`, v);
+      if (body.board && !cur.ok) await coachAlert(null, 'told', { title: 'A leaderboard photo to look at', body: `${who} would like their photo on the board` }).catch(() => {});
+      return json({ ok: true, avatar: avOwn(v) });
+    }
+    return json({ error: 'Nothing to change' }, 400);
+  }
+  /* somebody on the challenge reports someone on the board, their name or
+     their photo (27 Nov 2026, App Store 1.2): a photo comes off at once, and
+     Elliott is told and decides in the dashboard */
+  if (path === '/challenge/report' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    if (!(await getSetting(`chal:${who}`).catch(() => null))) return json({ error: 'Join the challenge first' }, 403);
+    if ((await rateHit(`avrep:${who}`, 24 * 3600000)) > 20) return json({ ok: true });
+    const id = String(body.id || '').replace(/[^a-f0-9]/g, '').slice(0, 14);
+    const pic = String(body.pic || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+    const rows = ((await supa.rows('settings', `select=key,value&key=like.${enc('chal:')}*`).catch(() => [])) || []);
+    let email = '';
+    if (id) for (const r of rows) { if ((await chRowId(r.key.slice(5))) === id) { email = r.key.slice(5); break; } }
+    if (!email && pic) { const av = ((await supa.rows('settings', `select=key,value&key=like.${enc('avatar:')}*`).catch(() => [])) || []).find(r => r.value && r.value.id === pic); if (av) email = av.key.slice(7); }
+    if (!email || email === who) return json({ ok: true });
+    await changeSetting(`avatar:${email}`, cur => cur ? Object.assign({}, cur, { hidden: true, reported: { at: Date.now(), by: who } }) : undefined).catch(() => {});
+    /* their films come off the board too, until Elliott looks */
+    const off = f => (f && f.uid) ? Object.assign({}, f, { hidden: true }) : f;
+    await changeSetting(`chal:${email}`, cur => cur ? Object.assign({}, cur, { film1: off(cur.film1), filmEnd: off(cur.filmEnd),
+      reported: { at: Date.now(), by: who, n: (Number(cur.reported && cur.reported.n) || 0) + 1 } }) : undefined).catch(() => {});
+    await coachAlert(null, 'told', { title: 'Someone on the Advent board was reported', body: `${email}: their name, photo or film. Look in the dashboard, Challenge.` }).catch(() => {});
+    return json({ ok: true });
+  }
+  /* and hides them from their own board, for good (a block) */
+  if (path === '/challenge/block' && request.method === 'POST') {
+    const who = await me();
+    if (!who) return json({ error: 'Sign in first' }, 401);
+    const id = String(body.id || '').replace(/[^a-f0-9]/g, '').slice(0, 14);
+    if (!id) return json({ error: 'Who?' }, 400);
+    await changeSetting(`chblock:${who}`, cur => { const ids = Array.from(new Set([...(((cur || {}).ids) || []), id])).slice(-300); return { ids, at: Date.now() }; });
+    return json({ ok: true });
   }
 
   /* ── a voice note ────────────────────────────────────────────────
@@ -13487,7 +14661,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
      delete, so neither can forget a key the other knows about. */
   /* trialused: a new address is not a second free week. ladderflags: how
      the free ladder felt, which the coach reads if they join coaching. */
-  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs',
+  const SETTING_KEYS = ['track', 'programme', 'state', 'intake', 'prefs', 'avatar',
                         'fccredits', 'plusuntil', 'visits', 'week', 'wsmine',
                         'plan', 'ref', 'trialused', 'ladderflags', 'flaglog',
                         /* a client made before their real address was known
@@ -13953,7 +15127,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         `${clients()[who] || who}: ${text.slice(0, 60) || kind}`,
         `<p style="font:16px/1.6 system-ui">${esc(text.slice(0, 2000)) || `They have ${kind}.`}</p>
          <p style="font:13px/1.5 system-ui;color:#666">Reply in the coach view.</p>`);
-      await coachAlert(who, 'messages', { title: firstNameOf(who) + (text ? '' : ' ' + kind),
+      await coachAlert(who, 'messages', { title: kind ? firstNameOf(who) + ' ' + kind.replace('sent a video', 'sent a clip') : 'Message from ' + firstNameOf(who),
         body: text ? text.slice(0, 160) : 'Open it on the dashboard.', tag: 'msg:' + who, t: 'thread' });
       return json({ ok: true, id: (addedC && addedC.id) || '' });
     }
@@ -14176,6 +15350,24 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        the client's own app with it, in an iframe, so anything broken on
        their page is visible rather than described. Half an hour, because
        it is for looking at something now. */
+    /* the stage the coach recommends for somebody on the free ladder (Elliott,
+       28 Nov 2026, Angelica: "I recommend she is on Pushing More"). Their app
+       says so where it said what their answers put them on. null takes it off. */
+    if (path === '/coach/recommend' && request.method === 'GET') {
+      const e = norm(url.searchParams.get('email'));
+      if (!e || !owns(e)) return json({ error: 'Which client?' }, 400);
+      const v = await getSetting(`rec:${e}`).catch(() => null);
+      return json({ stage: v && Number.isInteger(v.stage) ? v.stage : null });
+    }
+    if (path === '/coach/recommend' && request.method === 'POST') {
+      const e = norm(body.email);
+      if (!e || !owns(e)) return json({ error: 'Which client?' }, 400);
+      const n = body.stage == null || body.stage === '' ? null : Number(body.stage);
+      if (n === null) { await dropSetting(`rec:${e}`).catch(() => {}); return json({ ok: true, stage: null }); }
+      if (!Number.isInteger(n) || n < 0 || n > 5) return json({ error: 'Which stage?' }, 400);
+      await setSetting(`rec:${e}`, { stage: n, at: Date.now() });
+      return json({ ok: true, stage: n });
+    }
     if (path === '/coach/preview' && request.method === 'GET') {
       /* the whole app with everything open, to look over before anything
          is shown to anybody (Elliott, 26 Oct 2026): a preview of the coach's
@@ -14185,13 +15377,15 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       if (url.searchParams.get('all') === '1') {
         if (!asking) return json({ error: 'Sign in as yourself to preview the app' }, 400);
         return json({ email: asking, all: true,
-          token: await sign({ scope: 'preview', email: asking, all: true, exp: Date.now() + 8 * 3600000 }) });
+          token: await sign({ scope: 'preview', email: asking, all: true, iat: Date.now(), exp: Date.now() + 8 * 3600000 }) });
       }
       const e = norm(url.searchParams.get('email'));
       if (!e) return json({ error: 'Which client?' }, 400);
       if (!owns(e)) return json({ error: 'Not your client' }, 403);
       return json({ email: e,
-        token: await sign({ scope: 'preview', email: e, exp: Date.now() + 30 * 60000 }) });
+        /* stamped, or an account that changed its password or signed out
+           everywhere (gone:) refused every preview of it (28 Nov 2026, Angelica) */
+        token: await sign({ scope: 'preview', email: e, iat: Date.now(), exp: Date.now() + 30 * 60000 }) });
     }
 
     /* Which accounts are not people. A list Elliott keeps, on top of the
@@ -15777,7 +16971,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (!wait.length) continue;
         const lastM = wait[wait.length - 1];
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e],
-          id: 'msg:' + e, kind: 'msg', at: ms(wait[0].created_at), clips: 0, n: wait.length,
+          id: 'msg:' + e, kind: 'msg', at: ms(wait[0].created_at), last: ms(lastM.created_at), clips: 0, n: wait.length,
           unread: wait.filter(m => !m.read_at).length,
           msgs: wait.slice(-4).map(m => ({ text: String(m.body || '').slice(0, 600),
             image: !!m.image, video: !!m.video, at: ms(m.created_at), unread: !m.read_at })),
@@ -15802,7 +16996,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           && !(String(f.kind || '').toLowerCase() === 'session feel' && !f.text));
         if (said.length) {
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'said:' + e, kind: 'said', at: said[0].at, clips: 0, n: said.length,
+            id: 'said:' + e, kind: 'said', at: said[0].at, last: Math.max(...said.map(f => f.at || 0)), clips: 0, n: said.length,
             said: said.slice(-8).map(f => ({ kind: f.kind || 'note', text: f.text || '',
               reasons: f.reasons || [], context: f.context || '', at: f.at })),
             numbers: { name: said.slice(-3).map(f => (f.kind || 'note')
@@ -15815,7 +17009,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         const trained = (p.sessions || []).filter(x => x && (x.at || 0) > sinceTrain && (x.done || x.kind === 'part'));
         if (trained.length) {
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'trained:' + e, kind: 'trained', at: trained[0].at, clips: 0, n: trained.length,
+            id: 'trained:' + e, kind: 'trained', at: trained[0].at, last: Math.max(...trained.map(x => x.at || 0)), clips: 0, n: trained.length,
             sessions: trained.slice(-6).map(x => ({ name: x.name || '', mins: Math.round(Number(x.actual || x.mins) || 0),
               done: !!x.done, got: x.got || 0, of: x.of || 0, stoppedAt: x.stoppedAt || '', at: x.at })),
             numbers: { name: trained.slice(-3).map(x => x.name || 'A session').join(' · ') } });
@@ -15855,7 +17049,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         if (fresh.length) {
           fresh.sort((a, b) => b.at - a.at);
           out.push({ email: e, name: nameOf(e), coached: true,
-            id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at,
+            id: 'cplog:' + e, kind: 'cplog', at: fresh[fresh.length - 1].at, last: fresh[0].at,
             clips: 0, n: fresh.length, logs: fresh.slice(0, 6),
             numbers: { name: fresh.slice(0, 4).map(x => x.n + ' ' + x.v).join(' · ') } });
         }
@@ -15863,8 +17057,11 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       for (const s of (waiting || [])) {
         const e = s.email;
         if (!roster[e] || !owns(e) || s.status !== 'submitted') continue;
+        const c0 = (s.clips || [])[0], cap = c0 && typeof c0 === 'object' ? String(c0.name || '') : '';
         out.push({ email: e, name: nameOf(e), coached: !!clients()[e], id: s.id, kind: s.kind,
-          cycle: s.cycle, at: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {},
+          cycle: s.cycle, at: ms(s.created_at), last: ms(s.created_at), clips: (s.clips || []).length, numbers: s.numbers || {},
+          /* the words they sent with a clip in the chat */
+          cap: /^(Clip sent in the chat|Form check clip)$/.test(cap) ? '' : cap.slice(0, 200),
           /* the clips themselves, so the review screen can load the next
              person's without opening their page first */
           uids: (s.clips || []).slice(0, 12) });

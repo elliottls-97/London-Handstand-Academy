@@ -318,6 +318,12 @@ h5{font:400 18px/1.1 var(--serif);margin:0 0 var(--space-2)}
 .tcard-who{flex:1;min-width:0}
 .tcard-who b{display:block;font:600 15.5px/1.25 var(--sans)}
 .tcard-who span{display:block;font:400 12px/1.4 var(--sans);color:var(--grey2);margin-top:2px}
+/* the newest thing on a card, and New since you last looked (Phase 1, 25 Nov) */
+.tcard-who .tcard-latest{font:600 12.5px/1.35 var(--sans);color:var(--ink);margin-top:3px}
+.tnew{display:inline-block;margin-right:6px;padding:3px 7px;border-radius:999px;background:var(--amber);color:#3b2a08;
+  font:700 10px/1 var(--sans);letter-spacing:.08em;text-transform:uppercase;vertical-align:1px}
+.tcard-who .tnew{display:inline-block;font:700 10px/1 var(--sans);margin:0 6px 0 0}
+.tcard.tcard-fresh{box-shadow:inset 4px 0 0 var(--amber),0 1px 2px rgba(29,85,102,.05),0 8px 20px rgba(29,85,102,.06)}
 .tcard-age{flex:none;text-align:right}
 .tcard-age b{display:block;font:400 24px/1 var(--serif)}
 .tcard-age span{display:block;font:600 9.5px/1.2 var(--sans);letter-spacing:.12em;text-transform:uppercase;margin-top:4px}
@@ -749,7 +755,7 @@ function freshen(force){
      third of everything the server was asked in a week (19 Nov 2026). */
   const due=(at, gap, floor)=> now-at >= (force ? floor : gap);
   /* a minute while you are here, five when you are not */
-  if(due(queueAt, here?60000:300000, 5000)){ queueAt=now; loadQueue(); }
+  if(due(queueAt, here?(view==='today'?30000:60000):300000, 5000)){ queueAt=now; loadQueue(); }
   /* applications and website questions too: they were read once at sign
      in, so a dashboard left open never showed a new one, push or no push,
      until a reload (16 Oct 2026, review). Every five minutes while you are
@@ -908,7 +914,7 @@ function mailAlertHTML(all){
     background:rgba(200,122,86,.14);border:1.5px solid var(--terra);border-radius:14px;padding:11px 14px">
     <span style="font:700 9.5px/1.4 var(--sans);letter-spacing:.14em;color:var(--terra)">EMAIL</span>
     <span style="flex:1;min-width:200px;font:400 13px/1.5 var(--sans);color:#23281f">${esc(bad)}</span>
-    ${all?'':`<button class="btn btn-secondary btn-sm" onclick="go('settings')">Settings</button>`}
+    ${all?'':`<button class="btn btn-secondary btn-sm" onclick="go('problems')">Problems</button>`}
   </div>`;
 }
 function mailguardHTML(){
@@ -1195,7 +1201,7 @@ function gaHTML(){
     <button class="btn btn-sm btn-secondary" onclick="ga.d=null;draw()">Refresh</button>
     <a href="https://analytics.google.com/analytics/web/#/p${esc(d.property||'561726601')}/reports/intelligenthome" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Open Analytics</a></div>`;
   if(!d.on) return `<div class="card">${head}<p style="font:400 13.5px/1.6 var(--sans);margin:10px 0 0">${esc(d.why||'Not available.')}</p>
-    ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="setTab='calls';go('settings')">Go to Calls to connect Google</button>`:''}</div>`;
+    ${d.needScope||/not connected/i.test(d.why||'')?`<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="clsGo('calls')">Go to Calls to connect Google</button>`:''}</div>`;
   const T=d.totals||{}, P=d.prev||{};
   const pc=v=>Math.round(100*(v||0))+'%', mmss=v=>{ const x=Math.round(v||0); return Math.floor(x/60)+':'+String(x%60).padStart(2,'0'); };
   const chg=(v,p,down)=>{ if(!p) return ''; const x=Math.round(100*(v-p)/p); if(!x) return '<span style="font:600 11px/1 var(--sans);color:var(--grey2)">same</span>';
@@ -1301,9 +1307,9 @@ function journeyHTML(){
   const quiz=jr.quiz||[], q0=(quiz[0]&&quiz[0].n)||0;
   const Qt=jr.quit||{}, tenth=Qt.byTenth||[], tmax=Math.max(1,...tenth.map(x=>x.n));
   const st_=jr.stalled||{};
-  const ppl=(list,why)=>Array.isArray(list)&&list.length?list.map(p=>`<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.4 var(--sans)">
+  const ppl=(list,why)=>Array.isArray(list)&&list.length?list.map(p=>`<div onclick="openAcct(${jsq(p.email)})" style="cursor:pointer;display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);font:400 13px/1.4 var(--sans)">
       <b style="min-width:110px;font-weight:600">${esc(p.name||p.email.split('@')[0])}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(p.email)}</span>
-      <span class="muted" style="flex:none;font-size:12px">joined ${esc(p.joined?new Date(p.joined).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'?')} · ${p.sessions?p.finished+' of '+p.sessions+' finished':'no sessions'}${p.booker?' · booked a class':''}${p.coached?' · coached':''}${p.paid?' · <b style="color:var(--red)">paying</b>':''}</span></div>`).join('')
+      <span class="muted" style="flex:none;font-size:12px">joined ${esc(p.joined?new Date(p.joined).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'?')} · ${phaseOf(p.email)?esc(phaseOf(p.email))+' · ':''}${p.sessions?p.finished+' of '+p.sessions+' finished':'no sessions'}${p.booker?' · booked a class':''}${p.coached?' · coached':''}${p.paid?' · <b style="color:var(--red)">paying</b>':''}</span></div>`).join('')
     :`<div class="muted" style="font-size:13px;padding:6px 0">Nobody. ${why}</div>`;
   if(owner) try{ loadPaying(); }catch(e){}
   const ET=errThings((jr.errs||[]).filter(e=>!((e.who||[]).length && (e.who||[]).every(errMine)))), errs=ET.things;
@@ -1353,18 +1359,14 @@ function journeyHTML(){
       ${['pv','pvhome','pvclass','pvlearn','pvlinks'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       ${['tobook','workshopbook','workshoppaid','siteapply','sessionbook'].map(k=>S[k]?tile(S[k]):'').join('')}</div>
+    ${(jr.advent||[]).some(x=>x.n||x.prev)?`<div class="kick" style="margin-top:20px">ADVENT, IN THE APP</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${(jr.advent||[]).map(x=>tile(x)).join('')}</div>`:''}
     <div class="kick" style="margin-top:20px">WHERE NEW ACCOUNTS CAME FROM</div>
     ${(()=>{ const sa=((jr.sources||{}).accounts||[]), se=((jr.sources||{}).events||[]), m=Math.max(1,...sa.map(x=>x.n));
       return (sa.length?sa.map(x=>bar(srcName(x.src),x.n,m,'')).join(''):'<div class="muted" style="font-size:13px;margin-top:8px">No new accounts in this time.</div>')
         + (se.length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:8px">By where they first came from: ${se.filter(x=>x.open||x.first1||x.signup||x.subscribed).map(x=>esc(srcName(x.src))+' '+x.open+' opens, '+x.first1+' first sessions'+(x.subscribed?', '+x.subscribed+' paid':'')).join(' · ')}</div>`:''); })()}
-    <div class="kick" style="margin-top:20px">WHAT BROKE · ${errs.length}${ET.hidden?` <span class="muted" style="font-weight:400;letter-spacing:0;text-transform:none">· ${ET.hidden} row${ET.hidden===1?'':'s'} hidden: Instagram's in-app browser and lost signal</span>`:''}</div>
-    ${errs.length?(errGroups=errs, errs.map((t,ti)=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)">
-        <div style="font:400 13.5px/1.5 var(--sans);cursor:pointer" onclick="errOpen(${ti})">${errLine(t)} <span class="ghostlink">Details</span></div>
-        ${t.rows.map(e=>`<div style="display:flex;gap:10px;align-items:baseline;margin-top:4px"><b style="font:600 12.5px/1.4 var(--sans);flex:1;min-width:0;color:var(--grey)">${esc(e.m)}</b>
-          <span style="flex:none;font:600 12.5px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--grey)">${e.n}×</span></div>
-        <div class="muted" style="font-size:12px;margin-top:2px">${esc(ERR_KIND[e.k]||e.k)} · ${esc(e.w||'')} · on ${esc(Object.keys(e.screens||{}).join(', ')||'?')} · last ${esc(new Date(e.last).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}${(e.who||[]).length?' · '+esc(e.who.join(', ')):''}</div>`).join('')}</div>`).join(''))
-      :'<div class="muted" style="font-size:13px;margin-top:8px">Nothing broke in this time.</div>'}
-    ${(jr.films||[]).length?`<div style="font:400 12.5px/1.6 var(--sans);color:var(--grey);margin-top:10px">Films that would not play: ${(jr.films||[]).map(x=>esc(filmKeyWords(x.key))+' '+x.n).join(' · ')}</div>`:''}
+    <div class="kick" style="margin-top:20px">WHAT BROKE</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:6px">${errs.length?errs.length+' thing'+(errs.length===1?'':'s')+' in this time. ':'Nothing in this time. '}<button class="ghostlink" style="border:0;background:none;padding:0;cursor:pointer;font:inherit" onclick="go('problems')">Problems has them all</button></div>
     <div class="kick" style="margin-top:20px">ACCOUNTS THAT HAVE STALLED${st_.accounts!=null?` · ${st_.accounts} REAL ACCOUNTS, ${st_.newThisPeriod} NEW, ${st_.activeThisPeriod} ACTIVE`:''}</div>
     ${st_.error?`<div class="muted" style="font-size:13px">${esc(st_.error)}</div>`:`
       <h5 style="margin:12px 0 2px">Signed up, never trained</h5>${ppl(st_.never,'Everyone who signed up has trained.')}
@@ -1544,7 +1546,7 @@ function grant(email, on){
   fetch(API+'/grant',{method:'POST',headers:hdr(),
     body:JSON.stringify({email, plus:!!on})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
-    .then(()=>{ grantBusy=''; loadLeads(true); })
+    .then(()=>{ grantBusy=''; loadLeads(true); loadMembers(true); })
     .catch(e=>{ grantBusy=''; draw(); alert(String(e)); });
 }
 /* ── who pays, and for what (Elliott, 29 Oct 2026) ─────────────────
@@ -1562,13 +1564,21 @@ function loadPaying(force){
    people on trial and actually paid". Active means opened the app in the
    window; trained means finished or started a session in it. Who pays and
    who is on a free week is Stripe's and Apple's word, from /paying. */
-let members=null, memErr='', memAsked=false, memDays=7, memShow='active', memMine=false;
+let members=null, memErr='', memAsked=false, memDays=7, memShow='all', memMine=false, memPhase='', memFull=false;
+/* the phase someone is on, by name (25 Nov 2026, Elliott: "a way to see the
+   list of accounts, and what phase they are in especially for paying
+   people"). null is somebody the quiz never placed: mostly class bookers. */
+const memStage=k=>k==null?'Not placed':((typeof STAGES!=='undefined'&&STAGES[k])?STAGES[k].n:'Stage '+(k+1));
+/* a coaching client with no ladder phase is on their programme, not unplaced */
+const memPhaseKey=p=>p.stage!=null?String(p.stage):(p.coached?'prog':'none');
+const memPhaseName=k=>k==='prog'?'Coaching programme':memStage(k==='none'?null:Number(k));
+function phaseOf(email){ if(!owner) return ''; loadMembers(); const p=((members&&members.people)||[]).find(x=>x.email===email); return p?memPhaseName(memPhaseKey(p)):''; }
 function loadMembers(force){
   if(memAsked && !force) return; memAsked=true;
   fetch(API+'/members',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
     .then(d=>{ members=d; memErr=''; draw(); }).catch(e=>{ memErr=String(e); draw(); });
 }
-function memSet(k,v){ if(k==='d') memDays=v; else if(k==='m') memMine=!!v; else memShow=v; draw(); }
+function memSet(k,v){ if(k==='d') memDays=v; else if(k==='m') memMine=!!v; else if(k==='p') memPhase=(memPhase===v?'':v); else if(k==='f') memFull=!memFull; else memShow=v; draw(); }
 function memWhen(t){
   if(!t) return 'never';
   const d=Math.floor((Date.now()-t)/864e5);
@@ -1623,7 +1633,250 @@ function memLeadsHTML(){
         <div style="color:var(--grey)">${x.stuck?esc(x.stuck):'No answer given'}${x.later?' · asked for the link '+day(x.later):''}${x.nudged?' · reminded '+day(x.nudged):''}</div></div>
       <div style="color:var(--grey2);white-space:nowrap">${day(x.at)}</div></div>`).join('')}</div>`;
 }
-function membersHTML(){
+/* ── the handstand advent challenge (24 Nov 2026) ─────────────────
+   Who has joined, who paid for the extras, how many days each has logged,
+   their Sunday tests, and the two things to set: the call link and the
+   dates. Comp the extras for somebody, or take them back after a refund. */
+let chal=null, chalErr='', chalAsked=false;
+function loadChal(force){
+  if(chalAsked && !force) return; chalAsked=true;
+  fetch(API+'/challenge',{headers:hdr()}).then(r=>r.ok?r.json():Promise.reject('the server said '+r.status))
+    .then(d=>{ chal=d; chalErr=''; draw(); }).catch(e=>{ chalErr=String(e); draw(); });
+}
+function chalSave(){
+  const v=id=>(document.getElementById(id)||{}).value||'';
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({cfg:{call:v('chCall'),callNote:v('chNote'),group:v('chGroup'),start:v('chStart'),goalH:v('chGoal'),earlyUntil:v('chEarly')?v('chEarly')+'T23:59:59':''}})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash('Saved'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+function chalPaid(email, paid){
+  if(!confirm(paid?'Give '+email+' the extras for free? It adds two video replies and the Ladder until a week after the end.':'Take the extras off '+email+'? Refund them in Stripe yourself; this does not.')) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({email, paid})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(paid?'Extras on':'Extras off'); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+/* profile photos (26 Nov 2026): who has one, who wants it on the leaderboard,
+   and the switch that lets the board show any at all. The switch stays off
+   until Apple has 1.0.1 and the age rating says people see each other's photos. */
+let avs=null, avsBusy=false;
+function loadAvs(force){
+  if(avsBusy || (avs && !force)) return; avsBusy=true;
+  fetch(API+'/avatars',{headers:hdr()}).then(r=>r.json()).then(j=>{ avs=j.photos||[]; avsBusy=false; draw(); }).catch(()=>{ avs=avs||[]; avsBusy=false; });
+}
+function avAct(email, body, done){
+  fetch(API+'/avatar',{method:'POST',headers:hdr(),body:JSON.stringify(Object.assign({email},body))})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(done); loadAvs(true); })).catch(e=>flash(String(e.message||e)));
+}
+/* photos and films on the board (27 Nov 2026): off, the website only (never
+   inside the iPhone app, so safe while Apple has not approved 1.0.1), or everywhere */
+const CH_MODES=[['off','Off'],['web','Website only'],['all','Everywhere']];
+function chalModeHTML(kind, mode){
+  return `<div role="radiogroup" aria-label="${kind==='photos'?'Photos':'Films'} on the leaderboard" style="display:inline-flex;flex-wrap:wrap;gap:2px;padding:4px;border-radius:14px;background:rgba(0,64,61,.08)">${CH_MODES.map(([k,l])=>
+    `<button role="radio" aria-checked="${mode===k}" onclick="chalMode('${kind}','${k}')" style="border:0;border-radius:10px;padding:8px 12px;min-height:36px;cursor:pointer;font:600 13px/1 var(--sans);${mode===k?'background:#fff;color:var(--deep,#00403d);box-shadow:0 1px 2px rgba(17,17,17,.08)':'background:transparent;color:var(--grey)'}">${l}</button>`).join('')}</div>`;
+}
+function chalMode(kind, mode){
+  const what=kind==='photos'?'Photos':'Films';
+  if(mode==='all' && !confirm(what+' on the leaderboard inside the iPhone app too? Only once Apple has approved 1.0.1. Only the ones you approve appear.')) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({cfg:{[kind]:mode}})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(what+': '+CH_MODES.find(m=>m[0]===mode)[1].toLowerCase()); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+const chalModeNote = m => m==='web' ? 'On the website. Not inside the iPhone app until you choose Everywhere, once Apple has approved 1.0.1.'
+  : m==='all' ? 'On the website and in the iPhone app.' : 'Nobody sees anyone else\'s.';
+function chalPhotosHTML(c){
+  loadAvs();
+  const list=avs||[], dt=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  const status=p=>p.reported?'<b style="color:var(--red,#a4503c)">Reported '+dt(p.reported.at)+', off the board</b>'
+    : p.board ? (p.ok&&!p.hidden?'<span style="color:var(--forest)">On the board</span>':p.hidden?'Taken off the board':'<b style="color:#8a5a00">Waiting for you</b>')
+    : 'Their account only';
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">PHOTOS</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
+      <div style="min-width:0;flex:1"><b style="font:600 14px/1.3 var(--sans)">Photos on the leaderboard</b>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${chalModeNote(c.photos)} Only photos you approve show, and a report takes one off until you look.</div></div>
+      ${chalModeHTML('photos', c.photos||'off')}
+    </div>
+    ${list.length?`<div style="margin-top:12px">${list.map(p=>`<div data-k="av-${esc(p.email)}" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)">
+      <img src="/api/app/image/${esc(p.id)}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;flex:none;background:#eef2f3">
+      <div style="flex:1;min-width:0"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b> <span style="font:400 12px var(--sans);color:var(--grey2)">${esc(p.email)}</span>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${status(p)} · added ${dt(p.at)}</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        ${p.board && (!p.ok || p.hidden) ? `<button class="btn btn-primary btn-sm" onclick="avAct('${esc(p.email)}',{ok:true},'Approved')">Approve</button>` : ''}
+        ${p.board && p.ok && !p.hidden ? `<button class="btn btn-secondary btn-sm" onclick="avAct('${esc(p.email)}',{ok:false},'Taken off the board')">Take off the board</button>` : ''}
+        <button class="btn btn-secondary btn-sm" onclick="if(confirm('Delete ${esc(p.name||p.email)}\\'s photo for good?'))avAct('${esc(p.email)}',{remove:true},'Photo deleted')">Delete</button>
+      </div></div>`).join('')}</div>`
+      :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">No photos yet.</div>`}
+  </div>`;
+}
+/* start and end films people asked to show on the board (27 Nov 2026):
+   you see every film anyway; these wait for you before anybody else does */
+function chalFilmsHTML(c, ppl){
+  const asked=[];
+  ppl.forEach(p=>{ if(p.sh1 && p.film1) asked.push({p, which:1, uid:p.film1, s:p.sh1});
+    if(p.shE && p.filmEnd) asked.push({p, which:c.days, uid:p.filmEnd, s:p.shE}); });
+  const rank={wait:0, off:1, on:2};
+  asked.sort((a,b)=>(rank[a.s]-rank[b.s]) || String(a.p.name).localeCompare(String(b.p.name)));
+  const status=s=>s==='on'?'<span style="color:var(--forest)">On the board</span>':s==='off'?'Taken off the board':'<b style="color:#8a5a00">Waiting for you</b>';
+  const waiting=asked.filter(x=>x.s==='wait').length;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">FILMS ON THE BOARD</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px">
+      <div style="min-width:0;flex:1"><b style="font:600 14px/1.3 var(--sans)">Start and end films on the leaderboard${waiting?': '+waiting+' waiting for you':''}</b>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:4px">${chalModeNote(c.films)} You see every film. Only the ones people ask to share and you approve show, to others on the challenge.</div></div>
+      ${chalModeHTML('films', c.films||'off')}
+    </div>
+    ${asked.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px;margin-top:14px">${asked.map(x=>`<div data-k="chs-${esc(x.p.email)}-${x.which}" style="min-width:0">
+      ${clipPoster(x.uid,'4/5','260px')}
+      <b style="display:block;font:600 13.5px/1.3 var(--sans);margin-top:8px">${esc(x.p.name||x.p.email)}, ${x.which===1?'start':'end'}</b>
+      <div style="font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:2px">${status(x.s)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${x.s==='on'
+        ? `<button class="btn btn-secondary btn-sm" onclick="chalAct({film:{email:${esc(JSON.stringify(x.p.email))},which:${x.which},ok:false}},'Taken off the board')">Take off the board</button>`
+        : `<button class="btn btn-primary btn-sm" onclick="chalAct({film:{email:${esc(JSON.stringify(x.p.email))},which:${x.which},ok:true}},'On the board')">Approve</button>`}</div></div>`).join('')}</div>`
+      :`<div style="font:400 13px/1.5 var(--sans);color:var(--grey);margin-top:10px">Nobody has asked yet.${(c.films||'off')==='off'?' They can once this is on.':''}</div>`}
+  </div>`;
+}
+function chalAct(body, done, ask){
+  if(ask && !confirm(ask)) return;
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify(body)})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(typeof done==='function'?done(j):done); loadChal(true); })).catch(e=>flash(String(e.message||e)));
+}
+/* the prizes (25 Nov 2026): films side by side for the most improved, the
+   draw for three months of the Ladder, and when to show the winners */
+/* the level answers in words: what they said they could do before day 1 */
+function chalSaid(k){
+  if(!k) return '';
+  const T={l:['no L-shape yet','L-shape, not stacked','L-shape, stacked'], kick:['cannot kick up yet','kicks up to the wall'],
+    ctw:['no chest-to-wall yet','cannot reach the wall','chest-to-wall 5 to 20s','chest-to-wall 20s+'], tuck:['no tuck slides yet','tuck slides, not stacked','tuck slides, stacked'],
+    free:['no freestanding yet','freestanding up to 10s','freestanding 10s+']};
+  return ['l','kick','ctw','tuck','free'].filter(x=>k[x]!=null && T[x][k[x]]).map(x=>T[x][k[x]]).join(', ');
+}
+function chalPrizeHTML(ppl){
+  const pz=chal.prize||{}, R=Object.assign({need:20,floor:12,drawN:4,appN:1,months:3},chal.rules||{});
+  const films=ppl.filter(p=>p.film1||p.filmEnd).sort((a,b)=>(!!(b.film1&&b.filmEnd))-(!!(a.film1&&a.filmEnd)));
+  const elig=ppl.filter(p=>p.eligible), winners=(pz.draw&&pz.draw.winners)||[];
+  const byE=Object.fromEntries(ppl.map(p=>[p.email,p]));
+  const nm=e=>{ const p=byE[e]; return p?(p.name||e):e; };
+  const monthLeft=elig.filter(p=>!p.month).length;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">PRIZES</div>
+    <div style="font:400 26px/1.1 var(--serif);margin-top:8px">Most improved: <em style="color:var(--forest);font-style:normal">${pz.most?esc(nm(pz.most)):'not picked yet'}.</em></div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">They win the parallettes and a 1-2-1 with you. Only people who opened enough doors can be picked; their level answers are beside their films, so a start film well below what they said stands out. ${films.length} sent a film, ${films.filter(p=>p.film1&&p.filmEnd).length} sent both. Start film on the left, end film on the right.</div>
+    ${films.length?`<div style="display:flex;flex-direction:column;gap:16px;margin-top:14px">${films.map(p=>`<div data-k="chf-${esc(p.email)}" style="border-top:1px solid var(--line);padding-top:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b>
+        <span style="font:400 12.5px var(--sans);color:var(--grey2)">${p.st!=null?esc(['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press'][p.st]||''):''}</span>
+        ${pz.most===p.email?`<span style="margin-left:auto;font:700 12px/1 var(--sans);color:var(--forest)">PARALLETTES</span>`
+          :`<button class="btn btn-secondary btn-sm" style="margin-left:auto" ${p.eligible?'':'disabled title="Not enough doors opened to be in the running"'} onclick="chalAct({most:${esc(JSON.stringify(p.email))}},'Picked for the parallettes')">Pick for the parallettes</button>`}</div>
+      <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${p.logged}/${p.need} doors · ${p.eligible?'<b style="color:var(--forest)">in the running</b>':'not enough doors yet'}${chalSaid(p.said)?' · said before day 1: '+esc(chalSaid(p.said)):''}</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px">
+        <div>${p.film1?clipPoster(p.film1,'4/5','320px'):'<div style="aspect-ratio:4/5;max-height:320px;border-radius:12px;background:rgba(29,85,102,.06);display:grid;place-items:center;font:400 13px var(--sans);color:var(--grey2)">No start film</div>'}</div>
+        <div>${p.filmEnd?clipPoster(p.filmEnd,'4/5','320px'):'<div style="aspect-ratio:4/5;max-height:320px;border-radius:12px;background:rgba(29,85,102,.06);display:grid;place-items:center;font:400 13px var(--sans);color:var(--grey2)">No end film yet</div>'}</div>
+      </div></div>`).join('')}</div>`:''}
+    <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:16px">
+      <div style="font:400 22px/1.2 var(--serif)">The draw: <em style="color:var(--forest);font-style:normal">${elig.length} reached it.</em></div>
+      <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${R.need} logged days, one fewer for each flagged day, down to ${R.floor}. ${R.drawN} drawn: the first ${R.appN===1?'gets':R.appN+' get'} ${R.months} months of the app, the other ${R.drawN-R.appN} a free class in January (a form check if they cannot get to London). Pick the most improved first: they are left out of the draw, one prize each.</div>
+      ${winners.length?`<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">${winners.map((e,i)=>{ const p=byE[e]||{}, cd=(pz.classDone||{})[e];
+        return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font:600 14px var(--sans)">${esc(nm(e))}</b><span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(e)} · ${i<R.appN?R.months+' months of the app':'a class in January'}</span>
+          ${i<R.appN ? (p.given?`<span style="margin-left:auto;font:600 12.5px var(--sans);color:var(--forest)">${R.months} months given</span>`
+            :`<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="chalAct({give:${esc(JSON.stringify(e))}},'${R.months} months given')">Give ${R.months} months</button>`)
+            : `<button class="btn ${cd?'btn-ghost':'btn-secondary'} btn-sm" style="margin-left:auto" onclick="chalAct({classDone:${esc(JSON.stringify(e))}},'${cd?'Not booked':'Booked in'}')">${cd?'Booked in ✓':'Mark as booked in'}</button>`}</div>`; }).join('')}
+        <div style="font:400 12px var(--sans);color:var(--grey2)">Drawn ${new Date(pz.draw.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} from ${pz.draw.from}.</div></div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn btn-primary btn-sm" ${elig.length?'':'disabled'} onclick="chalAct({draw:true},'Drawn',${winners.length?"'Draw again? The winners above are replaced.'":"'Draw "+R.drawN+" winners now, at random, from the "+elig.length+" who reached it?'"})">${winners.length?'Draw again':'Draw '+R.drawN+' winners'}</button>
+        <button class="btn btn-secondary btn-sm" ${monthLeft?'':'disabled'} onclick="chalAct({monthAll:true},j=>'A free month for '+j.monthN,'Give a free month of the Ladder to the ${monthLeft} who reached it and have not had one?')">Free month for everyone who reached it (${monthLeft})</button>
+        <button class="btn btn-secondary btn-sm" onclick="chalAct({announced:${pz.announced?'false':'true'}},'${pz.announced?'Winners hidden':'Winners showing in the app'}')">${pz.announced?'Hide the winners in the app':'Show the winners in the app'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+const chalHM = m => m>=60 ? Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':'') : m+' min';
+/* the week's news for the group chat (25 Nov 2026): who opened every door,
+   the hours together against the target, and who trained the longest.
+   First names only, as on the board. Elliott pastes it himself. */
+function chalWeekText(){
+  const c=chal.cfg, day=chal.day, to=Math.min(c.days, day>c.days?c.days:day-1), from=Math.max(1,to-6);
+  if(to<1) return '';
+  const ppl=chal.people||[], got=ch=>/[smfco]/.test(ch||'');
+  const active=ppl.filter(p=>{ for(let i=from;i<=to;i++) if(got(p.d[i-1])) return true; return false; });
+  const doors=ppl.reduce((t,p)=>{ let n=0; for(let i=from;i<=to;i++) if(got(p.d[i-1])) n++; return t+n; },0);
+  const every=ppl.filter(p=>{ for(let i=from;i<=to;i++) if(!got(p.d[i-1]) && p.d[i-1]!=='x') return false; return true; }).filter(p=>{ for(let i=from;i<=to;i++) if(got(p.d[i-1])) return true; return false; });
+  const wkMins=p=>{ let m=0; for(let i=from;i<=to;i++) m+=Number((p.dm||[])[i-1])||0; return m; };
+  const ranked=ppl.map(p=>({p,m:wkMins(p)})).filter(x=>x.m>0).sort((a,b)=>b.m-a.m), best=ranked.length?ranked[0].m:0, top=ranked.filter(x=>x.m===best);
+  const allMins=ppl.reduce((t,p)=>t+(p.mins||0),0), goal=c.goalH||100, hrs=Math.floor(allMins/60);
+  const names=a=>a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1];
+  const L=[];
+  L.push(`Handstand Advent Challenge, days ${from} to ${to}`);
+  L.push('');
+  L.push(`${active.length} of us opened a door this week, ${doors} doors in all.`);
+  L.push(`Together we have trained ${hrs} hour${hrs===1?'':'s'} so far, ${Math.min(100,Math.round(allMins/60/goal*100))}% of our ${goal} hour target.`);
+  if(every.length) L.push(`Every door this week: ${names(every.map(p=>p.n))}.`);
+  if(top.length && top.length<=4) L.push(`Most time on your hands: ${names(top.map(x=>x.p.n))}, ${chalHM(best)}${top.length>1?' each':''}.`);
+  L.push('');
+  L.push(day<=c.days ? `Door ${day} is open today. Missed one? Tap it in the app and log it.` : 'That is the last door. Your end film goes in by Sunday 27 December.');
+  return L.join('\n');
+}
+function chalWeekCopy(){
+  const t=chalWeekText(); if(!t){ flash('Nothing to say yet'); return; }
+  const done=()=>flash('Copied. Paste it in the group chat.');
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(()=>prompt('Copy this',t));
+  else prompt('Copy this', t);
+}
+function challengeHTML(){
+  loadChal();
+  if(chalErr) return `<div class="card"><div class="kick">CHALLENGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load it. ${esc(chalErr)}.</div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="chalErr='';loadChal(true)">Try again</button></div>`;
+  if(!chal) return `<div class="card"><div class="kick">CHALLENGE</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Loading…</div></div>`;
+  const c=chal.cfg, ppl=(chal.people||[]).slice().sort((a,b)=>(b.paid-a.paid)||((b.d.match(/[smfco]/g)||[]).length-(a.d.match(/[smfco]/g)||[]).length));
+  const paidN=ppl.filter(p=>p.paid).length, money=ppl.reduce((t,p)=>t+(p.amount||0),0);
+  const day=chal.day, today=Math.max(1,Math.min(c.days,day));
+  const loggedToday=ppl.filter(p=>/[smfco]/.test(p.d[today-1]||'')).length;
+  const col={s:'var(--forest)',m:'#8fbeca',f:'#cfe6ec',c:'#1d5566',o:'#5fa8b9'};
+  const stg=['Foundations','Wall Work','Pushing More','Take-Off','Freestanding','Press'];
+  const dt=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'';
+  const site=location.origin;
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="kick">HANDSTAND ADVENT CHALLENGE · ${day<1?'STARTS IN '+(1-day)+' DAY'+(1-day===1?'':'S'):day>c.days?'FINISHED':'DAY '+day+' OF '+c.days}</div>
+    <div style="font:400 30px/1.1 var(--serif);margin-top:8px">${ppl.length} joined, <em style="color:var(--forest);font-style:normal">${paidN} with the extras.</em></div>
+    <div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:8px">${money?'£'+(money/100).toFixed(2)+' taken by card. ':''}${day>=1&&day<=c.days?loggedToday+' logged today.':'Everyone who joins is on the board in the app.'}</div>
+    <div style="font:400 13px/1.6 var(--sans);color:var(--grey);margin-top:10px">The link for the group: <b style="user-select:all">${esc(site)}/advent?src=whatsapp</b>, for everybody else <b style="user-select:all">${esc(site)}/advent</b></div>
+    ${day>=2?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="btn btn-primary btn-sm" onclick="chalWeekCopy()">Copy this week's update</button>
+      ${day>c.days?`<button class="btn btn-secondary btn-sm" ${ppl.some(p=>p.film1||p.filmEnd)?'':'disabled'} onclick="chalAct({deleteFilms:true},j=>j.filmsGone+' films deleted','Delete every start and end film from Stream? Do this after the winners are picked. It cannot be undone.')">Delete the challenge films</button>`:''}</div>`:''}
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="kick">SETTINGS</div>
+    ${c.group?'':`<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(243,169,73,.16);font:600 13px/1.4 var(--sans);color:#5e3708">No group chat link yet. People who joined from the WhatsApp link get a button to the chat once it is pasted below.</div>`}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:12px">
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Live call link (Zoom or Meet), shown to people with the extras
+        <input id="chCall" value="${esc(c.call||'')}" placeholder="https://" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Group chat link (the WhatsApp invite), shown only to people who joined from the WhatsApp link
+        <input id="chGroup" value="${esc(c.group||'')}" placeholder="https://chat.whatsapp.com/..." style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">When the call is
+        <input id="chNote" value="${esc(c.callNote||'')}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Hours to reach together, shown on the app's Everyone card
+        <input id="chGoal" type="number" min="1" step="1" value="${esc(String(c.goalH||100))}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Day 1
+        <input id="chStart" type="date" value="${esc(c.start)}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+      <label style="font:600 12px/1.4 var(--sans);color:var(--grey)">Early price (£${c.early/100}) until the end of
+        <input id="chEarly" type="date" value="${esc(new Date(Date.parse(c.earlyUntil)-1).toISOString().slice(0,10))}" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);font:400 14px var(--sans)"></label>
+    </div>
+    <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="chalSave()">Save</button>
+  </div>
+  ${chalPhotosHTML(c)}
+  ${chalFilmsHTML(c, ppl)}
+  ${chalPrizeHTML(ppl)}
+  <div class="card">
+    <div class="kick">PEOPLE</div>
+    ${ppl.length?`<div style="margin-top:8px">${ppl.map(p=>{ const got=(p.d.match(/[smfco]/g)||[]).length, wk=Object.keys(p.wk||{}).sort().map(w=>'W'+w+' '+p.wk[w]).join(', ');
+      return `<div data-k="ch-${esc(p.email)}" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px 0;border-top:1px solid var(--line)">
+        <div style="min-width:0"><b style="font:600 14px/1.3 var(--sans)">${esc(p.name||p.email)}</b> <span style="font:400 12.5px var(--sans);color:var(--grey2)">${esc(p.email)}</span>
+          <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey)">${p.st!=null?esc(stg[p.st]||'')+' · ':''}joined ${dt(p.at)}${p.src?' · from '+esc(p.src):''}${p.eligible?' · in the draw':''}${p.film1?' · start film':''}${p.filmEnd?' · end film':''}${p.mins?' · '+chalHM(p.mins):''}${p.remind===false?' · reminder off':''}${p.paid?(p.comp?' · extras given':' · paid '+dt(p.paidAt)+(p.amount?' £'+(p.amount/100).toFixed(2):'')):''}${wk?' · '+esc(wk):''}</div>
+          ${p.reported||p.offBoard?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">${p.reported?`<b style="font:600 12.5px var(--sans);color:var(--red,#a4503c)">Reported${p.reported.n>1?' '+p.reported.n+' times':''}, ${dt(p.reported.at)}</b>`:''}${p.offBoard?`<span style="font:600 12.5px var(--sans);color:var(--grey)">Off the board</span>`:''}
+            <button class="btn btn-secondary btn-sm" onclick="chalAct({offBoard:'${esc(p.email)}',on:${!p.offBoard}},'${p.offBoard?'Back on the board':'Hidden from the board'}')">${p.offBoard?'Put back on the board':'Hide from the board'}</button>
+            ${p.reported&&!p.offBoard?`<button class="btn btn-secondary btn-sm" onclick="chalAct({offBoard:'${esc(p.email)}',on:false},'Report cleared')">Clear the report</button>`:''}</div>`:''}
+          <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:7px">${p.d.split('').map(ch=>`<i style="width:8px;height:8px;border-radius:50%;display:block;box-sizing:border-box;background:${col[ch]||'rgba(29,85,102,.08)'};${ch==='x'?'background:transparent;border:1.5px dashed var(--grey2)':''}"></i>`).join('')}</div></div>
+        <div style="text-align:right"><div style="font:600 18px/1 var(--sans);font-variant-numeric:tabular-nums">${got}/${c.days}</div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="chalPaid(${esc(JSON.stringify(p.email))},${p.paid?'false':'true'})">${p.paid?'Take extras off':'Give extras'}</button></div></div>`; }).join('')}</div>`
+    :`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody yet. Share the link above with the group.</div>`}
+  </div>`;
+}
+function membersHTML(embed){
   loadMembers(); loadPaying();
   const err=memErr||payingErr;
   if(err) return `<div class="card"><div class="kick">MEMBERS</div><div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:12px">Could not load them. ${esc(err)}.</div>
@@ -1650,11 +1903,17 @@ function membersHTML(){
   /* paid and free week are who they are today, so they list everyone, with
      an account or not (a Stripe customer may never have opened the app) */
   const byMail=Object.fromEntries(ppl.map(p=>[p.email,p]));
-  const fromPay=pred=>payRows.filter(pred).map(r=>byMail[r.email]||{email:r.email, name:r.name||'', seen:0, n:{}, stage:null});
+  const fromPay=pred=>payRows.filter(pred).map(r=>byMail[r.email]||{email:r.email, name:r.name||'', seen:0, n:{}, stage:null, coached:!!r.coaching});
   const paid=fromPay(r=>r.status!=='trialing' && r.how!=='comp' && r.status!=='past_due' && r.status!=='unpaid');
   const trial=fromPay(r=>r.status==='trialing');
   const sets={active, trained, new:fresh, paid, trial, all:ppl};
-  const list=(sets[memShow]||active).slice().sort((a,b)=>(b.seen||0)-(a.seen||0));
+  /* paying people first, then the free week, then everybody else, newest in first */
+  const rank=p=>({late:0,paid:1,trial:2,code:3,free:4})[statusOf(p).k];
+  const base=sets[memShow]||active, phaseKey=memPhaseKey;
+  const list=base.filter(p=>!memPhase||phaseKey(p)===memPhase).slice().sort((a,b)=>rank(a)-rank(b)||(b.seen||0)-(a.seen||0));
+  const phases=[...(typeof STAGES!=='undefined'?STAGES:[]).map((x,i)=>[String(i),x.n]),['prog','Coaching programme'],['none','Not placed']]
+    .map(([k,n])=>[k,n,base.filter(p=>phaseKey(p)===k).length]).filter(x=>x[2]||memPhase===x[0]);
+  const shown=embed&&!memFull?list.slice(0,25):list;
   const seg=(k,v,label,on)=>`<button onclick="memSet('${k}',${typeof v==='number'?v:`'${v}'`})" style="flex:1;min-width:0;border:0;border-radius:10px;padding:9px 10px;cursor:pointer;
     font:600 13px/1 var(--sans);background:${on?'#fff':'transparent'};color:${on?'var(--deep)':'var(--grey)'};${on?'box-shadow:0 1px 2px rgba(17,17,17,.08)':''}">${label}</button>`;
   const stat=(k,n,label,note)=>`<button onclick="memSet('s','${k}')" style="flex:1;min-width:112px;text-align:left;cursor:pointer;padding:12px 14px;border-radius:14px;
@@ -1664,11 +1923,10 @@ function membersHTML(){
     ${note?`<div style="font:400 11px/1.35 var(--sans);color:var(--grey2);margin-top:5px">${note}</div>`:''}</button>`;
   const pill=x=>{ const c={paid:['#e3eff3','var(--deep)'],trial:['rgba(243,169,73,.18)','#8a5a12'],code:['#eef2f2','var(--grey)'],late:['rgba(164,80,60,.12)','#a4503c'],free:['#f3f3f4','var(--grey2)']}[x.k];
     return `<span style="display:inline-block;padding:4px 9px;border-radius:999px;background:${c[0]};color:${c[1]};font:600 11.5px/1 var(--sans);white-space:nowrap">${esc(x.t)}</span>`; };
-  const stg=k=>k==null?'':((typeof STAGES!=='undefined'&&STAGES[k])?STAGES[k].n:'Stage '+(k+1));
   const showName={active:'Opened the app', trained:'Trained', new:'Joined', paid:'Paying now', trial:'On a free week now', all:'Everyone'}[memShow];
-  return `${memFcHTML(D)}<div class="card">
-    <div class="kick">MEMBERS</div>
-    <div style="font:400 34px/1.05 var(--serif);margin-top:8px">Who is using <em style="color:var(--forest);font-style:normal">the app.</em></div>
+  return `${embed?'':memFcHTML(D)}<div class="card">
+    <div class="kick">${embed?'ACCOUNTS':'MEMBERS'}</div>
+    ${embed?'':`<div style="font:400 34px/1.05 var(--serif);margin-top:8px">Who is using <em style="color:var(--forest);font-style:normal">the app.</em></div>`}
     <div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(29,85,102,.08);margin-top:16px;max-width:460px">
       ${seg('d',7,'7 days',D===7)}${seg('d',14,'2 weeks',D===14)}${seg('d',30,'Month',D===30)}${seg('d',90,'3 months',D===90)}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
@@ -1682,18 +1940,21 @@ function membersHTML(){
     <label style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;font:400 13px/1.3 var(--sans);color:var(--grey)">
       <input type="checkbox" ${memMine?'checked':''} onchange="memSet('m',this.checked)" style="width:16px;height:16px;accent-color:var(--forest)">
       Include my own and test accounts${mineN?' ('+mineN+')':''}</label>
-    <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:18px">${esc(showName.toUpperCase())}${['active','trained','new'].includes(memShow)?' &middot; LAST '+(D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'):''} &middot; ${list.length}</div>
+    <div style="font:600 9.5px/1 var(--sans);letter-spacing:.12em;color:var(--grey2);margin-top:16px">BY PHASE</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${phases.map(([k,n,c])=>`<button onclick="memSet('p','${k}')" style="cursor:pointer;border-radius:999px;padding:7px 12px;font:600 12px/1 var(--sans);
+      border:1.5px solid ${memPhase===k?'var(--forest)':'var(--line)'};background:${memPhase===k?'var(--forest)':'#fff'};color:${memPhase===k?'#fff':'var(--ink)'}">${esc(n)} <span style="opacity:.65;font-variant-numeric:tabular-nums">${c}</span></button>`).join('')||'<span class="muted" style="font-size:12.5px">Nobody in this list.</span>'}</div>
+    <div style="font:600 11px/1 var(--sans);letter-spacing:.12em;color:var(--forest);margin-top:18px">${esc(showName.toUpperCase())}${memPhase?' &middot; '+esc(memPhaseName(memPhase).toUpperCase()):''}${['active','trained','new'].includes(memShow)?' &middot; LAST '+(D===7?'7 DAYS':D===14?'2 WEEKS':D===30?'MONTH':'3 MONTHS'):''} &middot; ${list.length}</div>
     ${list.length?`<div style="margin-top:8px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font:400 13px/1.4 var(--sans)">
       <tr style="text-align:left;color:var(--grey2);font:600 9.5px/1 var(--sans);letter-spacing:.1em">
-        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">STAGE</th><th style="padding:6px 8px 8px">LAST IN</th>
+        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">PHASE</th><th style="padding:6px 8px 8px">LAST IN</th>
         <th style="padding:6px 8px 8px;text-align:right">SESSIONS</th><th style="padding:6px 0 8px 8px">STATUS</th></tr>
-      ${list.map(p=>`<tr style="border-top:1px solid var(--line);cursor:pointer" onclick="openAcct(${jsq(p.email)})">
+      ${shown.map(p=>`<tr style="border-top:1px solid var(--line);cursor:pointer" onclick="openAcct(${jsq(p.email)})">
         <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(p.name||p.email.split('@')[0])}${p.mine||(pay[p.email]||{}).mine?' <span style="font:600 10px/1 var(--sans);letter-spacing:.08em;color:var(--grey2)">YOURS</span>':''}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(p.email)}</div></td>
-        <td style="padding:9px 8px;white-space:nowrap">${esc(stg(p.stage))}</td>
+        <td style="padding:9px 8px;white-space:nowrap${memPhaseKey(p)==='none'?';color:var(--grey2)':''}">${esc(memPhaseName(memPhaseKey(p)))}</td>
         <td style="padding:9px 8px;white-space:nowrap">${esc(memWhen(p.seen))}</td>
         <td style="padding:9px 8px;text-align:right;font-variant-numeric:tabular-nums" title="in the last ${D} days, of ${p.sessions||0} in all">${(p.n||{})[D]||0}</td>
         <td style="padding:9px 0 9px 8px">${pill(statusOf(p))}</td></tr>`).join('')}
-    </table></div>`:`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody here.</div>`}
+    </table></div>${embed&&list.length>25?`<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="memSet('f')">${memFull?'Show fewer':'Show all '+list.length}</button>`:''}`:`<div style="font:400 14px/1.6 var(--sans);color:var(--grey);margin-top:10px">Nobody here.</div>`}
     <div style="font:400 11.5px/1.5 var(--sans);color:var(--grey2);margin-top:12px">${memMine?'Your own and test accounts are included.':'Your own and test accounts are left out.'} Sessions counts the window chosen above. Press a row for the account.</div>
   </div>`;
 }
@@ -1731,11 +1992,12 @@ function payingHTML(){
     ${(paying.problems||[]).length?`<div style="margin-top:10px;font:400 12.5px/1.5 var(--sans);color:#a4503c">${paying.problems.map(esc).join('<br>')}</div>`:''}
     ${rows.length?`<div style="margin-top:14px;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font:400 13px/1.4 var(--sans)">
       <tr style="text-align:left;color:var(--grey2);font:600 9.5px/1 var(--sans);letter-spacing:.1em">
-        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">WHAT</th><th style="padding:6px 8px 8px">HOW</th>
+        <th style="padding:6px 8px 8px 0">WHO</th><th style="padding:6px 8px 8px">WHAT</th><th style="padding:6px 8px 8px">PHASE</th><th style="padding:6px 8px 8px">HOW</th>
         <th style="padding:6px 8px 8px;text-align:right">A MONTH</th><th style="padding:6px 8px 8px">SINCE</th><th style="padding:6px 0 8px 8px"></th></tr>
-      ${list.map(r=>`<tr style="border-top:1px solid var(--line)">
+      ${list.map(r=>`<tr style="border-top:1px solid var(--line)${r.email?';cursor:pointer':''}" ${r.email?`onclick="openAcct(${jsq(r.email)})"`:''}>
         <td style="padding:9px 8px 9px 0"><div style="font-weight:600">${esc(r.name||(r.email||'').split('@')[0]||'?')}</div><div style="font-size:11.5px;color:var(--grey2)">${esc(r.email||'no email in Stripe')}</div></td>
         <td style="padding:9px 8px">${esc(r.what)}${r.price&&r.every?`<div style="font-size:11.5px;color:var(--grey2)">${money(r.price)} a ${esc(r.every)}</div>`:''}</td>
+        <td style="padding:9px 8px;white-space:nowrap">${esc((r.email&&phaseOf(r.email))||'·')}</td>
         <td style="padding:9px 8px">${how[r.how]||r.how}</td>
         <td style="padding:9px 8px;text-align:right;font-variant-numeric:tabular-nums">${r.pm?money(r.pm):'·'}</td>
         <td style="padding:9px 8px;white-space:nowrap">${day(r.since)}</td>
@@ -2602,7 +2864,12 @@ function acctDetails(email){
             <input id="adPauseNote" placeholder="What their app says (optional)" style="${inp}">
             <button onclick="adPause(true)" style="${bGhost};margin-top:9px;width:100%;border-color:rgba(164,80,60,.5);color:var(--terra)">Pause coaching</button>`}`; })()}
 
-      <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
+      ${(()=>{ /* one place to book a 1-2-1 (25 Nov 2026): their 1-2-1s tab,
+           with the price from Money. Somebody with no client page keeps the form. */
+        if(clients.some(x=>x.email===email)) return `<div class="kick" style="margin-top:18px">1-2-1S</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">Booked, offered and paid for in their 1-2-1s tab, paid another way included.</div>
+        <button onclick="acct=null;openClient(${jsq(email)},'121')" style="${bGhost};margin-top:9px;width:100%">Open their 1-2-1s</button>`;
+        return `      <div class="kick" style="margin-top:18px">ADD A 1-2-1</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
         For a session paid another way: a payment link, cash, a bank transfer. They get the confirmation
         by email and in the chat, with a link to add it to their calendar, and it shows on their app.</div>
@@ -2611,11 +2878,21 @@ function acctDetails(email){
           <option value="60">60 min</option><option value="90">90 min</option></select>
         <input id="abDate" type="date" style="flex:1;min-width:130px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
         <input id="abTime" type="time" value="10:00" style="flex:none;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
-        <input id="abPaid" type="number" min="0" placeholder="Paid £" style="flex:none;width:90px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
+        <input id="abPaid" type="number" min="0" placeholder="Paid £" value="${sessPrice('60')}" style="flex:none;width:90px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font:400 14px/1 var(--sans);background:#fff">
       </div>
       <input id="abPlace" value="OverGravity, Shadwell" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
       <input id="abNote" placeholder="A note for them (optional)" style="width:100%;margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:400 14px/1 var(--sans);background:#fff">
       <button onclick="adBook()" style="${bGhost};margin-top:9px;width:100%">Book it and tell them</button>
+`; })()}
+      ${(()=>{ /* the Ladder for nothing, here rather than in a second accounts list */
+        if(!owner) return '';
+        loadMembers(); loadLeads();
+        const mp=((members&&members.people)||[]).find(p=>p.email===email)||(leads||[]).find(a=>a.email===email);
+        if(!mp) return '';
+        const busy=grantBusy===email;
+        return `<div class="kick" style="margin-top:18px">THE LADDER</div>
+        <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">${mp.plus?'They have every stage.':'Free stages only.'}</div>
+        <button onclick="grant(${jsq(email)},${mp.plus?'false':'true'})" ${busy?'disabled':''} style="${bGhost};margin-top:9px;width:100%">${busy?'…':mp.plus?'Take it back':'Give them the whole Ladder free'}</button>`; })()}
 
       <div class="kick" style="margin-top:22px;color:var(--terra)">DELETE</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:6px">
@@ -4958,6 +5235,29 @@ function reviewDrop(uid){
    Anything the page logs to the console comes back out to the panel, so a
    script error on their data is visible rather than silent. */
 let prevOn=false, prevEmail='', prevErrs=[];
+/* ── recommend a stage (28 Nov 2026) ──────────────────────────────
+   Elliott's own call from their clip: their app says "Elliott recommends
+   Pushing More" where it said what their answers put them on, and offers
+   that stage. Blank takes it off. */
+const recMap={};
+function recSelectHTML(email){
+  if(!email) return '';
+  if(!(email in recMap)){ recMap[email]=undefined;
+    fetch(API+'/recommend?email='+encodeURIComponent(email),{headers:hdr()}).then(r=>r.ok?r.json():null)
+      .then(d=>{ recMap[email]=d&&Number.isInteger(d.stage)?d.stage:null; drawSoon(); }).catch(()=>{ recMap[email]=null; }); }
+  const v=recMap[email], names=(typeof STAGES!=='undefined'?STAGES:[]).map(S=>S.n);
+  return `<label title="The stage you recommend. Their app says so and offers it."
+    style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 13px;font:600 13px/1 var(--sans);color:var(--deep)">Recommend
+    <select onchange="recSet(${jsq(email)},this.value)" style="border:0;background:transparent;font:600 13px/1 var(--sans);color:var(--forest);padding:5px 4px;cursor:pointer">
+      <option value="" ${v==null?'selected':''}>${v===undefined?'…':'From their answers'}</option>
+      ${names.map((n,i)=>`<option value="${i}" ${v===i?'selected':''}>${esc(n)}</option>`).join('')}
+    </select></label>`;
+}
+function recSet(email, val){
+  fetch(API+'/recommend',{method:'POST',headers:hdr(),body:JSON.stringify({email, stage: val===''?null:Number(val)})})
+    .then(r=>r.json()).then(d=>{ if(d.error){ alert(d.error); return; } recMap[email]=d.stage; drawSoon(); })
+    .catch(()=>alert('Could not save that. Check your signal.'));
+}
 function openPreview(email){
   prevEmail=email; prevErrs=[];
   const wrap=previewHost();
@@ -8360,7 +8660,7 @@ function trackHTML(email, only){
   }).join('');
 
   const CPN={
-    'ch-assist':'Chair-assisted handstand','fall-comfort':'Falling off the wall','wall-45':'45° wall hold',
+    'ch-assist':'Chair-assisted handstand','fall-comfort':'Fear of falling','wall-45':'45° wall hold',
     plank:'Plank pose',crow:'Crow pose',chaturanga:'Chaturanga push-ups','kickup-rate':'Kick up to wall',
     'ctw-hold':'Chest-to-wall','scap-shrugs':'Wall scapula shrugs','sl-tuck':'Single-leg tuck slides',
     'pike-neg':'Pike negatives','pike-full':'Pike push-ups','nose-toes':'Nose to toes',
@@ -9156,9 +9456,9 @@ function headerHTML(){
      with a gear, so it is always at the end of the bar and easy to find
      (Elliott, 22 Oct 2026: "I can't find settings sometimes") */
   const items=[['today','Today',n],['chats','Chats',unreadAll],['clients','Clients',0],
-               ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Bookings',0],
-               ['|'],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0]]
-    .filter(([id])=>owner || !['bookings','site','news','members'].includes(id));
+               ['review','Review',reviewQueue.length],['mu','Muscle Up',mfNeedN()],['bookings','Classes',0],
+               ['|'],['problems','Problems',probCount()],['library','Library',0],['site','Website',0],['news','Newsletter',0],['members','Members',0],['challenge','Challenge',0]]
+    .filter(([id])=>owner || !['bookings','problems','site','news','members','challenge'].includes(id));
   return `<header class="bar glass">
     <button onclick="go('today')" class="wordmark" style="background:none;border:0;padding:0;
       cursor:pointer;font:400 30px/1 var(--serif);color:var(--ink);margin-right:auto">Coach<span
@@ -9309,18 +9609,18 @@ function inboxItems(){
   const out=[];
   queue.forEach(q=>{
     if(q.kind==='msg'){
-      out.push({id:'M:'+q.email, type:'message', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'M:'+q.email, type:'message', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Reply', msg:true, n:q.n||1, unread:q.unread||0, msgs:q.msgs||[],
         detail:(q.n>1?q.n+' messages · ':'')+'"'+clip((q.numbers||{}).name||'',110)+'"'});
       return;
     }
     if(q.kind==='trained'){
-      out.push({id:'R:'+q.email, type:'trained', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'R:'+q.email, type:'trained', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Seen', sessions:q.sessions||[], detail:(q.numbers||{}).name||''});
       return;
     }
     if(q.kind==='said'){
-      out.push({id:'T:'+q.email, type:'said', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'T:'+q.email, type:'said', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'Read', said:q.said||[],
         detail:(q.numbers||{}).name||(q.n+' things')});
       return;
@@ -9332,7 +9632,7 @@ function inboxItems(){
          under "Also happened" with the headline reading nobody waiting,
          so Marina's three hits on 5 Nov 2026 were invisible */
       const hits=(q.logs||[]).filter(x=>cpLogHit(q.email,x)).length;
-      out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at,
+      out.push({id:'C:'+q.email, type:'logged', email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
         action:'See their check points', cplog:true, logs:q.logs||[], hits, act:hits?1:0,
         detail:q.n+' check point'+(q.n===1?'':'s')+' logged'
           +((q.numbers||{}).name?' · '+q.numbers.name:'')});
@@ -9341,10 +9641,14 @@ function inboxItems(){
     const t = q.kind==='assessment'?'check' : q.kind==='checkpoint'?'point' : 'review';
     const nums=Object.entries(q.numbers||{}).filter(([k])=>k!=='photo'&&k!=='k'&&k!=='name')
       .map(([k,v])=>k+' '+v).join(' · ');
-    const what = t==='check' ? 'Free form check'
+    /* a clip a client sends in the chat is a clip, with their words; "Free form
+       check" is for somebody who is not a client (Elliott, 25 Nov: "Hannah sends in
+       a clip, and it's not clear that Hannah's sending a new clip to me") */
+    const what = t==='check' ? (q.coached ? 'Clip from the chat' : 'Free form check')
       : t==='point' ? ('Check point: '+((q.numbers||{}).name||''))
       : ('Block '+(q.cycle||1)+' test');
-    out.push({id:'q:'+q.id, type:t, email:q.email, name:q.name||q.email, at:q.at,
+    out.push({id:'q:'+q.id, type:t, email:q.email, name:q.name||q.email, at:q.at, last:q.last||q.at,
+      clientClip: t==='check' && !!q.coached, cap:q.cap||'',
       action:'Open the thread', numbers:q.numbers||{}, clips:q.clips||0, cycle:q.cycle||1, uids:q.uids||[],
       detail:what+' · '+q.clips+' clip'+(q.clips===1?'':'s')+(nums?' · '+nums:'')});
   });
@@ -9391,7 +9695,7 @@ function inboxItems(){
         +(A.days||A.commitment?' · '+(A.days||A.commitment):'')+(A.injuries?' · '+clip(A.injuries,40):'')});
   });
   return out.filter(x=>!(todayClr[x.id] && (x.at||0)<=todayClr[x.id]))
-            .map(x=>({...x, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
+            .map(x=>({...x, last:x.last||x.at, hrs:Math.round((Date.now()-(x.at||0))/3600000)}))
             .sort((a,b)=>b.hrs-a.hrs);
 }
 
@@ -9593,14 +9897,18 @@ function todayPeople(){
   return [...by.values()].map(p=>{
     const act=p.items.filter(x=>x.act!=null ? x.act : INBOX_TYPE[x.type].act);
     const oldest=act.length?Math.min(...act.map(x=>x.at||Date.now())):0;
-    const newest=Math.max(...p.items.map(x=>x.at||0));
+    const newest=Math.max(...p.items.map(x=>x.last||x.at||0));
+    const latest=p.items.slice().sort((a,b)=>(b.last||b.at||0)-(a.last||a.at||0))[0];
     const c=p.email?clients.find(x=>x.email===p.email):null;
-    return Object.assign(p,{act:act.length, oldest, newest, name:whoName(p.name,p.email),
+    return Object.assign(p,{act:act.length, oldest, newest, latest, name:whoName(p.name,p.email),
       mine:!!(c&&c.mine), client:!!(c&&c.coached!==false),
       hrs:oldest?Math.round((Date.now()-oldest)/3600000):null});
   /* a coached client waiting comes before somebody who is not one yet:
      Hannah, paying and 27 days without training, sat last (2 Nov 2026) */
-  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (b.client-a.client) || (a.act ? a.oldest-b.oldest : b.newest-a.newest));
+  /* newest first (Elliott, 25 Nov, Phase 1): whoever sent something last is at
+     the top; each card still says how long the oldest thing has waited, in red
+     past the promise, so nothing old is lost */
+  }).sort((a,b)=>((b.act>0)-(a.act>0)) || (b.newest-a.newest));
 }
 /* "n7g4kng2rh" and "pb" were the name on a card: the front of an email,
    or an Apple hidden address, says nothing about who it is */
@@ -9674,6 +9982,24 @@ function seenAll(email){
 /* a line's list shows two and folds the rest: seven drill ratings in a row
    was a wall to read before getting to anybody else (8 Oct 2026) */
 const lineMore=new Set();
+/* what a line is called: a chat clip from a client is a Clip, not a form check */
+const tagLabel = r => (r.type==='check' && r.clientClip) ? 'Clip' : INBOX_TYPE[r.type].label;
+/* the newest thing on a card, in words */
+function latestSay(r){
+  if(r.type==='message') return (r.n>1?r.n+' messages':'Message');
+  if(r.type==='check') return r.clientClip?'New clip':'Form check';
+  if(r.type==='point') return 'Check point clip';
+  return tagLabel(r);
+}
+/* New since you last looked at Today: the moment you last left it (Phase 1, 25 Nov) */
+let todaySeenPrev=0, todayVisit=0;
+try{ todaySeenPrev=Number(localStorage.getItem('lha_today_seen'))||0; }catch(e){}
+const isNewT = t => todaySeenPrev>0 && (t||0) > todaySeenPrev;
+function todayVisitTick(){ if(view==='today'){ if(!todayVisit) todayVisit=Date.now(); } else todayVisitEnd(); }
+/* a look of a few seconds counts as seen; a glance away and back does not */
+function todayVisitEnd(){ if(!todayVisit) return; const looked=Date.now()-todayVisit>=4000; todayVisit=0; if(!looked) return; todaySeenPrev=Date.now();
+  try{ localStorage.setItem('lha_today_seen', String(todaySeenPrev)); }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) todayVisitEnd(); });
 function lineMoreToggle(id){ lineMore.has(id)?lineMore.delete(id):lineMore.add(id); draw(); }
 function lineHTML(r){
   const T=INBOX_TYPE[r.type], open=inboxRow===r.id, e=esc(r.email||''), je=jsq(r.email||'');
@@ -9682,7 +10008,7 @@ function lineHTML(r){
   if(r.type==='message'){
     what=(r.n>1?r.n+' messages':'A message')+(r.unread?'':' <span class="muted">read, not answered</span>');
     body=`<div class="tsub">${(r.msgs||[]).map(m=>`<div class="tmsg${m.unread?' new':''}">${
-      m.image?'<i>A photo</i> ':''}${m.video?'<i>A video</i> ':''}${esc(clip(m.text,320))}</div>`).join('')
+      m.image?'<i>A photo</i> ':''}${m.video?'<i>A video</i> ':''}${m.text?esc(clip(m.text,320)):(!m.image&&!m.video?'<i>A voice note</i>':'')}</div>`).join('')
       || `<div class="tmsg">${esc(r.detail)}</div>`}</div>`;
     if(open) body+=quickReplyHTML(r.email);
     acts=toggle('Reply here')+`<button class="btn btn-secondary btn-sm" onclick="openClient(${je},'thread')">Open the chat</button>
@@ -9693,8 +10019,8 @@ function lineHTML(r){
     body=`<div class="tsub"><div>${r.clips} clip${r.clips===1?'':'s'} to watch</div></div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openClient(${je},'marks')">Watch it</button>`;
   } else if(r.type==='check' || r.type==='review'){
-    what=esc(r.type==='check'?'Form check':'Block '+(r.cycle||1)+' test');
-    body=`<div class="tsub"><div>${esc(r.detail)}</div></div>`;
+    what=esc(r.type==='check'?(r.clientClip?(r.clips>1?r.clips+' clips':'A clip'):'Form check'):'Block '+(r.cycle||1)+' test');
+    body=`<div class="tsub">${r.cap?`<div class="tmsg">${esc(clip(r.cap,320))}</div>`:''}<div>${esc(r.detail)}</div></div>`;
     acts=`<button class="btn btn-primary btn-sm" onclick="openClient(${je},'thread')">Open it</button>`;
   } else if(r.type==='logged'){
     what=r.hits?(r.hits+' target'+(r.hits===1?'':'s')+' hit, to sign off'):r.logs&&r.logs.length?(r.logs.length+' logged'):esc(r.detail);
@@ -9737,8 +10063,8 @@ function lineHTML(r){
     +`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle(${jsq(r.id)})">Show ${many-2} more</button>`;
   else if(many>2 && !open) body+=`<button class="ghostlink" style="margin-top:4px" onclick="lineMoreToggle(${jsq(r.id)})">Show fewer</button>`;
   return `<div class="tline" data-k="${esc(r.id)}">
-    <div class="tline-top"><span class="tag ${T.cls}">${T.label}</span>
-      <span class="tline-what">${what}</span><span class="tline-at">${esc(ago(r.at))}</span></div>
+    <div class="tline-top"><span class="tag ${T.cls}">${esc(tagLabel(r))}</span>
+      <span class="tline-what">${isNewT(r.last||r.at)?'<b class="tnew">New</b>':''}${what}</span><span class="tline-at">${esc(ago(r.last||r.at))}</span></div>
     ${body}
     ${acts?`<div class="tline-acts">${acts}</div>`:''}
   </div>`;
@@ -9753,7 +10079,7 @@ function lineCount(r){ return r.type==='message'?(r.n||1)
   : (r.said||r.flags||r.sessions||r.logs||[]).length || (r.type==='point'?(r.clips||1):1); }
 function personCardHTML(p, cat){
   const lines=p.items.filter(r=>cat==='all'||INBOX_TYPE[r.type].filter===cat)
-    .sort((a,b)=>(LINE_ORDER.indexOf(a.type)-LINE_ORDER.indexOf(b.type))||((a.at||0)-(b.at||0)));
+    .sort((a,b)=>((b.last||b.at||0)-(a.last||a.at||0)) || (LINE_ORDER.indexOf(a.type)-LINE_ORDER.indexOf(b.type)));
   if(!lines.length) return '';
   const c=p.email?clients.find(x=>x.email===p.email):null;
   const seenable=p.items.filter(r=>['said','logged','trained','flag'].includes(r.type)).length>1;
@@ -9761,28 +10087,30 @@ function personCardHTML(p, cat){
   const key='p:'+(p.email||p.items[0].id);
   const open=cardOpen.has(key) || lines.some(r=>r.id===inboxRow);
   /* two check point clips read "Check point clip·Check point clip" */
-  const kinds=new Map(); lines.forEach(r=>{ const l=INBOX_TYPE[r.type].label; kinds.set(l,(kinds.get(l)||0)+lineCount(r)); });
+  const kinds=new Map(); lines.forEach(r=>{ const l=tagLabel(r); kinds.set(l,(kinds.get(l)||0)+lineCount(r)); });
+  const lt=p.latest, fresh=lt && isNewT(lt.last||lt.at);
+  const latestHTML=lt?`<span class="tcard-latest">${fresh?'<b class="tnew">New</b>':''}${esc(latestSay(lt))} &middot; ${esc(ago(lt.last||lt.at))}</span>`:'';
   const sum=[...kinds].map(([l,n])=>`<span>${esc(l)}${n>1?' <i>'+n+'</i>':''}</span>`).join('<span aria-hidden="true">&middot;</span>');
   const chev=`<span class="tcard-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>`;
-  if(!open) return `<article class="tcard" data-k="${esc(key)}">
+  if(!open) return `<article class="tcard${fresh?' tcard-fresh':''}" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="false" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
-      <div class="tcard-who"><b>${esc(p.name)}</b><span>${
+      <div class="tcard-who"><b>${esc(p.name)}</b>${latestHTML}<span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
-      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'oldest waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
     </header>
     <div class="tcard-sum" style="display:flex;gap:10px;align-items:center"><span onclick="cardToggle(${jsq(key)})" style="cursor:pointer;flex:1;min-width:0">${sum}</span>
       <button class="ghostlink" style="flex:none;color:var(--grey)" onclick="todayClearPerson(${jsq(key)})" title="Dealt with already: off Today until something new comes in">Clear</button></div>
   </article>`;
-  return `<article class="tcard open" data-k="${esc(key)}">
+  return `<article class="tcard open${fresh?' tcard-fresh':''}" data-k="${esc(key)}">
     <header class="tcard-h fold" role="button" aria-expanded="true" onclick="cardToggle(${jsq(key)})">
       <span class="av">${esc(initial(p.name))}</span>
-      <div class="tcard-who"><b>${esc(p.name)}</b><span>${
+      <div class="tcard-who"><b>${esc(p.name)}</b>${latestHTML}<span>${
         c?(c.coached===false?'Not yet a client':'Coaching'+(tl?' &middot; '+(trainQuiet(p.email)?'<b style="display:inline;font:600 12px/1.4 var(--sans);color:var(--terra)">'+esc(tl)+'</b>':esc(tl)):'')):'Not signed in'}</span></div>
-      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'waiting':hrsState(p.hrs)}</span></div>`
+      ${p.act?`<div class="tcard-age" style="color:${hrsColor(p.hrs)}"><b>${p.hrs<48?p.hrs+' h':Math.round(p.hrs/24)+' days'}</b><span>${p.hrs>=PROMISE_H?'oldest waiting':hrsState(p.hrs)}</span></div>`
         :`<div class="tcard-age" style="color:var(--grey2)"><span>${esc(ago(p.newest))}</span></div>`}
       ${chev}
     </header>
@@ -9811,7 +10139,7 @@ function sessionsStripHTML(){
     <span class="kick" style="flex:none;width:86px">${label}</span>${items.join('')}</div>`;
   return `<div style="display:flex;flex-direction:column;gap:8px;margin:0 0 var(--space-4)">
     ${up.length?line('THIS WEEK',up.map(x=>x.call
-      ? `<button onclick="setTab='calls';go('settings')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${CC_KIND_TXT[x.kind]||'call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
+      ? `<button onclick="clsGo('calls')" style="border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 12px;cursor:pointer;font:500 12.5px/1 var(--sans);color:var(--ink)">${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'})} · ${who(x)} · ${CC_KIND_TXT[x.kind]||'call'}</button>${x.meet?`<a href="${esc(x.meet)}" target="_blank" rel="noopener" style="font:600 12.5px/1 var(--sans);color:var(--forest)">Meet</a>`:''}`
       : chip(x,`${new Date(x.when).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})} · ${who(x)} · ${esc(x.kind||'60')} min`))):''}
     ${owed.length?line('TO PAY',owed.map(x=>chip(x,`${who(x)} · ${gbp(x.ask)}`))):''}
   </div>`;
@@ -10097,10 +10425,9 @@ function digestHTML(){
   if(sk.length) L.push(line('»',`Most skipped: ${sk.map(x=>esc(x.key.replace(/-/g,' '))+' '+x.n+'×').join(', ')}.`,"setTab='journey';go('settings')"));
   if(asks.length) L.push(line('?',`<b>${asks.length}</b> question${asks.length===1?'':'s'} from the Learn search. Latest: &ldquo;${esc(asks[0].text.slice(0,90))}${asks[0].text.length>90?'…':''}&rdquo;`,"setTab='journey';go('settings')"));
   if(nothing.length) L.push(line('⌕',`Searched, found nothing: ${nothing.map(x=>'&ldquo;'+esc(x.q)+'&rdquo;').join(', ')}. Something to film or write.`,"setTab='journey';go('settings')"));
-  errGroups=errs;
-  errs.slice(0,3).forEach((t,i)=>L.push(line('⚠',errLine(t),'errOpen('+i+')')));
-  if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"setTab='workshops';go('settings')")); }
-  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${errs.length?` · <span style="color:#a4503c" title="${esc(errs.map(t=>t.m).join(' · '))}">${errSummary(errs)}</span>`:''}${asks.length?` · ${asks.length} asked`:''}`;
+  if(errs.length) L.push(line('⚠',`${esc(errSummary(errs))} this week. On Problems.`,"go('problems')"));
+  if(cls){ const sold=(Number(cls.places)||0)-(Number(cls.left)||0); L.push(line('◷',`Next class ${esc(new Date(cls.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'}))}: <b>${sold}</b> of ${Number(cls.places)||'?'} places sold.`,"clsGo('dates')")); }
+  const head=`<b>${st_.newThisPeriod!=null?st_.newThisPeriod:g('signup').n}</b> new · <b>${g('first1').n}</b> first session${g('first1').n===1?'':'s'} · <b>${paid.length}</b> paying${asks.length?` · ${asks.length} asked`:''}`;
   return `<div style="margin:0 0 var(--space-4);padding:14px 16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <button onclick="dgOpen=!dgOpen;draw()" style="display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:0;cursor:pointer;text-align:left;color:var(--ink)">
       <span class="kick" style="flex:none">THIS WEEK</span>
@@ -10119,17 +10446,24 @@ function healthLoad(){
   fetch(API+'/health',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ healthLast=d; draw(); } }).catch(()=>{});
   errsLoad();
 }
-function healthHTML(){
-  healthLoad();
+/* what Problems counts: things that broke on people's phones in the last
+   day, and films the morning check did not like (25 Nov 2026) */
+function probParts(){
   const since=Date.now()-24*3600e3, tests=/example\.com|lha-test|paytest|livecheck|claude|elliott/i;
   const recent=(errsList||[]).filter(e=>e && e.last>=since && (e.k==='film'||e.k==='save'||(e.first||0)>=since)
     && ((e.who||[]).some(w=>!tests.test(w)) || ['site','api','server'].includes(e.k)));
   const films=((healthLast&&healthLast.films&&healthLast.films.problems)||[]);
+  return {recent, films};
+}
+function probCount(){ if(!owner) return 0; healthLoad(); const p=probParts(); return p.recent.length+p.films.length; }
+function healthHTML(){
+  healthLoad();
+  const {recent, films}=probParts();
   if(!recent.length && !films.length) return '';
   const bits=[recent.length?recent.length+' thing'+(recent.length===1?'':'s')+' broke on people’s phones in the last day':'',
     films.length?films.length+' film'+(films.length===1?'':'s')+' need'+(films.length===1?'s':'')+' a look':''].filter(Boolean);
   const first=recent[0] ? recent[0].m : films[0].name+': '+films[0].what;
-  return `<button onclick="setTab='app';go('settings')" style="display:flex;gap:12px;align-items:center;width:100%;margin:0 0 16px;padding:12px 14px;
+  return `<button onclick="go('problems')" style="display:flex;gap:12px;align-items:center;width:100%;margin:0 0 16px;padding:12px 14px;
     border-radius:14px;border:1px solid rgba(164,80,60,.35);background:rgba(164,80,60,.07);cursor:pointer;text-align:left;color:var(--ink)">
     <span style="flex:none;width:28px;height:28px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font:700 13px/1 var(--sans)">${recent.length+films.length}</span>
     <span style="flex:1;min-width:0"><b style="display:block;font:600 13.5px/1.35 var(--sans)">${esc(bits.join(' · '))}</b>
@@ -10393,12 +10727,21 @@ function rosterHTML(){
 }
 
 /* ── one client, one screen ───────────────────────────────────────── */
+/* the advent challenge for a coaching client, on or off (Elliott, 25 Nov: "allow me
+   to turn the challenge on from the coach dashboard", first for Beth's demo) */
+function chalShowOn(email){ loadChal(); return !!(chal && (chal.coachShow||[]).includes(String(email||'').toLowerCase())); }
+function chalShowToggle(email){
+  const on=!chalShowOn(email);
+  fetch(API+'/challenge',{method:'POST',headers:hdr(),body:JSON.stringify({showFor:email, on})})
+    .then(r=>r.json().then(j=>{ if(!r.ok) throw new Error(j.error||r.status); flash(on?'Advent challenge on in their app':'Advent challenge off in their app'); loadChal(true); }))
+    .catch(e=>flash(String(e.message||e)));
+}
 const MORE_ITEMS = email => [
   ['Review everything they have sent','the review tool',`reviewAllFrom(${jsq(email)})`],
   ['Check points','what they must show',`openCps(${jsq(email)})`],
   ['Account and password','',`openAcct(${jsq(email)})`],
   ['Copy a programme in','from another client',`openCopy('',${jsq(email)})`],
-];
+].concat(owner ? [['Advent challenge', chalShowOn(email) ? 'on: it shows in their app (tap to turn off)' : 'off: tap to show it in their app', `chalShowToggle(${jsq(email)})`]] : []);
 /* One sentence to this person about this week, on the top of their Today
    screen. It is the only thing in the app that nobody but a coach can
    produce: everything else is tailored from state or from the block. Ten
@@ -10534,8 +10877,11 @@ function oneMoveSave(id){
   if(!d) return alert('Pick the date first.');
   oneMove=''; sessSet(id,{when:londonISO(d,t), place, status:'arranged'});
 }
+/* what a 1-2-1 costs, from Settings, Money; 80 and 100 until it has loaded */
+function sessPrice(kind){ pricesLoad(); const k=String(kind)==='90'?'90':'60', p=prices&&prices['session'+k], a=p&&Number(p.amount);
+  return a>0 ? String(Math.round(a)/100) : (k==='90'?'100':'80'); }
 function oneAsk(id,kind){
-  const a=prompt('How much should they pay, in pounds?', kind==='90'?'100':'80'); if(a===null) return;
+  const a=prompt('How much should they pay, in pounds?', sessPrice(kind)); if(a===null) return;
   const n=Number(a); if(!(n>0)) return alert('A number of pounds, like 80.');
   if(n<0.3) return alert('Stripe cannot take less than 30p. Ask for at least £0.30.');
   sessSet(id,{ask:Math.round(n*100)});
@@ -10676,14 +11022,14 @@ function oneOnePaneHTML(){
     <div class="kick">BOOK A 1-2-1</div>
     <div class="muted" style="font-size:12.5px;margin-top:5px">They get the confirmation by email and in the chat, with a calendar link, and it shows in their app.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <select id="obKind" onchange="const p=document.getElementById('obPaid'); if(p && (!p.value||p.value==='80'||p.value==='100')) p.value=this.value==='90'?'100':'80'" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
+      <select id="obKind" onchange="const p=document.getElementById('obPaid'); if(p && (!p.value||[sessPrice('60'),sessPrice('90'),'80','100'].includes(p.value))) p.value=sessPrice(this.value)" style="${inp};flex:none"><option value="60">60 min</option><option value="90">90 min</option></select>
       <input id="obDate" type="date" style="${inp};flex:1;min-width:130px">
       <input id="obTime" type="time" value="10:00" style="${inp};flex:none">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
       <select id="obHow" style="${inp};flex:none"><option value="ask">Ask them to pay</option><option value="paid">Already paid</option></select>
       <span style="font:600 14px/1 var(--sans)">£</span>
-      <input id="obPaid" type="number" min="0" value="80" style="${inp};flex:none;width:90px">
+      <input id="obPaid" type="number" min="0" value="${sessPrice('60')}" style="${inp};flex:none;width:90px">
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <input id="obPlace" value="OverGravity, Shadwell" style="${inp};flex:1;min-width:180px">
@@ -10781,6 +11127,8 @@ function clientScreenHTML(msgs){
           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="6" y="2" width="12" height="20" rx="2.5"/><line x1="10.5" y1="18.5" x2="13.5" y2="18.5"/></svg>
         See their app</button>
+      <!-- the stage you recommend for them, which their app says (28 Nov 2026) -->
+      ${recSelectHTML(sel)}
       <button onclick="openAcct(${jsq(sel)})" title="Name, email, password, what they have"
         style="background:transparent;border:1px solid var(--line);border-radius:999px;
         padding:9px 15px;cursor:pointer;font:600 13px/1 var(--sans);color:var(--deep)">Account</button>
@@ -13187,13 +13535,16 @@ function wsLoad(){
     .catch(e=>{ wsInFlight=false; wsErr = e===401 ? 'Your sign in has run out. Sign in again to see the workshops.' : 'The workshops did not load. Refresh to try again.'; draw(); });
 }
 function wsNew(){ const d=londonParts(Date.now()+14*864e5).d;
-  wsf={slug:'',title:'',topic:'',mins:60,when:londonISO(d,'11:00'),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,reviewUrl:'',live:false}; wsOpen='new'; wsMsg=''; draw(); }
+  /* the ClassBento hold carries on from the newest class that had one */
+  const lastCb=(wshops||[]).filter(x=>x.cbHold>0).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0]||{};
+  wsf={slug:'',title:'',topic:'',mins:60,when:londonISO(d,'11:00'),place:'OverGravity, Shadwell',desc:'',who:'',price:2500,places:16,reviewUrl:'',live:false,
+    cbHold:lastCb.cbHold||0,cbRelease:lastCb.cbRelease||0}; wsOpen='new'; wsMsg=''; draw(); }
 function wsEdit(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return; wsf=JSON.parse(JSON.stringify(w));
   /* the list is kept for the life of the page: an early bird that has ended since shows as the price it went up to */
   if(wsf.early && wsf.early.until && new Date(wsf.early.until).getTime()<=Date.now()){ if(Number(wsf.early.then)>Number(wsf.price||0)) wsf.price=Number(wsf.early.then); wsf.early=null; }
   wsf.was=slug; wsOpen=slug; wsMsg=''; draw(); }
 function wsClose(){ wsOpen=null; wsf=null; draw(); }
-function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100); if(k==='places'||k==='appDays'||k==='mins') v=Number(v)||0; if(k==='live') v=!!v; wsf[k]=v; }
+function wsSet(k,v){ if(k==='price') v=Math.round((Number(String(v).replace(/[^0-9.]/g,''))||0)*100); if(k==='places'||k==='appDays'||k==='mins'||k==='cbHold'||k==='cbRelease') v=Math.max(0,Math.round(Number(v)||0)); if(k==='live') v=!!v; wsf[k]=v; }
 /* the early bird ends at the very end of the day picked, London time;
    it can be pushed back a day or a week, or ended now (19 Oct 2026) */
 function wsSetEarly(){ const d=(document.getElementById('wsEbDate')||{}).value, tm='23:59',
@@ -13255,7 +13606,8 @@ function wsMoveRow(slug, email, session, sel){
 function wsAddAttendees(slug){
   const box=document.getElementById('wsAttend'); const list=(box&&box.value||'').trim();
   if(!list) return alert('Paste the email addresses first.');
-  fetch(API+'/workshop/attendees',{method:'POST',headers:hdr(),body:JSON.stringify({slug,list})})
+  const src=(document.getElementById('wsAttendSrc')||{}).value||'';
+  fetch(API+'/workshop/attendees',{method:'POST',headers:hdr(),body:JSON.stringify({slug,list,source:src})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add them')))
     .then(d=>{ flash(d.added+' added'+(d.had?', '+d.had+' already there':'')); const w=(wshops||[]).find(x=>x.slug===slug); if(w) w.bookings=d.bookings; if(wsf&&(wsf.was===slug||wsf.slug===slug)) wsf.bookings=d.bookings; if(box) box.value=''; draw(); })
     .catch(e=>alert(String(e)));
@@ -13272,13 +13624,69 @@ function wsSave(){
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:wsf, was:wsf.was||''})})
     .then(r=>r.ok?r.json():r.json().then(d=>Promise.reject(d.error||('the server said '+r.status))))
     .then(d=>{ wshops=d.workshops||wshops; wsBusy=false; wsf=JSON.parse(JSON.stringify(d.workshop)); wsf.was=d.workshop.slug; wsOpen=d.workshop.slug;
-      wsMsg='Saved. '+(wsf.live?(wsf.when?'It is on the site and taking bookings.':'It is on the site, taking names until you set a date.'):'A draft, not on the site yet.')+(d.told?' '+d.told+' on the list emailed the date.':'')+(d.alertsDue?' '+d.alertsDue+' waiting for new dates will hear at 9am, or press Send now on the Workshops page.':''); caAsked=false; draw(); })
+      wsMsg='Saved. '+(wsf.live?(wsf.when?'It is on the site and taking bookings.':'It is on the site, taking names until you set a date.'):'A draft, not on the site yet.')+(d.told?' '+d.told+' on the list emailed the date.':'')+(d.alertsDue?' '+d.alertsDue+' waiting for new dates will hear at 9am, or press Send now on the Workshops page.':'')+(d.ebNote?' '+d.ebNote:''); caAsked=false; draw(); })
     .catch(e=>{ wsBusy=false; wsMsg=String(e); draw(); });
+}
+/* ── Eventbrite (25 Nov 2026) ─────────────────────────────────────
+   The class's own panel in the editor. The server does the work and keeps
+   the record; this asks it, and lays what comes back over the list and
+   the open editor without touching anything typed and not yet saved. */
+let ebState=null, ebAsked=false, ebBusy='', ebMsg='';
+function ebLoad(){ if(ebAsked) return; ebAsked=true;
+  fetch(API+'/eventbrite',{headers:hdr()}).then(r=>r.ok?r.json():null).then(d=>{ if(d){ ebState=d; draw(); } }).catch(()=>{}); }
+const EB_DONE={connect:'Connected.',draft:'The draft is on Eventbrite, not on sale. Have a look, then Publish.',publish:'Published: it is on sale on Eventbrite.',
+  sync:'Sent to Eventbrite.',stop:'Stopped selling on Eventbrite. Nothing else changed there.',resume:'Selling on Eventbrite again.'};
+function ebDo(action, slug, ask){
+  if(ask && !confirm(ask)) return;
+  if(ebBusy) return; ebBusy=action; ebMsg=''; draw();
+  fetch(API+'/eventbrite',{method:'POST',headers:hdr(),body:JSON.stringify({action,slug})})
+    .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||('the server said '+r.status))))
+    .then(d=>{ ebBusy=''; ebState={ready:d.ready,org:d.org,hookOk:d.hookOk,hookUrl:d.hookUrl,at:d.at};
+      if(d.workshop){ const sl=d.workshop.slug, i=(wshops||[]).findIndex(x=>x.slug===sl);
+        if(i>-1) wshops[i]=Object.assign({}, wshops[i], {eb:d.workshop.eb}, d.bookings?{bookings:d.bookings}:{});
+        if(wsf && wsf.was===sl){ wsf.eb=d.workshop.eb; if(d.bookings) wsf.bookings=d.bookings; } }
+      ebMsg=action==='check'?(d.orders||0)+' order'+(d.orders===1?'':'s')+' read from Eventbrite.'
+        :action==='connect'&&!d.hookOk?'Connected, but Eventbrite would not take the webhook'+(d.hookErr?' ('+d.hookErr+')':'')+'. Add it by hand: the address is below.'
+        :(EB_DONE[action]||'Done.');
+      if(d.warn) ebMsg+=' '+d.warn; draw(); })
+    .catch(e=>{ ebBusy=''; ebMsg=String(e); draw(); });
+}
+const ebEditUrl=id=>'https://www.eventbrite.co.uk/myevent?eid='+encodeURIComponent(id);
+function ebPanelHTML(w){
+  if(!owner) return '';
+  ebLoad();
+  const s=ebState, eb=w.eb||{}, busy=!!ebBusy, saved=!!w.was;
+  const btn=(act,label,primary,ask)=>`<button class="btn btn-sm ${primary?'btn-primary':'btn-secondary'}" ${busy||!saved?'disabled':''} ${!saved?'title="Save the class first"':''}
+    onclick="ebDo('${act}',${jsq(w.was||'')}${ask?','+jsq(ask):''})">${ebBusy===act?'One moment…':label}</button>`;
+  const there=(w.bookings||[]).filter(x=>x.source==='eventbrite'&&bkIsLive(x)).length;
+  const links=eb.id?`<a class="ghostlink" href="${esc(ebEditUrl(eb.id))}" target="_blank" rel="noopener">Open on Eventbrite</a>${eb.url&&eb.status==='live'?` <a class="ghostlink" href="${esc(eb.url)}" target="_blank" rel="noopener">Its public page</a>`:''}`:'';
+  let line='', acts='';
+  if(!s) line='<span class="muted">Checking…</span>';
+  else if(!s.ready) line=`<span class="muted">Not connected. Make a private token on Eventbrite, add it to Netlify as <b>EVENTBRITE_TOKEN</b>, deploy, then press Connect here.</span>`;
+  else if(!s.org){ line=`<span class="muted">The token is in. Connect once to find your Eventbrite account and add the webhook that brings orders in.</span>`;
+    acts=`<button class="btn btn-sm btn-primary" ${busy?'disabled':''} onclick="ebDo('connect','')">${ebBusy==='connect'?'One moment…':'Connect Eventbrite'}</button>`; }
+  else if(!eb.id){ line=`<span class="muted">Not on Eventbrite. A draft uses what is saved here: title, date, length, room, words, price, early bird and places. Nothing goes on sale until you Publish.</span>`;
+    acts=btn('draft','Make an Eventbrite draft',true); }
+  else if(eb.status!=='live'){ line=`<b>A draft on Eventbrite</b> <span class="muted">· not on sale</span>`;
+    acts=btn('publish','Publish on Eventbrite',true,'Publish this class on Eventbrite? It goes on sale there straight away, from the same places as this site.')+btn('sync','Send changes'); }
+  else { line=`<b>${eb.off?'Stopped on Eventbrite':'On sale on Eventbrite'}</b> <span class="muted">· ${there} booked there${eb.off?'':' · selling '+(eb.selling||0)}</span>`;
+    acts=btn('sync','Send changes')+(eb.off?btn('resume','Sell there again'):btn('stop','Stop selling there',false,'Stop selling this class on Eventbrite? It stays listed there as sold out; people already booked keep their places.'))+btn('check','Check for orders'); }
+  const hookTip=s&&s.org&&!s.hookOk&&s.hookUrl?`<div class="muted" style="font-size:12px;margin-top:8px;flex-basis:100%">Orders come in by a webhook Eventbrite did not take. In Eventbrite: Account settings, Developer links, Webhooks, Add webhook. Paste
+    <button class="ghostlink" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(s.hookUrl)});flash('Webhook address copied')">this address (copy)</button>
+    and tick order.placed, order.refunded, order.updated and attendee.updated. Until then the hourly check brings them in.</div>`:'';
+  return `<div class="field" style="grid-column:1/-1"><label>Eventbrite</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font:400 13px/1.5 var(--sans)">
+      <span style="flex:1;min-width:220px">${line}</span>${links}${acts}
+      ${eb.err?`<div style="flex-basis:100%;font-size:12.5px;color:var(--terra)">Eventbrite said: ${esc(eb.err)}</div>`:''}
+      ${ebMsg?`<div style="flex-basis:100%;font-size:12.5px">${esc(ebMsg)}</div>`:''}
+      ${eb.at?`<div class="muted" style="flex-basis:100%;font-size:11.5px">Last sent ${esc(ago(eb.at))}. Bookings here, there and on ClassBento share the places: each booking moves the others.</div>`:''}
+      ${hookTip}
+    </div></div>`;
 }
 function wsDelete(slug){ const w=(wshops||[]).find(x=>x.slug===slug)||{};
   if(!confirm('Delete '+(w.title||slug)+'?\n\nThe bookings list goes with it. Refunds are done in Stripe.')) return;
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({remove:slug})})
-    .then(r=>r.ok?r.json():Promise.reject('could not delete')).then(d=>{ wshops=d.workshops||[]; if(wsOpen===slug){ wsOpen=null; wsf=null; } draw(); })
+    .then(r=>r.ok?r.json():Promise.reject('could not delete')).then(d=>{ wshops=d.workshops||[]; if(wsOpen===slug){ wsOpen=null; wsf=null; } draw(); if(d.ebNote) alert(d.ebNote); })
     .catch(e=>alert(String(e))); }
 function wsLive(slug){ const w=(wshops||[]).find(x=>x.slug===slug); if(!w) return;
   fetch(API+'/workshops',{method:'POST',headers:hdr(),body:JSON.stringify({workshop:Object.assign({},w,{live:!w.live}), was:slug})})
@@ -13308,6 +13716,10 @@ function bkStatus(b){
   if(b.attended==='no') return ['No show','tag-accent-2'];
   return ['Booked','tag-accent'];
 }
+/* the places still kept for ClassBento, as the server counts them (wsSale) */
+function bkHeldTxt(x,live){ const h=Math.min(Number(x.cbHold)||0,Number(x.places)||0); if(!h) return '';
+  if(x.cbRelease>0 && x.when && new Date(x.when).getTime()-Date.now()<=x.cbRelease*3600e3) return '';
+  const left=Math.max(0,h-live.filter(b=>b.source==='classbento').length); return left?' · '+left+' held for ClassBento':''; }
 function bkLvlShort(x){ const i=BK_LVLS.indexOf(x); return i>-1?['New to it','Learning to freestand','Press, one arm, push ups'][i]:(x||''); }
 function bkOpen(slug){ bkSel=slug; bkRow=''; bkQ=''; draw(); }
 function bkToggle(k){ bkRow=bkRow===k?'':k; draw(); }
@@ -13341,7 +13753,7 @@ function ofrHTML(w){
   const mine=ofr.slug===w.slug;
   return `<div style="margin-top:14px;padding:16px;border-radius:16px;background:#fff;border:1px solid var(--line)">
     <div style="font:600 14px/1.3 var(--sans)">Email them an offer</div>
-    <div class="muted" style="font-size:12px;margin-top:4px">Make a class code under Settings first, for this date. It goes once to each person here who has not booked since.</div>
+    <div class="muted" style="font-size:12px;margin-top:4px">Make a class code in Settings, Money, first, for this date. It goes once to each person here who has not booked since.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <input class="input" id="ofrCode" placeholder="The code, e.g. SATURDAY25" value="${esc(mine?ofr.code:'')}" oninput="ofr.code=this.value.trim().toUpperCase()" style="flex:1;min-width:160px;min-height:40px">
       <button class="btn btn-secondary btn-sm" onclick="ofrGo(${jsq(w.slug)},true)" ${ofr.busy?'disabled':''}>Preview</button>
@@ -13419,7 +13831,8 @@ function bkIntentDrop(slug,email){
 function bkAdd(slug){
   const box=document.getElementById('bkAttend'); const list=(box&&box.value||'').trim();
   if(!list) return alert('Type or paste them first: one per line, email then name.');
-  fetch(API+'/workshop/attendees',{method:'POST',headers:hdr(),body:JSON.stringify({slug,list})})
+  const src=(document.getElementById('bkAttendSrc')||{}).value||'';
+  fetch(API+'/workshop/attendees',{method:'POST',headers:hdr(),body:JSON.stringify({slug,list,source:src})})
     .then(r=>r.json().then(d=>r.ok?d:Promise.reject(d.error||'Could not add them')))
     .then(d=>{ flash(d.added+' added'+(d.had?', '+d.had+' already there':'')); const w=(wshops||[]).find(x=>x.slug===slug); if(w) w.bookings=d.bookings; if(box) box.value=''; draw(); })
     .catch(e=>alert(String(e)));
@@ -13476,6 +13889,8 @@ function bkRowHTML(w,b,others){
   const tags=(b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:'')
     +(b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:'')
     +(b.source==='setmore'?`<span class="tag tag-neutral">added by hand</span>`:'')
+    +(b.source==='eventbrite'?`<span class="tag tag-neutral" title="Paid on Eventbrite: a refund is done there, and comes off here by itself">Eventbrite</span>`:'')
+    +(b.source==='classbento'?`<span class="tag tag-neutral" title="Paid on ClassBento: a refund is done there">ClassBento</span>`:'')
     /* photos and the waiver: the two things to know at the door (12 Oct 2026) */
     +(b.photo==='blur'?`<span class="tag" style="background:var(--terra);color:#fff" title="They asked to be blurred out of photos and video">BLUR IN PHOTOS</span>`
       :b.photo==='ok'?`<span class="tag tag-neutral" title="Happy to be in photos and video">photos ok</span>`
@@ -13501,7 +13916,9 @@ function bkRowHTML(w,b,others){
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         ${live&&others.length?`<select class="input" style="width:auto;min-height:32px;padding:0 10px;font-size:13px" onchange="wsMoveRow(${a},this)"><option value="">Move to…</option>${others.map(o=>`<option value="${esc(o.slug)}">${esc(bkDay(o))}${o.title!==w.title?' · '+esc(o.title):''} · ${(o.places?Math.max(0,o.places-(o.bookings||[]).filter(bkIsLive).length)+' left':'open')}</option>`).join('')}</select>`:''}
         ${live?`<button class="btn btn-sm btn-secondary" style="min-height:32px" ${wsBusyRow?'disabled':''} onclick="bkResend(${a})">Send their booking again</button>`:''}
-        ${live&&owner?btn('cancel',paid?'Cancel and refund':'Cancel',"{refund:'full'}",false,true)+(paid?btn('cancel','Cancel, keep the money',"{refund:'none'}",false,true):''):''}
+        ${live&&owner&&b.source==='eventbrite'?`<span class="muted" style="font-size:12px">Paid on Eventbrite: cancel or refund the order there and it comes off here by itself.${b.ebEvent?` <a class="ghostlink" href="${esc(ebEditUrl(b.ebEvent))}" target="_blank" rel="noopener">Open on Eventbrite</a>`:''}</span>`
+          :live&&owner&&b.source==='classbento'?btn('cancel','Take off the list',"{refund:'none',quiet:true}",false,true)+`<span class="muted" style="font-size:12px">Refunds are done on ClassBento. This frees the place for them again.</span>`
+          :live&&owner?btn('cancel',paid?'Cancel and refund':'Cancel',"{refund:'full'}",false,true)+(paid?btn('cancel','Cancel, keep the money',"{refund:'none'}",false,true):''):''}
         ${!live&&b.status!=='moved'&&owner&&b.pi&&paid>back&&!b.settled?btn('refund','Refund '+bkMoney(paid-back)):''}
       </div>
       <div class="bk-edit">
@@ -13531,9 +13948,10 @@ let nw={subject:'',body:'',slug:'',auto:'',blocks:[]};
    words, four points, steps from a drill film, a class, a review, a
    button. Photos are a still from a filmed drill or a site photo. */
 const NB_KIND={hero:'Photo and headline',text:'Words',points:'Four points',steps:'Steps from a film',class:'A class',quote:'A review',button:'A button'};
-const NB_LINKS=[['app','The free app'],['formcheck','The free form check'],['learn','Learn'],['appstore','The App Store'],['class','The class page'],['coaching','Coaching'],['session','A 1-2-1'],['call','The free call']];
+const NB_LINKS=[['app','The free app'],['formcheck','The free form check'],['learn','Learn'],['appstore','The App Store'],['class','The class page'],['coaching','Coaching'],['session','A 1-2-1'],['call','The free call'],['advent','The Advent challenge']];
 const NB_PHOTOS=[['class-group-overgravity.jpg','The group at OverGravity'],['hero-image.jpg','A class at the wall'],['workshop-big-group-handstand-pic.jpg','A full room'],
-  ['coach-elliott-handstand-image.jpg','You, one arm'],['latest-workshop-group-handstand-picture.jpg','The last class, upside down'],['class-upside-down-wide.jpg','The last class, upside down, wide'],['app-screens-email.jpg','The app, three screens'],['suryava-training-photo.jpg','Suryava training'],['class-2025-hall.jpg','A class in the hall']];
+  ['coach-elliott-handstand-image.jpg','You, one arm'],['latest-workshop-group-handstand-picture.jpg','The last class, upside down'],['class-upside-down-wide.jpg','The last class, upside down, wide'],['app-screens-email.jpg','The app, three screens'],['suryava-training-photo.jpg','Suryava training'],['class-2025-hall.jpg','A class in the hall'],
+  ['app-screens-2026-11.jpg','The app today: ladder, session, form check'],['advent-hero-email.jpg','Advent: the calendar and logging a day'],['advent-doors-email.jpg','Advent: your calendar'],['advent-log-email.jpg','Advent: what did you practise'],['advent-films-email.jpg','Advent: day 1 and day 24 films'],['advent-board-email.jpg','Advent: the leaderboard']];
 const NB_REVIEWS=['Kate: "Really enjoyed the handstand workshop..."','Diana: "Elliott and Sav were great instructors..."','Anna: "Both great teachers... felt very safe in class."'];
 let NB_DRILLS=null;
 function nbDrills(){ if(NB_DRILLS) return NB_DRILLS; const seen={}, out=[];
@@ -13574,9 +13992,10 @@ function nbSectionHTML(b,i){
       <input class="input" maxlength="3" placeholder="✓" value="${esc(p.icon)}" oninput="nbSet2(${i},'points',${j},'icon',this.value)" title="Up to 3 characters: a number, £0, 2×">
       <input class="input" placeholder="Point ${j+1}" value="${esc(p.text)}" oninput="nbSet2(${i},'points',${j},'text',this.value)"></div>`).join('')}</div>${area('body','Words under the points (optional)')}`;
   if(b.t==='steps') body=`${txt('head','Heading, e.g. Three steps. Same wall.')}${sel('uid',nbDrills(),b.uid)}
-      ${b.items.map((x,j)=>`<div style="display:grid;grid-template-columns:96px 70px minmax(0,1fr);gap:8px;align-items:center;margin-top:8px">
-        <img src="${esc(nbStill(b.uid,x.sec))}" alt="" style="width:96px;height:54px;object-fit:cover;border-radius:8px;background:#eee">
-        <input class="input" type="number" min="0" max="600" value="${esc(x.sec)}" onchange="nbSet2(${i},'items',${j},'sec',this.value);newsPrev='';draw()" title="Second of the film">
+      ${b.items.map((x,j)=>`<div style="display:grid;grid-template-columns:96px 130px minmax(0,1fr);gap:8px;align-items:center;margin-top:8px">
+        <img src="${esc(x.photo?'/assets/site/'+x.photo:nbStill(b.uid,x.sec))}" alt="" style="width:96px;height:54px;object-fit:cover;border-radius:8px;background:#eee">
+        <div>${x.photo?'':`<input class="input" type="number" min="0" max="600" value="${esc(x.sec)}" onchange="nbSet2(${i},'items',${j},'sec',this.value);newsPrev='';draw()" title="Second of the film">`}
+          <select class="input" style="margin-top:4px;font-size:12px" onchange="nbSet2(${i},'items',${j},'photo',this.value);newsPrev='';draw()" title="Picture"><option value="">Film still</option>${NB_PHOTOS.map(([v,l])=>`<option value="${esc(v)}" ${x.photo===v?'selected':''}>${esc(l)}</option>`).join('')}</select></div>
         <div><input class="input" placeholder="Step ${j+1} title" value="${esc(x.title)}" oninput="nbSet2(${i},'items',${j},'title',this.value)">
           <input class="input" style="margin-top:4px" placeholder="One line" value="${esc(x.text)}" oninput="nbSet2(${i},'items',${j},'text',this.value)"></div></div>`).join('')}
       ${area('body','Words above the steps (optional)')}${btnRow(true)}`;
@@ -14012,7 +14431,7 @@ function bookingsPageHTML(){
     return `<button class="bk-date${on?' on':''}" onclick="bkOpen(${jsq(x.slug)})">
       <span style="font:600 11px/1 var(--sans);letter-spacing:.12em;text-transform:uppercase;color:${on?'var(--forest)':'var(--grey2)'}">${esc(bkDay(x))}${bkTime(x)?' · '+esc(bkTime(x)):''}</span>
       <span style="font:400 30px/1 var(--serif);margin-top:10px">${live.length}<span style="font-size:16px;color:var(--grey)">${cap?' of '+cap:''}</span></span>
-      <span class="muted" style="font-size:12px;margin-top:4px;text-align:left">${/all levels/i.test(x.title||'')?'All Levels':esc(x.title||'')}${(x.waitlist||[]).length?' · '+x.waitlist.length+' waiting':''}${x.live?'':' · off the site'}</span>
+      <span class="muted" style="font-size:12px;margin-top:4px;text-align:left">${/all levels/i.test(x.title||'')?'All Levels':esc(x.title||'')}${(x.waitlist||[]).length?' · '+x.waitlist.length+' waiting':''}${x.live?'':' · off the site'}${bkHeldTxt(x,live)}${x.eb&&x.eb.status==='live'?' · on Eventbrite':''}</span>
       ${cap?`<span style="display:block;height:4px;border-radius:4px;background:rgba(29,85,102,.1);margin-top:10px;overflow:hidden"><span style="display:block;height:100%;width:${pct}%;background:var(--forest)"></span></span>`:''}
     </button>`; };
   /* search: anyone, on any date */
@@ -14025,7 +14444,7 @@ function bookingsPageHTML(){
       <span style="flex:1"></span>
       <input class="input" placeholder="Find someone, any date" value="${esc(bkQ)}" oninput="bkQ=this.value;draw()" style="max-width:240px">
       <button class="btn btn-secondary btn-sm" onclick="wshops=null;wsErr='';draw()">Refresh</button>
-      <button class="btn btn-secondary btn-sm" onclick="setTab='workshops';go('settings');wsNew()">New date</button>
+      <button class="btn btn-secondary btn-sm" onclick="clsGo('dates');wsNew()">New date</button>
     </div>`;
   if(!wshops || (!wshops.length && !all.length)) return head+`<p class="muted" style="margin-top:18px">${wshops?'No workshops yet. New date makes one.':wsErr?esc(wsErr):'Loading…'}</p></section>`;
   if(q) return head+`<h5 style="margin-top:22px">${found.length} found</h5>
@@ -14053,7 +14472,7 @@ function bookingsPageHTML(){
         ${vDue.length?`<span class="tag ${vSent===vDue.length?'tag-neutral':'tag-trained'}" title="One short video each, with the coaching line under it">Videos: ${vSent} of ${vDue.length} sent</span>`:''}
         <button class="btn btn-ghost btn-sm" onclick="bkCsv(${jsq(w.slug)})">Download list</button>
         <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(${jsq(live.map(b=>b.email).join(', '))});flash('Emails copied')">Copy emails</button>
-        <button class="btn btn-ghost btn-sm" onclick="setTab='workshops';go('settings');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
+        <button class="btn btn-ghost btn-sm" onclick="clsGo('dates');wsEdit(${jsq(w.slug)})">Edit the date</button></div>
       <div class="bk-sums">
         <div><b>${live.length}${w.places?' of '+w.places:''}</b><span>booked</span></div>
         ${isPast||came||missed?`<div><b>${came}</b><span>arrived${missed?', '+missed+' no show':''}</span></div>`:''}
@@ -14078,8 +14497,10 @@ function bookingsPageHTML(){
         ${owner&&!isPast?ofrHTML(w):''}`:''}
       <h5 style="margin-top:22px">Add someone by hand</h5>
       <textarea class="input" id="bkAttend" rows="2" placeholder="kate@example.com, Kate&#10;one per line: a booking taken in person, or from Setmore"></textarea>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="bkAdd(${jsq(w.slug)})">Add them</button>
-        <span class="muted" style="font-size:12px">Nothing is charged. They get the reminder, the review ask and the follow ups like anyone who booked online.</span></div>`:''}
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <select id="bkAttendSrc" class="input" style="width:auto;min-height:32px;padding:0 10px;font-size:13px"><option value="">In person or Setmore</option><option value="classbento">Booked on ClassBento</option></select>
+        <button class="btn btn-secondary btn-sm" onclick="bkAdd(${jsq(w.slug)})">Add them</button>
+        <span class="muted" style="font-size:12px">Nothing is charged. They get the reminder, the review ask and the follow ups like anyone who booked online.${w.cbHold>0?' A ClassBento booking fills one of the '+w.cbHold+' places held for it.':''}</span></div>`:''}
   </section>`;
 }
 /* who has asked to hear about new dates, from the class page (30 Oct 2026) */
@@ -14135,7 +14556,13 @@ function workshopsHTML(){
           ?`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):''}" placeholder="25" oninput="wsSet('price',this.value)" onchange="draw()">`
           :`<input class="input" value="${w.price?(w.price/100).toFixed(2).replace(/\.00$/,''):'not set'}" disabled>
             <span class="muted" style="font-size:11.5px">Elliott sets what it costs.</span>`}</div>
-        <div class="field"><label>Places</label><input class="input" type="number" min="0" value="${w.places||0}" oninput="wsSet('places',this.value)"></div>
+        <div class="field"><label>Places</label><input class="input" type="number" min="0" value="${w.places||0}" oninput="wsSet('places',this.value)">
+          ${w.cbHold>0&&w.places>0?`<span class="muted" style="font-size:11.5px">${Math.max(0,w.places-w.cbHold)} sold here and on Eventbrite, ${Math.min(w.cbHold,w.places)} held for ClassBento.</span>`:''}</div>
+        <div class="field"><label>Held for ClassBento</label><input class="input" type="number" min="0" value="${w.cbHold||''}" placeholder="0" oninput="wsSet('cbHold',this.value)" onchange="draw()">
+          <span class="muted" style="font-size:11.5px">Kept back from this site and Eventbrite. Each ClassBento booking you add below fills one.</span></div>
+        <div class="field"><label>Unfilled ones come back, hours before</label><input class="input" type="number" min="0" value="${w.cbRelease||''}" placeholder="Held until the class" oninput="wsSet('cbRelease',this.value)">
+          <span class="muted" style="font-size:11.5px">Set ClassBento to stop taking bookings at the same time, or it can sell a place that is back on sale here.</span></div>
+        ${ebPanelHTML(w)}
         <div class="field"><label>Coached by</label><input class="input" value="${esc(w.coach||'')}" placeholder="Elliott and Suryava" oninput="wsSet('coach',this.value)">
           <span class="muted" style="font-size:11.5px">Leave empty for the two of you. Just <b>Elliott</b> says so on the page and in the emails.</span></div>
         ${owner?`<div class="field" style="grid-column:1/-1"><label>Early bird, optional</label>
@@ -14158,8 +14585,9 @@ function workshopsHTML(){
             oninput="wsSet('film',this.value.trim())">
           <span class="muted" style="font-size:11.5px">The app shows this above the card when it
             offers the workshop. Leave it empty and the card is words alone.</span></div>
-        <div class="field" style="grid-column:1/-1"><label>Add people by hand, or paste Setmore bookings: one per line (email, name)</label>
+        <div class="field" style="grid-column:1/-1"><label>Add people by hand, or paste Setmore or ClassBento bookings: one per line (email, name)</label>
           <textarea class="input" id="wsAttend" rows="3" placeholder="kate@example.com, Kate&#10;diana@example.com, Diana"></textarea>
+          <select id="wsAttendSrc" class="input" style="width:auto;min-height:32px;margin-top:6px;padding:0 10px;font-size:13px"><option value="">In person or Setmore</option><option value="classbento">Booked on ClassBento</option></select>
           <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="wsAddAttendees(${jsq(w.slug||'')})" ${w.slug?'':'disabled title="Save the workshop first"'}>Add them</button>
           <span class="muted" style="font-size:12px;margin-left:8px">They get the reminder, the review ask and the follow ups like anyone who booked here. Nothing is charged.</span></div>
         <div class="field" style="grid-column:1/-1"><label>Review link, optional: left empty, the day-after email uses the last one set</label><input class="input" value="${esc(w.reviewUrl||'')}" placeholder="https://g.page/r/… the Google review link" oninput="wsSet('reviewUrl',this.value)"></div>
@@ -14174,7 +14602,9 @@ function workshopsHTML(){
           return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
             ${btn(b.attended==='yes'?'unmark':'arrived','Arrived','',b.attended==='yes')}${btn(b.attended==='no'?'unmark':'noshow','No show','',b.attended==='no')}
             ${others.length?`<select class="input" style="width:auto;min-height:30px;padding:0 8px;font-size:12.5px" onchange="wsMoveRow(${k},this)"><option value="">Move to…</option>${others.map(o=>`<option value="${esc(o.slug)}">${esc(new Date(o.when).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}))}${o.title!==w.title?' · '+esc(o.title):''}</option>`).join('')}</select>`:''}
-            ${owner?btn('cancel','Cancel + refund',"{refund:'full'}")+btn('cancel','Cancel, no refund',"{refund:'none'}"):''}</div>`; };
+            ${owner&&b.source==='eventbrite'?`<span class="muted" style="font-size:12px">Paid on Eventbrite: cancel it there.</span>`
+              :owner&&b.source==='classbento'?btn('cancel','Take off the list',"{refund:'none',quiet:true}")
+              :owner?btn('cancel','Cancel + refund',"{refund:'full'}")+btn('cancel','Cancel, no refund',"{refund:'none'}"):''}</div>`; };
         const row=b=>`<div style="padding:8px 0;border-bottom:1px solid rgba(17,17,17,.07)">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline"><b style="min-width:140px">${esc(b.name||'')}</b><span>${esc(b.email)}</span>
             ${b.pair?`<span class="tag tag-neutral" title="Both dates in one booking">both dates</span>`:''}${b.code?`<span class="tag tag-neutral">${esc(b.code)}</span>`:''}${b.status&&b.status!=='booked'?`<span class="tag tag-accent-2">${esc(b.status)}</span>`:''}
@@ -14197,8 +14627,8 @@ function workshopsHTML(){
     </div>`; }
   const list=(wshops||[]);
   return `<div class="card">
-    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">WORKSHOPS</div><span style="flex:1"></span>
-      <button class="btn btn-primary btn-sm" onclick="wsNew()">New workshop</button></div>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><div class="kick">CLASS DATES</div><span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="wsNew()">New date</button></div>
     <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:70ch;margin:10px 0 0">Live ones appear on the site and take bookings through Stripe with no login.${
       owner?'':' You can write a workshop and read its bookings. What it costs and whether it goes on sale are Elliott\'s.'}</p>
     ${caHTML()}
@@ -14224,7 +14654,6 @@ function workshopsHTML(){
       <a class="btn btn-ghost btn-sm" href="/workshop.html?slug=${esc(w.slug)}" target="_blank" rel="noopener">Page</a>
       <button class="btn btn-secondary btn-sm" onclick="wsEdit(${jsq(w.slug)})">Edit</button></div>`; }).join('')
       ||(wshops?'<p class="muted" style="margin-top:12px">No workshops yet.</p>':'')}
-    ${owner?wsCodesHTML():''}
   </div>`;
 }
 /* ── discount codes for workshops: pounds or percent off ── */
@@ -14254,7 +14683,7 @@ function wsCodesHTML(forS){
   const mine=(wsCodes||[]).filter(c=>forS ? c.for==='session' : c.for!=='session');
   if(forS) return `<div class="card" style="margin-top:14px">
     <div class="kick">1-2-1 DISCOUNT CODES</div>
-    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the 1-2-1 booking page. A percentage comes off the whole booking, a pack of five or ten included; pounds come off once. A code cannot make a session free: for a free one, book it for them on Today.</p>
+    <p class="muted" style="font:400 13px/1.6 var(--sans);max-width:66ch;margin:8px 0 0">Typed on the 1-2-1 booking page. A percentage comes off the whole booking, a pack of five or ten included; pounds come off once. A code cannot make a session free: for a free one, book it in their 1-2-1s tab with nothing to pay.</p>
     ${mine.map(c=>wsCodeRow(c,true)).join('')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-top:10px;align-items:end">
       <div class="field"><label>Code</label><input ${inp} value="${esc(wsCodeNew.code)}" placeholder="FIRST10" oninput="wsCodeNew.code=this.value"></div>
@@ -14280,6 +14709,64 @@ function wsCodesHTML(forS){
 }
 
 /* ── Settings ─────────────────────────────────────────────────────── */
+/* ── Classes: everything about a class or a 1-2-1 in one place (25 Nov 2026)
+   Bookings were a tab, the dates under Settings, the 1-2-1 times and calls
+   two more Settings groups, and the codes a fourth. Elliott: "everything is
+   in multiple different places". One tab, five parts, the same panels. */
+let clsTab='bookings';
+const CLS_TABS=[['bookings','Bookings'],['dates','Class dates'],['times','1-2-1 times'],['calls','Calls'],['policy','Cancel policy']];
+function clsGo(t){ clsTab=t; if(view==='bookings') draw(); else go('bookings'); }
+function cancelPolicyHTML(){
+  const row=(when,what)=>`<div style="display:flex;gap:14px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)">
+    <b style="flex:none;width:150px;font:600 13.5px/1.4 var(--sans)">${when}</b>
+    <span style="flex:1;min-width:0;font:400 13.5px/1.5 var(--sans);color:var(--grey)">${what}</span></div>`;
+  return `<div class="card"><div class="kick">CLASSES</div>
+    <div style="margin-top:8px">
+      ${row('More than 48 hours','Cancel for a full refund, or move to another date.')}
+      ${row('24 to 48 hours','Cancel for a credit, good for 3 months on any class. Moving still works.')}
+      ${row('Inside 24 hours','No refund, no credit and no moves.')}
+    </div>
+    <div class="kick" style="margin-top:20px">1-2-1S</div>
+    <div style="margin-top:8px">
+      ${row('Any cancel','Comes to you on Today: a full, part or no refund, or a new date. You hire the room, so it is your call.')}
+      ${row('More than 24 hours','They move it themselves from the link in their confirmation, while the room is not hired yet. Once it is, a move comes to you.')}
+      ${row('Inside 24 hours','Any move comes to you, and they are told it may be charged in full.')}
+    </div>
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);margin-top:14px;max-width:62ch">The booking pages, emails and terms all say this. It lives in the code, so ask Claude to change it.</div></div>`;
+}
+function classesHTML(){
+  if(!CLS_TABS.some(t=>t[0]===clsTab)) clsTab='bookings';
+  const tabs=`<div style="display:flex;gap:4px;flex-wrap:wrap;background:rgba(0,64,61,.08);border-radius:14px;padding:4px;align-self:flex-start;max-width:100%">
+    ${CLS_TABS.map(([k,l])=>`<button onclick="clsGo('${k}')" style="cursor:pointer;border:0;border-radius:10px;padding:9px 14px;
+      font:600 13px/1 var(--sans);background:${clsTab===k?'#fff':'transparent'};color:${clsTab===k?'var(--deep)':'var(--grey)'};
+      box-shadow:${clsTab===k?'0 1px 2px rgba(17,17,17,.08)':'none'}">${l}</button>`).join('')}</div>`;
+  /* the tab names the page, so each panel carries its own heading and nothing more */
+  const wrap=body=>`<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;flex-direction:column;gap:var(--space-5)">${body}</section>`;
+  const body = clsTab==='dates' ? wrap(workshopsHTML())
+    : clsTab==='times' ? wrap(sessSlotsHTML())
+    : clsTab==='calls' ? wrap(callsSettingsHTML())
+    : clsTab==='policy' ? wrap(cancelPolicyHTML())
+    : bookingsPageHTML();
+  return `<div style="display:flex;flex-direction:column;gap:14px">${tabs}${body}</div>`;
+}
+/* ── Problems: what broke, in one place (25 Nov 2026) ──────────────
+   Errors were under Settings, The app; the film check beside them; emails
+   that did not send under Admin; the Stripe check under Money; and the same
+   errors again on Today and in the Journey. One page now, with one line on
+   Today pointing at it. */
+function problemsHTML(){
+  return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;flex-direction:column;gap:var(--space-5)">
+    <div>
+      ${mailAlertHTML(true)}
+      <div style="font:600 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Problems</div>
+      <h1 style="margin:8px 0 0">What <em style="color:var(--forest);font-style:normal">broke.</em></h1></div>
+    ${healthCardHTML()}${errsHTML()}${stripeHTML()}${mailguardHTML()}${maillogHTML()}${dbHTML()}
+    <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
+      The database check and the copy are one-time setup. The copy reads the old Blobs store,
+      so running it now would push stale data over live records. Leave it alone unless
+      something has gone wrong.</div>
+  </section>`;
+}
 /* ── settings, in groups ───────────────────────────────────────────
    Seventeen panels stacked down one page, from the funnel to the database
    check, so the thing you came for was somewhere in a mile of scrolling
@@ -14290,12 +14777,8 @@ const SET_GROUPS=[
   ['alerts','Notifications','What reaches this phone or computer the moment a client sends it.'],
   ['journey','Journey','Where people get to in the app and on the site, where they stop, and what broke.'],
   ['people','Who is here','The funnel, everyone who has signed up, and the people who run this.'],
-  ['money','Money','What things cost, the discount codes and the Stripe connection.'],
+  ['money','Money','What things cost, and every discount code: the app, classes and 1-2-1s.'],
   ['app','The app','What the ladder gives people, what is locked, and the words it sends.'],
-  ['workshops','Workshops','Dates, places and who has booked.'],
-  ['sessions','1-2-1 times','When people can book a 1-2-1, read from Arch 2\'s calendar at OverGravity.'],
-  ['calls','Calls','The free intro call and the welcome call, booked here instead of Calendly.'],
-  ['admin','Admin','The email switch and the one-time database jobs. Rarely.'],
 ];
 function setGo(k){ setTab=k; draw(); if(k==='alerts') cpushLoad(); }
 /* ══ notifications on the coach's own devices ══════════════════════
@@ -14311,7 +14794,7 @@ const KIND_LABELS=[
   ['told','Check-ins, skipped days and drill flags'],
   ['trained','Sessions they finish'],
   ['business','Bookings, applications and payments'],
-  ['signups','New sign-ups and app feedback'],
+  ['signups','App feedback, and new sign-ups (never by email)'],
 ];
 let cpush={loaded:false, ready:false, on:false, key:'', kinds:{}, mail:{}, devices:0, ends:[], busy:false, sub:null};
 /* the kinds that come as an email as well; sessions finished never have */
@@ -14424,10 +14907,12 @@ function routeHash(h){
   const p=new URLSearchParams(h);
   const c=p.get('c'), t=p.get('t')||'thread';
   if(p.get('google')){ const m=CC_GOOGLE_BACK[p.get('google')]||'Google sent you back.'; history.replaceState(null,'',location.pathname);
-    setTab='calls'; go('settings'); cc.d=null; cc.msg=''; flash(m); return true; }
+    clsGo('calls'); cc.d=null; cc.msg=''; flash(m); return true; }
   if(c && clients.some(x=>x.email===c)){ openClient(c, ['thread','marks','progress','notes','programme','121'].includes(t)?t:'thread'); return true; }
   /* a booking, a cancel or a refund in the coach's email opens here */
   if(h==='bookings'){ go('bookings'); return true; }
+  if(h==='settings-app' || h==='problems'){ go('problems'); return true; }
+  if(h==='settings'){ go('settings'); return true; }
   if(h==='today' || c){ go('today'); freshen(true); return true; }
   return false;
 }
@@ -14446,9 +14931,19 @@ try{
       const d=e.data||{};
       if(d.type==='lha-coach-go'){ routeHash(d.hash||'#today'); }
       if(d.type==='lha-push'){
+        /* a client's message, clip or question: everything is asked again now,
+           their plan included (a flag never reached Today until a reload), and
+           the alert stays until you click it (Phase 1, 25 Nov) */
+        const cm=/[#&]c=([^&]+)/.exec(String(d.url||'')), em=cm?decodeURIComponent(cm[1]):'';
+        if(d.important){ extrasAt=0; clientsAt=0; }
         freshen(true);
+        if(em) fetch(API+'/progress?email='+encodeURIComponent(em),{headers:hdr()}).then(r=>r.ok?r.json():null)
+          .then(x=>{ if(x){ prog[em]=Object.assign(x.progress||{},{flagSeen:Number(x.flagSeen)||0}); drawSoon(); } }).catch(()=>{});
         if(view==='client' && sel && ctab==='thread') loadCoachThread(sel, true);
-        if(!document.hidden) flash(String(d.title||'')+(d.body?': '+String(d.body).slice(0,80):''));
+        if(!document.hidden){
+          if(d.important){ pushAlert={title:String(d.title||''), body:String(d.body||'').slice(0,160), hash:String(d.url||'').split('#')[1]||'today'}; draw(); }
+          else flash(String(d.title||'')+(d.body?': '+String(d.body).slice(0,80):''));
+        }
       }
     });
   }
@@ -14464,11 +14959,10 @@ function settingsHTML(){
     background:${setTab===k?'var(--forest)':'#fff'};
     color:${setTab===k?'#fff':'var(--ink)'}">${l}</button>`).join('');
   const body =
-    setTab==='journey' ? (owner ? gaHTML()+journeyHTML()+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
-  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML():''}${leadsHTML()}</div>
+    setTab==='journey' ? (owner ? gaHTML()+journeyHTML()+membersHTML(true)+cpStuckHTML()+learnSearchHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The journey report is Elliott's.</div>`)
+  : setTab==='people' ? `<div>${numbersHTML()}${websiteHTML()}${weekBehindHTML()}${funnelHTML()}</div><div>${owner?payingHTML()+membersHTML(true):''}</div>
       ${newClientHTML()}${onboardingHTML()}${coachesHTML()}${owner?testersHTML():''}`
-  : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML():''}
-      ${owner?stripeHTML():''}
+  : setTab==='money' ? `${owner?placesHTML():''}${owner?pricesHTML():''}${owner?coHTML():''}${owner?codesHTML()+wsCodesHTML()+wsCodesHTML(true):''}
       ${owner?'':`<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch;
         padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)">
         <b style="display:block;font:600 13px/1.4 var(--sans);color:var(--ink)">Prices and discounts are Elliott's</b>
@@ -14476,20 +14970,13 @@ function settingsHTML(){
         someone a tier for nothing are all set by the account that owns the business.
         Everything else here is yours. Ask him and he can change any of it in a moment.</div>`}`
   : setTab==='app' ? `${owner?shortHTML():''}${owner?homeHTML():''}${owner?streamHTML():''}
-      ${owner?healthCardHTML():''}${owner?errsHTML():''}${owner?emailsHTML():''}`
-  : setTab==='workshops' ? workshopsHTML()
-  : setTab==='calls' ? (owner ? callsSettingsHTML() : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">Calls are set by Elliott.</div>`)
-  : setTab==='sessions' ? (owner ? sessSlotsHTML()+wsCodesHTML(true) : `<div style="font:400 13px/1.6 var(--sans);color:var(--grey);max-width:62ch">The 1-2-1 times are read from OverGravity's own calendar, so they are Elliott's to set.</div>`)
+      ${owner?emailsHTML():''}`
   : setTab==='alerts' ? cpushHTML()
-  : `${owner?mailguardHTML():''}${owner?maillogHTML():''}${owner?dbHTML():''}
-      <div style="font:400 12.5px/1.6 var(--sans);color:var(--grey2);max-width:62ch">
-        The database check and the copy are one-time setup. The copy reads the old Blobs store,
-        so running it now would push stale data over live records. Leave it alone unless
-        something has gone wrong.</div>`;
+  : '';
   return `<section class="glass" style="padding:26px 28px;border-radius:24px;display:flex;
     flex-direction:column;gap:var(--space-5)">
     <div>
-      ${mailAlertHTML(true)}
+      ${mailAlertHTML()}
       <h1 style="margin:0">Settings</h1>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">${tabs}</div>
       <div style="font:400 12.5px/1.5 var(--sans);color:var(--grey);margin-top:10px;max-width:62ch">${
@@ -14599,6 +15086,21 @@ function copyHTML(){
           copyBusy?'Copying…':'Copy and open the builder'}</button>
       </div>
     </div></div>`;
+}
+/* a client's message, clip or question while the dashboard is open: a card that
+   stays until you open it or close it */
+let pushAlert=null;
+function pushAlertGo(){ const h=pushAlert&&pushAlert.hash; pushAlert=null; draw(); if(h) routeHash('#'+h); }
+function pushAlertHTML(){
+  if(!pushAlert) return '';
+  return `<div role="alert" style="position:fixed;right:20px;top:20px;z-index:1001;width:min(360px,calc(100vw - 40px));background:#fff;
+    border:1px solid rgba(29,85,102,.14);border-left:4px solid var(--amber);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px 16px 12px">
+    <div style="display:flex;gap:10px;align-items:flex-start"><div style="flex:1;min-width:0;cursor:pointer" onclick="pushAlertGo()">
+      <div style="font:700 15px/1.3 var(--sans);color:var(--ink)">${esc(pushAlert.title)}</div>
+      ${pushAlert.body?`<div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">${esc(pushAlert.body)}</div>`:''}
+      <div style="font:600 12.5px/1 var(--sans);color:var(--forest);margin-top:10px">Open it</div></div>
+      <button aria-label="Close" onclick="pushAlert=null;draw()" style="border:0;background:none;cursor:pointer;font:400 20px/1 var(--sans);color:var(--grey2);width:32px;height:32px">&times;</button></div>
+  </div>`;
 }
 function toastHTML(){
   if(!toastMsg) return '';
@@ -14764,7 +15266,7 @@ function setChatsFilter(f){ chatsFilter=f; try{ localStorage.setItem('lha_coach_
 function chatRowHTML(c){
   const L=c.lastMsg, mine=L.from==='coach', k=chatKind(c);
   const typingNow=threadFor===c.email && Date.now()-dTypingAt<8000;
-  const prev=L.text ? esc(L.text) : `<i>${L.video?'Video':L.image?'Photo':'Message'}</i>`;
+  const prev=(L.video?'<b>Clip</b> ':L.image?'<b>Photo</b> ':'')+(L.text ? esc(L.text) : (L.video||L.image) ? '' : '<i>Message</i>');
   const tag=k==='enquiry'?' <em>enquiry</em>':k==='session'?' <em>1-2-1</em>':k==='member'?' <em>ladder</em>':k==='new'?' <em>new</em>':k==='past'?' <em>past client</em>':'';
   return `<button class="chatrow" data-k="${esc(c.email)}" onclick="openClient(${jsq(c.email)},'thread')">
     <span class="av"${k==='new'?' style="background:var(--mist);color:var(--grey)"':''}>${esc((String(c.name||c.email).trim()[0]||'?').toUpperCase())}</span>
@@ -14806,6 +15308,7 @@ function chatsHTML(){
 }
 
 function drawNow(){
+  todayVisitTick();
   /* the open chat is only built when it is the screen being shown: it was
      built on every draw of every screen, a date formatter per message
      (19 Nov 2026 sweep: 22 ms a draw with 300 messages held) */
@@ -14826,16 +15329,18 @@ function drawNow(){
     : view==='library'  ? libraryHTML()
     : view==='settings' ? settingsHTML()
     : view==='review'   ? reviewHTML()
-    : view==='bookings' ? bookingsPageHTML()
+    : view==='bookings' ? classesHTML()
+    : view==='problems' ? problemsHTML()
     : view==='news'     ? newsHTML()
     : view==='members'  ? membersHTML()
+    : view==='challenge'? challengeHTML()
     : view==='mu'       ? muHTML()
     : view==='site'     ? ''
     : todayHTML()}</main></div>`
     /* the toast goes last: in front of the editors it shifted each one along
        a place, so a toast rebuilt the open builder and lost its scroll */
     + bulkHTML() + copyHTML() + newBlkHTML()
-    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML() + toastHTML();
+    + builderHTML() + cpsHTML() + acctHTML() + newDrillHTML() + toastHTML() + pushAlertHTML();
   if(html!==lastHTML){ lastHTML=html; morphInto($('#v'), html); }
   syncReview(); syncSite();
 }
