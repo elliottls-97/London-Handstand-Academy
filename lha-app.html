@@ -13289,6 +13289,8 @@ function loadState(){
         if(m.lvl && typeof m.lvl==='object' && Object.keys(m.lvl).length) put('lvl', Object.assign({}, muVal('lvl')||{}, m.lvl));
       }
     if(d.ladderDone && Object.keys(d.ladderDone).length) st.ladderDone=d.ladderDone;
+      /* the form check reply watched, on any phone (28 Nov 2026) */
+      if(Number(d.seenReview)>(st.seenReview||0)) st.seenReview=Number(d.seenReview);
       /* the welcome seen and the call booked, from whichever phone did them */
       const ob=d.ob||{};
       if(ob.youIn) st.youInSeen=true;
@@ -13337,7 +13339,7 @@ function saveState(now){
          Not until the account's copy has been asked for: a new phone's
          first save would send empty lists over the account's own. */
       ...(stateIn?{wk:{goals:st.wkGoals||[], paused:st.wkPaused||[]}}:{}),
-      intake:st.intake||{}, quizDone:!!st.quizDone,
+      intake:st.intake||{}, quizDone:!!st.quizDone, seenReview:st.seenReview||0,
       stage: isMU() ? Math.max(0, Math.min(HS_DATA.STAGES.length-1, (st.hsKeep||{}).stage|0)) : placedStage(),
       lvl: (isMU() ? (st.hsKeep||{}).lvl : st.lvl) || {},
       ...((down||placing) && !isMU() ? {stageDown:true} : {}),
@@ -13584,7 +13586,7 @@ function reviewCardHTML(){
     <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
       <button class="btn2" onclick="goAsk()">Reply to this</button>
       ${fresh?`<button class="back" style="color:var(--grey);font-size:12.5px;padding:0 6px"
-        onclick="st.seenReview=st.lastReview;save();render()">Mark as read</button>`:''}
+        onclick="st.seenReview=st.lastReview;save();saveState();render()">Mark as read</button>`:''}
     </div></div>`;
 }
 
@@ -17202,6 +17204,8 @@ function drawOv(){
        wall work, not below it") */
     const climbNote=(()=>{ const cur=curStage(), P=cpProgress(cur), left=Math.max(0,(P.of||0)-(P.met||0));
       if(coachedView() || si<=cur || !P.of || !left || (typeof needsLevel==='function' && needsLevel())) return '';
+      /* their answers put them here or higher: the stage below is not theirs to finish first (28 Nov 2026) */
+      if(si<=ansStage()) return `<div class="stg-climb"><div style="flex:1;min-width:0"><b>Your answers put you on ${esc((STAGES[ansStage()]||{}).n||'')}.</b> This is where your training is.</div></div>`;
       const here=esc((STAGES[cur]||{}).n||'');
       return `<div class="stg-climb"><div class="stg-climb-n">${left}<small>check point${left===1?'':'s'} away</small></div>
         <div style="flex:1;min-width:0"><b>${si===cur+1 ? 'Reach all '+P.of+' at '+here+' to climb here.' : 'One stage at a time: reach all '+P.of+' at '+here+' first.'}</b>
@@ -18399,8 +18403,33 @@ function fcProgress(){
   if(!st.token || coachedView()) return null;
   const sent=st.awaitingReview||0, back=st.lastReview||0, unread=back && back>(st.seenReview||0);
   if(sent) return {k:'with', sent};
-  if(unread) return {k:'back', back};
+  /* a reply nobody marked as watched still goes after ten days */
+  if(unread && Date.now()-back < 10*864e5) return {k:'back', back};
   return null;
+}
+/* ── your answers put you higher (28 Nov 2026) ─────────────────────
+   A free account whose quiz answers place it on Take-Off still trains
+   Foundations, and the way up was a row below the fold (Angelica: advanced,
+   stuck on Foundations, not sure what to do). Said at the top, once a week
+   at most if put off. */
+function ansStage(){
+  let a=placedStage();
+  try{ const sk=(st.intake||{}).skills; if(sk) a=Math.max(a, skillStage(sk)|0); }catch(e){}
+  return Math.min(STAGES.length-1, a);
+}
+function aboveCardHTML(){
+  if(!st.token || coachedView() || st.coached || isMU() || isPlus()) return '';
+  if(trialPending() || needsLevel()) return '';
+  const a=ansStage(), c=curStage(), S=STAGES[a];
+  if(a<=c || !S || S.soon) return '';
+  if(st.aboveX && Date.now()-st.aboveX < 7*864e5) return '';
+  return `<div class="rise rise-1" style="padding:12px 20px 0"><div class="card" style="position:relative;padding:18px 18px 16px">
+    <button onclick="st.aboveX=Date.now();save();render()" aria-label="Not now" style="position:absolute;top:10px;right:10px;width:34px;height:34px;border:0;border-radius:50%;background:rgba(17,17,17,.05);cursor:pointer;color:var(--grey);font:600 16px/1 var(--sans)">&times;</button>
+    <div class="kick2" style="color:var(--forest)">YOUR ANSWERS PUT YOU ON</div>
+    <div style="font:400 26px/1.1 var(--serif);margin-top:6px;padding-right:34px">${esc(S.n)}<em style="color:var(--forest);font-style:normal">.</em></div>
+    <div style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:8px">You are past most of ${esc(STAGES[c].n)}, the free stage. ${esc(S.goal||'')}</div>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="openStage(${a})">See ${esc(S.n)}</button>
+  </div></div>`;
 }
 function fcBannerHTML(){
   const f=fcProgress(); if(!f) return '';
@@ -18412,7 +18441,7 @@ function fcBannerHTML(){
   const sub = f.k==='back' ? 'A video on your clip, with what to change.'
     : 'Sent '+day(f.sent)+'. '+(by?'Your video reply comes back by '+by+'.':'Your video reply comes back '+fcWhen()+'.');
   const rv = st.lastAnswer && isUid(st.lastAnswer.video) ? st.lastAnswer.video : '';
-  const tap = f.k==='back' ? (rv ? `st.seenReview=st.lastReview;save();openReply('',${jsq(rv)})` : "st.seenReview=st.lastReview;save();goAsk()") : "st.coTab='check';go('coaching')";
+  const tap = f.k==='back' ? (rv ? `st.seenReview=st.lastReview;save();saveState();openReply('',${jsq(rv)})` : "st.seenReview=st.lastReview;save();saveState();goAsk()") : "st.coTab='check';go('coaching')";
   return `<div class="rise rise-1" style="padding:14px 20px 0"><button onclick="${tap}" style="width:100%;display:flex;align-items:center;gap:12px;
       padding:14px 16px;border-radius:18px;border:1.5px solid rgba(35,127,149,.25);background:#fff;cursor:pointer;text-align:left;color:var(--ink)">
     <span style="flex:1;min-width:0"><span style="display:block;font:600 10.5px/1 var(--sans);letter-spacing:.14em;color:var(--forest)">YOUR FORM CHECK</span>
@@ -24044,9 +24073,10 @@ function screenHome(){
     ${/* the week is in the bar at the top (18 Oct 2026) */''}
     ${sessionLineHTML()}
     ${obBannerHTML()}
+    ${aboveCardHTML()}
     ${fcBannerHTML()}
     ${chalCardHTML()}
-    ${(fcCanOffer() && st.lastReview && !st.awaitingReview) ? `<div class="rise rise-1 fckeep" style="padding:12px 20px 0"><div class="card" style="position:relative;padding:16px 18px 14px">${FC_KEEP_X}
+    ${(fcCanOffer() && st.lastReview && !st.awaitingReview && !aboveCardHTML()) ? `<div class="rise rise-1 fckeep" style="padding:12px 20px 0"><div class="card" style="position:relative;padding:16px 18px 14px">${FC_KEEP_X}
       <div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
       <div style="font:400 18px/1.25 var(--serif);margin-top:6px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
       ${fcOfferHTML("buyPlan('checks')")}</div></div>` : ''}
@@ -28563,7 +28593,7 @@ function screenCoaching(){
             <span style="flex:none;font:600 12px/1 var(--sans);color:${full?'var(--deep)':'var(--grey)'}">${used} of ${mx} clips in</span></div>
           <div style="display:flex;gap:5px;margin-top:10px">${Array.from({length:mx},(_,i)=>`<i style="flex:1;height:5px;border-radius:99px;
             background:${i<used?'var(--forest)':'rgba(29,85,102,.12)'}"></i>`).join('')}</div>
-          ${(st.lastReview && st.lastReview>(st.seenReview||0))?`<button onclick="st.seenReview=st.lastReview;save();goAsk()" style="display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;
+          ${(st.lastReview && st.lastReview>(st.seenReview||0))?`<button onclick="st.seenReview=st.lastReview;save();saveState();goAsk()" style="display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;
             padding:12px 14px;border-radius:14px;border:1px solid rgba(35,127,149,.25);background:rgba(35,127,149,.07);cursor:pointer;text-align:left">
             <span style="flex:1;font:600 14px/1.35 var(--sans);color:var(--deep)">Elliott has answered.${full?'':' Your other clips are still yours this fortnight.'}</span>
             <span style="flex:none;font:600 13px/1 var(--sans);color:var(--forest)">Read it &rarr;</span></button>`:''}
@@ -28606,7 +28636,7 @@ function screenCoaching(){
               ${asked?`<div class="fcrep-q"><div class="kick2" style="color:var(--grey)">YOU ASKED</div><div>${esc(asked)}</div></div>`:''}
               <div style="display:flex;gap:10px;margin-top:auto;padding-top:18px">
                 <button class="btn" style="flex:1;margin:0" onclick="openReply('', ${jsq(ans.video)})">Watch the reply</button>
-                <button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="st.seenReview=st.lastReview;save();render()">Got it</button></div>
+                <button class="btn2" style="flex:none;width:auto;margin:0;padding:0 18px" onclick="st.seenReview=st.lastReview;save();saveState();render()">Got it</button></div>
             </div></div>
             ${fcCanOffer() ? `<div class="card fckeep" style="position:relative;padding:18px 20px 16px;margin-top:16px">${FC_KEEP_X}<div class="kick2" style="color:var(--forest)">KEEP ME ON IT</div>
               <div style="font:400 19px/1.2 var(--serif);margin-top:6px;padding-right:30px">Your handstand, assessed every <em style="color:var(--forest);font-style:normal">fortnight.</em></div>
@@ -28651,7 +28681,7 @@ function screenCoaching(){
                which is the screen they are already standing on. The answer
                is above; this just marks it read. -->
           ${done?`<button class="btn" style="width:100%;margin-top:16px"
-            onclick="st.seenReview=st.lastReview;save();render()">Got it</button>
+            onclick="st.seenReview=st.lastReview;save();saveState();render()">Got it</button>
           <button onclick="goAsk()"
             style="width:100%;margin-top:8px;background:none;border:0;cursor:pointer;padding:10px;
             color:var(--forest);font:600 13.5px/1 var(--sans)">Read it in the chat</button>
@@ -28663,7 +28693,7 @@ function screenCoaching(){
             <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="seeCoaching()">See coaching</button></div>` : ''}
           ${(!sells() && IOS_APP && iapChecks && st.freeCheckUsed && !st.coached && !(st.checks && st.checks.on)) ? `<div style="border-top:1px solid rgba(29,85,102,.08);margin-top:12px;padding-top:12px;
             font:400 13.5px/1.5 var(--sans);color:var(--grey)">Want the next one in a fortnight?
-            <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="st.seenReview=st.lastReview;save();render()">See form checks</button></div>` : ''}`:''}
+            <button class="wk-link" style="display:inline;margin:0;padding:0" onclick="st.seenReview=st.lastReview;save();saveState();render()">See form checks</button></div>` : ''}`:''}
         </div>`;
       })()
     : (!canCheck && st.boughtCheck && Date.now()-st.boughtCheck<15*60000)

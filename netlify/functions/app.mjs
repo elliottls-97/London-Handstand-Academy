@@ -12304,6 +12304,8 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           cur.intake = out;
         }
         if (body.quizDone !== undefined) cur.quizDone = !!body.quizDone;
+        /* the form check reply watched, so every phone knows (28 Nov 2026) */
+        if (Number.isFinite(Number(body.seenReview)) && Number(body.seenReview) > (Number(cur.seenReview) || 0)) cur.seenReview = Math.min(Number(body.seenReview), Date.now() + 864e5);
         /* the difficulty dial per stage: Easier 1, As written 2, Harder 3. It
            was saved on the phone only, so it reset on every new one (13 Oct 2026) */
         if (body.lvl && typeof body.lvl === 'object') {
@@ -12394,7 +12396,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
        again described something that had never worked. */
     return json({ dayMap: out.dayMap || {}, secs: out.secs || {},
       time: out.time || 0, perWeek: out.perWeek || 0, wk: out.wk || null,
-      intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {},
+      intake: out.intake || {}, quizDone: !!out.quizDone, lvl: out.lvl || {}, seenReview: Number(out.seenReview) || 0,
       stage: Number.isInteger(out.stage) ? out.stage : null,
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
