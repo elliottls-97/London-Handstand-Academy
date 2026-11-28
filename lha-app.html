@@ -16113,6 +16113,7 @@ function drawOv(){
   }
   if(st.ov==='why'){ body=screenWhyBody(); }
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
+  if(st.ov==='cptest'){ body=cpTestSheetHTML(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='wsbook'){ body=wsBookBody(); }
   if(st.ov==='wsbooked'){ body=wsBookedBody(); }
@@ -25891,13 +25892,38 @@ function cpDayCardHTML(home){
    each in the follow along, the check point's own row there to tick it,
    and the sheet of numbers at the end to say what each attempt was. */
 const CPTEST_EVERY = 14*864e5;
-function cpTestItems(){
+function cpTestRows(){
   const out=[]; (cpFor(curStage())||[]).forEach(c=>{ if(!c || c.extra || cpAsks(c)) return;
-    const d=c.demo && drillById(c.demo); if(d && d.url && out.findIndex(x=>x.v===d.v)<0) out.push(d); });
+    const d=c.demo && drillById(c.demo); if(d && d.url && out.findIndex(x=>x.d.v===d.v)<0) out.push({c, d}); });
   return out;
 }
-/* due: never tested and at least one session done, or a fortnight since the
-   last check point was logged or the test was put off */
+function cpTestItems(){ return cpTestRows().map(r=>r.d); }
+/* what they are about to do, before they do it: every check point with its
+   picture and what counts, and the warm-up as a choice (Elliott, 28 Nov
+   2026: "have optional warm up before they start ... they need to see the
+   drills they are doing") */
+function cpTestWarm(){ try{ return ((warmupFor(8*60, curStage(), null)||{}).items||[]).slice(0,4); }catch(e){ return []; } }
+function cpTestSheetHTML(){
+  const rows=cpTestRows(), nx=(STAGES[curStage()+1]||{}).n||'', warm=cpTestWarm(), wOn=st.cpTestWarm!==false && warm.length>0;
+  return `<div class="kick2" style="color:#8a5a12">CHECK POINT TEST</div>
+    <div style="font:400 30px/1.05 var(--serif);letter-spacing:-.015em;margin-top:8px">One go at <em style="color:var(--forest);font-style:normal">each.</em></div>
+    <div style="font:400 14.5px/1.5 var(--sans);color:var(--grey);margin-top:8px">${rows.length} check points, about ${Math.max(5, Math.round((rows.length*90+(wOn?warm.length*40:0))/60))} minutes. Log what you get as you go${nx?', and see how close '+esc(nx)+' is':''}.</div>
+    <div style="margin-top:14px">${rows.map((r,i)=>{ const th=climbThumb(r.c, false), met=cpMet(r.c);
+      return `<button onclick="pgDrill(${jsq(r.d.v)})" style="display:flex;align-items:center;gap:12px;width:100%;padding:9px 0;border:0;border-top:${i?'1px solid rgba(29,85,102,.08)':'0'};background:none;cursor:pointer;text-align:left">
+        <span style="flex:none;position:relative;width:64px;height:44px;border-radius:10px;overflow:hidden;background:#dbeaee">${th?`<img src="${esc(th.still)}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.remove()">`:''}</span>
+        <span style="flex:1;min-width:0"><b style="display:block;font:600 14.5px/1.25 var(--sans);color:var(--ink)">${esc(r.c.n)}</b>
+          <span style="display:block;font:400 12.5px/1.3 var(--sans);color:${met?'#8a5a12':'var(--grey)'};margin-top:2px">${met?'Reached. Test it again':esc(rungGoal(r.c))}</span></span>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--grey)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M9 6l6 6-6 6"/></svg></button>`; }).join('')}</div>
+    ${warm.length?`<label style="display:flex;align-items:center;gap:12px;margin-top:12px;padding:12px 14px;border-radius:14px;background:rgba(29,85,102,.05);cursor:pointer">
+      <input type="checkbox" ${wOn?'checked':''} onchange="st.cpTestWarm=this.checked;save();drawOv()" style="width:22px;height:22px;accent-color:#237f95;flex:none">
+      <span style="flex:1;min-width:0"><b style="display:block;font:600 14px/1.25 var(--sans)">Warm up first</b>
+        <span style="display:block;font:400 12.5px/1.3 var(--sans);color:var(--grey);margin-top:2px">${esc(warm.map(d=>d.n).join(', '))}</span></span></label>`:''}
+    <button class="btn" style="width:100%;margin-top:16px" onclick="cpTestGo()">Start the test</button>
+    <button onclick="closeOv()" style="width:100%;background:none;border:0;cursor:pointer;margin-top:4px;padding:12px;font:500 14px/1 var(--sans);color:var(--grey2)">Not now</button>`;
+}
+/* due: nothing ever logged, or a fortnight since the last check point was
+   logged. Nobody has to have trained first: hardly anyone had, and the
+   test is the way back in (Elliott, 28 Nov 2026) */
 function cpTestDue(){
   if(coachedView() || isMU() || (typeof needsLevel==='function' && needsLevel()) || stageLocked(curStage())) return false;
   if(!cpTestItems().length) return false;
@@ -25905,7 +25931,7 @@ function cpTestDue(){
   if(st.cpTestLater && Date.now()-st.cpTestLater < 3*864e5) return false;
   let last=Number(st.cpTestAt)||0;
   const log=cpLog(); Object.keys(log).forEach(k=>(log[k]||[]).forEach(r=>{ if(r && r.at>last) last=r.at; }));
-  if(!last) return sessionsDone().length>=1;
+  if(!last) return true;
   return Date.now()-last > CPTEST_EVERY;
 }
 function cpTestCardHTML(){
@@ -25923,9 +25949,13 @@ let cpTestRun=false;
 function startCpTest(){
   if(coachedView()) return;
   if(stageLocked(curStage())){ openStage(curStage()); return; }
-  const items=cpTestItems(); if(!items.length){ openCpDay(); return; }
+  if(!cpTestItems().length){ openCpDay(); return; }
+  openOv('cptest');
+}
+function cpTestGo(){
+  const items=cpTestItems(); if(!items.length) return;
   if(st.ov) closeOv();
-  let warm=[]; try{ warm=((warmupFor(8*60, curStage(), null)||{}).items||[]).slice(0,4); }catch(e){ warm=[]; }
+  const warm = st.cpTestWarm===false ? [] : cpTestWarm();
   const out=[];
   warm.forEach(it=>out.push({it, gi:0, ii:out.length, set:1, sets:1, grp:'Warm-up'}));
   items.forEach(it=>out.push({it, gi:1, ii:out.length, set:1, sets:1, grp:'Check point test'}));
