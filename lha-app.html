@@ -9045,7 +9045,7 @@ function pressLogged(k){
    now. They train the level after it; one who can do the top is logged as
    having reached it. */
 let pqStep=0, pqAns={};
-function openPressQuiz(){ pqStep=-1; pqAns=Object.assign({}, (st.pressQuiz||{}).a||{}); st.ovFull=true; openOv('pressq'); }
+function openPressQuiz(){ pqGate=false; pqStep=-1; pqAns=Object.assign({}, (st.pressQuiz||{}).a||{}); st.ovFull=true; openOv('pressq'); }
 function pqPick(j){
   const P=PRESS_LADDERS[pqStep]; if(!P) return;
   pqAns[P.k]=j; pqStep++;
@@ -9079,8 +9079,12 @@ function pressGridHTML(P, fn, cur){
       ${uid?`<img src="${esc(streamThumb(uid))}" alt="" loading="lazy" onerror="this.remove()">`:`<span class="pg-soon">Video coming soon</span>`}
       <i>${j+1}</i><span class="pg-n">${esc(lv.n)}${lv.opt?'<small>More than you need</small>':''}</span></button>`; }).join('')}</div>`;
 }
-function pqBack(){ if(pqStep>-1){ pqStep--; drawOv(); } }
-function pqStart(){ pqStep=0; drawOv(); }
+/* before the eight: can they hold chest to wall for 30 seconds? Without it
+   the press is not the work yet, and Wall Work is (Elliott, 28 Nov 2026) */
+let pqGate=false;
+function pqBack(){ if(pqGate){ pqGate=false; pqStep=-1; drawOv(); return; } if(pqStep===0){ pqGate=true; drawOv(); return; } if(pqStep>-1){ pqStep--; drawOv(); } }
+function pqStart(){ pqGate=true; pqStep=0; drawOv(); }
+function pqWall(v){ pqAns.wall=v; pqGate=false; pqStep=0; drawOv(); }
 function pqFinish(){
   const lv={}, now=Date.now();
   st.track=st.track||{}; st.track.checkpoints=st.track.checkpoints||{};
@@ -9099,15 +9103,22 @@ function pqFinish(){
 /* can't hold an L shaped handstand for 30 seconds: every step of the press
    sits on it, so the advice is to go back down the ladder to Foundations,
    where it is taught (Elliott, 28 Nov 2026) */
-const pressGateOn = () => { try{ return !!st.pressQuiz && pressLvlOf('stack')===0; }catch(e){ return false; } };
+/* the lower of the two sends them furthest back: no L shaped handstand is
+   Foundations, no 30 second chest to wall is Wall Work */
+function pressGate(){ try{ if(!st.pressQuiz) return null;
+  if(pressLvlOf('stack')===0) return {si:0, what:'Hold an L shaped handstand for 30 seconds first.', train:'stack'};
+  if(Number((st.pressQuiz.a||{}).wall)===0) return {si:1, what:'Hold a chest to wall handstand for 30 seconds first.'};
+  return null; }catch(e){ return null; } }
+const pressGateOn = () => !!pressGate();
 function pressGateHTML(){
-  if(!pressGateOn()) return '';
+  const G=pressGate(); if(!G) return '';
+  const nm=esc(STAGES[G.si].n);
   return `<div style="margin:10px 0 2px;padding:14px 16px;border-radius:18px;background:#fff;border:1px solid rgba(0,64,61,.10);box-shadow:0 1px 2px rgba(0,64,61,.05),0 8px 20px rgba(0,64,61,.06)">
     <div style="display:flex;align-items:center;gap:7px;font:700 10.5px/1 var(--sans);letter-spacing:.12em;color:#9a5a0c"><i style="width:8px;height:8px;border-radius:50%;background:#e8962f"></i>BEFORE ANY PRESS WORK</div>
-    <div style="font:600 16px/1.3 var(--sans);color:var(--ink);margin-top:6px">Hold an L shaped handstand for 30 seconds first.</div>
-    <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">Every step of the press sits on it. We recommend you go back down the ladder to learn it: it is taught in Foundations.</div>
-    <button class="btn" style="width:100%;margin:12px 0 0" onclick="closeOv();goToStage(0)">Go back to Foundations</button>
-    <button type="button" class="wk-link" style="display:block;margin:10px auto 0;padding:0" onclick="closeOv();pressPartSession('stack')">Or train the stacked hold here, 15 min</button></div>`;
+    <div style="font:600 16px/1.3 var(--sans);color:var(--ink);margin-top:6px">${esc(G.what)}</div>
+    <div style="font:400 13.5px/1.45 var(--sans);color:var(--grey);margin-top:4px">Every step of the press sits on it. We recommend you go back down the ladder to learn it: it is taught in ${nm}.</div>
+    <button class="btn" style="width:100%;margin:12px 0 0" onclick="closeOv();goToStage(${G.si})">Go back to ${nm}</button>
+    ${G.train?`<button type="button" class="wk-link" style="display:block;margin:10px auto 0;padding:0" onclick="closeOv();pressPartSession('${G.train}')">Or train the stacked hold here, 15 min</button>`:''}</div>`;
 }
 /* the quiz's answer, as a diagnosis: each step of the press, what is
    holding it back, and the check point that fixes it (Elliott, 28 Nov
@@ -9255,6 +9266,18 @@ function pressQuizBody(){
     <button class="btn" style="width:100%;margin-top:18px" onclick="pqStart()">Start</button>
     <button class="btn2" style="width:100%;margin-top:8px" onclick="closeOv()">Later, when I can train</button>
     ${sure}`;
+  if(pqGate){ const cw=pqAns.wall;
+    const o=(v,t,sub)=>`<button onclick="pqWall(${v})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+      padding:14px 16px;border-radius:16px;background:#fff;border:1.5px solid ${cw===v?'var(--forest)':'rgba(29,85,102,.14)'};margin-top:8px">
+      <span style="flex:1;min-width:0"><b style="display:block;font:600 15px/1.3 var(--sans);color:var(--ink)">${t}</b>${sub?`<span style="display:block;font:400 12.5px/1.4 var(--sans);color:var(--grey);margin-top:3px">${sub}</span>`:''}</span>
+      <span style="flex:none;color:var(--forest);font:600 18px/1 var(--sans)">›</span></button>`;
+    return `<div style="display:flex;align-items:center;gap:10px">
+      <button onclick="pqBack()" aria-label="Back" style="flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(29,85,102,.14);background:#fff;cursor:pointer;color:var(--deep)">&larr;</button>
+      <div class="kick2" style="color:var(--forest)">BEFORE THE EIGHT &middot; CHEST TO WALL</div></div>
+    <div style="font:400 28px/1.08 var(--serif);margin-top:16px">Can you hold a chest to wall handstand for 30 seconds?</div>
+    <div style="font:400 13.5px/1.5 var(--sans);color:var(--grey);margin:8px 0 12px">Thirty relaxed seconds on the wall, in a straight line. The press needs that time upside down before any of its parts.</div>
+    ${pressClipHTML({n:'Chest to wall handstand', clip:'chest-to-wall-handstand'}, 'chest-to-wall-handstand')}
+    <div style="margin-top:8px">${o(1,'Yes','')}${o(0,'Not yet','')}</div>${sure}`; }
   const P=PRESS_LADDERS[pqStep], cur=pqAns[P.k];
   const opt=(j,t,sub)=>`<button onclick="pqPick(${j})" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
       padding:14px 16px;border-radius:16px;background:#fff;border:1.5px solid ${cur===j?'var(--forest)':'rgba(29,85,102,.14)'};margin-top:8px">

@@ -12337,7 +12337,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
         /* the press quiz's answers, so a second phone knows the quiz is done
            and what it found (28 Nov 2026) */
         if (body.pressQuiz && typeof body.pressQuiz === 'object' && body.pressQuiz.a && typeof body.pressQuiz.a === 'object') {
-          const K = ['stack', 'lean', 'push', 'flex', 'float', 'tuck', 'back', 'unroll'], a = {};
+          const K = ['wall', 'stack', 'lean', 'push', 'flex', 'float', 'tuck', 'back', 'unroll'], a = {};
           for (const k of K) { const v = Number(body.pressQuiz.a[k]); if (Number.isInteger(v) && v >= -1 && v <= 5) a[k] = v; }
           cur.pressQuiz = { a, at: Number(body.pressQuiz.at) || Date.now() };
         }
