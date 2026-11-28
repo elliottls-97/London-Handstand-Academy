@@ -1238,6 +1238,27 @@ html.mu .ls,html.mu .ls-free,html.mu .lw-mini .lw-minif,html.mu .lw-minin{grid-t
 .ls-run.ls-ph .ls-fill,.ls-run.ls-ph .ls-badge{animation:lsFillIn .4s ease calc(2400ms + var(--ls-off,0ms)) both}
 @keyframes lsFillIn{from{opacity:0}to{opacity:1}}
 .stgmv{display:flex;align-items:flex-end;justify-content:center;gap:16px;margin-top:16px}
+@media (prefers-reduced-motion: reduce){.cpe-anim.go *{animation-duration:.01s!important;animation-delay:0s!important}}
+.cpe-sheet{margin-top:12px}
+.cpe-strip{padding:6px 2px 4px}
+.cpe-strip .ls-step{pointer-events:none}
+.cpe-strip .ls-line,.cpe-strip .ls-free{display:none!important}
+.cpe-list{margin-top:8px;cursor:pointer}
+.cpe-list button{pointer-events:none}
+.cpe-list .lc-camb{display:none}
+.cpe-list .lc-r.on .lc-ring .pg circle{fill:#237f95;stroke:#237f95;stroke-opacity:1}
+.cpe-list .lc-r.on .lc-ring .pg .arc{display:none}
+.cpe-list .lc-r.on .lc-tk{color:#fff}
+.cpe-list .lc-r.on .lc-t b{color:var(--forest)}
+.cpe-list .cl-next{display:none}
+.cpe-list .lc-r.cpe-pop .lc-ring{animation:cpeRing .42s cubic-bezier(.3,1.5,.5,1)}
+@keyframes cpeRing{50%{transform:scale(1.28)}}
+.cpe-strip .ls-step.cpe-done .ls-g{color:var(--forest)!important}
+.cpe-strip .ls-step.cpe-done .ls-fill>span{color:var(--forest)}
+.cpe-strip .ls-step.cpe-up .ls-g{color:#e8962f!important;animation:cpeUp .8s cubic-bezier(.3,1.4,.5,1) both}
+.cpe-strip .ls-step.cpe-up .ls-n{color:var(--ink)!important;font-weight:700}
+@keyframes cpeUp{0%{transform:translateY(0) scale(1)}45%{transform:translateY(-12px) scale(1.15)}100%{transform:translateY(0) scale(1.12)}}
+@media (prefers-reduced-motion: reduce){.cpe-strip .ls-step.cpe-up .ls-g,.cpe-list .lc-r.cpe-pop .lc-ring{animation:none}}
 .stgmv-f{display:flex;flex-direction:column;align-items:center;gap:5px}
 .stgmv-f .lw-fig{width:54px;height:70px;animation:none}
 .stgmv-f small{font:600 11px/1.2 var(--sans);color:var(--grey)}
@@ -15706,7 +15727,8 @@ function openOv(kind){
 /* The drill list is a workout in progress, so it is left on purpose, with
    its own Close, and never by a tap beside it or a swipe down from its top:
    both threw the session away mid-way. */
-const OV_HELD = k => k==='list' || (k==='install' && !!dlPending);
+/* cpeasy: they say which check points they can do before going on (Elliott, 28 Nov 2026) */
+const OV_HELD = k => k==='list' || k==='cpeasy' || (k==='install' && !!dlPending);
 function ovScrim(e){ if(e.target && e.target.id==='ov' && !OV_HELD(st.ov)) closeOv(); }
 /* ── a sheet leaving ───────────────────────────────────────────────
    A sheet slid up over half a second and was simply gone when it closed.
@@ -16205,6 +16227,7 @@ function drawOv(){
   if(st.ov==='cpbuy'){ body=cpBuyBody(); }
   if(st.ov==='cptest'){ body=cpTestSheetHTML(); }
   if(st.ov==='cpask'){ body=cpAskSheetHTML(); }
+  if(st.ov==='cpeasy'){ body=cpEasySheetHTML(); }
   if(st.ov==='drillhist'){ body=drillHistBody(st.histV); }
   if(st.ov==='wsbook'){ body=wsBookBody(); }
   if(st.ov==='wsbooked'){ body=wsBookedBody(); }
@@ -26152,13 +26175,125 @@ function cpAskNo(){
   st.cpAskNo=st.cpAskNo||{}; st.cpAskNo[st.cpAskK]=Date.now(); save();
   closeOv(); toast('It is in your sessions. Tick it when you get there.');
 }
+/* ── do these look too easy? (Elliott, 28 Nov 2026) ───────────────
+   Now and then, for somebody whose answers put them higher than they train,
+   or who has most of a stage still to tick: their check points, ticked off
+   one after another, and the figure climbing to the next stage, so moving up
+   looks like the next thing to do. Every five days at most for the first,
+   a fortnight for the rest. */
+function cpEasyLeft(){
+  return (cpFor(curStage())||[]).filter(c=>c && !c.off && !c.extra && !cpMet(c) && !(typeof cpAsks==='function' && cpAsks(c)));
+}
+function cpEasyDue(){
+  if(!st.token || coachedView() || st.coached || isMU() || needsLevel() || trialPending()) return false;
+  if(!STAGES[curStage()+1]) return false;
+  const left=cpEasyLeft(); if(left.length<2) return false;
+  const above = ansStage()>curStage();
+  /* nothing ticked on the stage at all is the stuck case (Elliott, 28 Nov 2026):
+     as often as the placed-higher one */
+  const none = cpProgress(curStage()).met===0;
+  if(!above && !none && left.length<3) return false;
+  const gap = ((above||none)?5:14)*864e5;
+  /* asked every day they open the app until they answer, then not for the gap */
+  return !(st.cpEasyAns && Date.now()-st.cpEasyAns < gap) && st.cpAskDay!==dayKey(Date.now());
+}
+function cpEasyOpen(){
+  if(st.ov || document.getElementById('tour')) return false;
+  st.cpEasyAt=Date.now(); st.cpAskDay=dayKey(Date.now()); save();
+  window._cpeSel=new Set();
+  track('cpeasy'); openOv('cpeasy');
+  /* the ticks and the climb play once, then the rows are theirs to tap */
+  setTimeout(cpePlay, 420);
+  return true;
+}
+function cpEasySheetHTML(){
+  const cur=curStage(), nx=STAGES[cur+1]||{}, n=cpEasyLeft().length;
+  /* the real Train: the ladder strip and the check point rows as they look
+     there, so what moves you up is the thing they see every day (Elliott,
+     28 Nov 2026: "with the ladder and checkpoints as they actually look") */
+  return `<div class="kick2" style="color:#8a5a12">DO THESE LOOK TOO EASY?</div>
+    <div style="font:400 27px/1.1 var(--serif);letter-spacing:-.01em;margin-top:8px;text-wrap:balance">Tick the ones you can do, and <em style="color:var(--forest);font-style:normal">climb.</em></div>
+    <div class="cpe-sheet" id="cpeDemo">${cpeDemoHTML()}</div>
+    <div id="cpeSay" style="font:400 14px/1.5 var(--sans);color:var(--grey);margin-top:10px">${ansStage()>cur?'Your answers put you on '+esc((STAGES[ansStage()]||{}).n||'')+'. ':''}Every check point you can do fills ${esc(STAGES[cur].n)}. Fill it and ${esc(nx.n||'the next stage')} opens.</div>
+    <button class="btn" id="cpeGo" style="width:100%;margin-top:14px" onclick="cpeDone()">I am working on all of them</button>
+    <button class="btn2" style="width:100%;margin-top:9px" onclick="cpEasyAll()">I can do all ${n}: tick them off</button>`;
+}
+function cpeDemoHTML(){
+  return `<div class="cpe-strip">${ladderStripHTML({})}</div>
+    <div class="cpe-list hcps" onclick="cpeRowTap(event)">${cpListHTML(curStage())}</div>`;
+}
+/* the fill of the stage you are on, for a number of check points reached */
+function cpeFill(k){
+  const P=cpProgress(curStage()), el=document.querySelector('#cpeDemo .ls-step.now .ls-fill');
+  if(el && P.of) el.style.height=Math.round(Math.min(P.of, k)/P.of*100)+'%';
+  const bd=document.querySelector('#cpeDemo .ls-step.now .ls-badge'); if(bd && P.of) bd.textContent=Math.min(P.of,k)+'/'+P.of;
+}
+/* every check point reached: the stage goes green and the amber climbs on */
+function cpeClimb(on){
+  const steps=[...document.querySelectorAll('#cpeDemo .ls-step')], cur=curStage(), a=steps[cur], b=steps[cur+1];
+  if(!a || !b) return;
+  a.classList.toggle('cpe-done', on); b.classList.toggle('cpe-up', on);
+  const say=document.getElementById('cpeSay'), nx=(STAGES[cur+1]||{}).n||'';
+  if(say && on) say.innerHTML='<b style="color:var(--forest);font-weight:600">'+esc(nx)+' opens.</b> That is how you move up the ladder.';
+}
+/* the show, once: each check point not yet reached ticks in turn and fills
+   the figure, then the climb, then it all goes back for them to pick */
+function cpePlay(){
+  const box=document.getElementById('cpeDemo'); if(!box) return;
+  const P=cpProgress(curStage()), rows=cpEasyLeft().map(c=>box.querySelector('.lc-r[data-ck="'+c.k+'"]')).filter(Boolean);
+  let k=P.met, t=500;
+  box.classList.add('playing');
+  rows.forEach((r,i)=>{ setTimeout(()=>{ r.classList.add('on','cpe-pop'); k++; cpeFill(k); }, t+i*420); });
+  t+=rows.length*420+250;
+  setTimeout(()=>cpeClimb(true), t);
+  setTimeout(()=>{ const b=document.getElementById('cpeDemo'); if(!b) return;
+    b.innerHTML=cpeDemoHTML(); b.classList.remove('playing'); window._cpeSel=new Set(); cpePaint();
+    const say=document.getElementById('cpeSay'); if(say) say.innerHTML='<b style="color:var(--ink);font-weight:600">Now tap the ones you can already do.</b> The rest are what you are working on.'; }, t+2200);
+}
+function cpeRowTap(e){
+  const box=document.getElementById('cpeDemo'); if(!box || box.classList.contains('playing')) return;
+  const r=e.target.closest('.lc-r'); if(!r) return;
+  e.preventDefault(); e.stopPropagation();
+  const k=r.dataset.ck; if(!cpEasyLeft().some(c=>c.k===k)) return;
+  const sel=window._cpeSel||(window._cpeSel=new Set());
+  sel.has(k) ? sel.delete(k) : sel.add(k);
+  cpePaint();
+}
+function cpePaint(){
+  const sel=window._cpeSel||new Set(), box=document.getElementById('cpeDemo');
+  if(box) cpEasyLeft().forEach(c=>{ const r=box.querySelector('.lc-r[data-ck="'+c.k+'"]'); if(r){ r.classList.toggle('on', sel.has(c.k)); const g=r.querySelector('.lc-ring'); if(g) g.setAttribute('aria-pressed', sel.has(c.k)?'true':'false'); } });
+  const P=cpProgress(curStage()); cpeFill(P.met+sel.size);
+  const n=cpEasyLeft().length, k=sel.size;
+  cpeClimb(k>0 && k>=n);
+  const b=document.getElementById('cpeGo');
+  if(b) b.textContent = !k ? 'I am working on all of them' : k>=n ? 'Tick off all '+n+' and move up' : 'Tick off '+k+', working on '+(n-k);
+}
+function cpeDone(){
+  const sel=window._cpeSel||new Set(), left=cpEasyLeft().filter(c=>sel.has(c.k));
+  st.cpEasyAns=Date.now(); save();
+  track(left.length?'cpeasyyes':'cpeasyno');
+  closeOv();
+  left.forEach(c=>saveCheckpoint(c.k, c.kind==='face' ? 2 : c.kind==='yn' ? 1 : (Number(c.target)||0)));
+  if(left.length) toast(left.length+' check point'+(left.length===1?'':'s')+' ticked off.'); else toast('They are in your sessions. Tick each one when you get there.');
+  render();
+}
+function cpEasyAll(){
+  const left=cpEasyLeft();
+  st.cpEasyAns=Date.now(); save();
+  track('cpeasyall');
+  closeOv();
+  /* the last one saved is the one that clears the stage, so its sheet follows */
+  left.forEach(c=>saveCheckpoint(c.k, c.kind==='face' ? 2 : c.kind==='yn' ? 1 : (Number(c.target)||0)));
+  render();
+}
 /* on arriving at Train: a moment after the page settles, never over a tour,
    a sheet or a first visit that has not been shown round yet */
 let cpAskT=null;
 function cpAskSoon(){
-  if(cpAskT || st.tab!=='home' || wide() || !cpAskDue()) return;
+  if(cpAskT || st.tab!=='home' || wide() || !(cpEasyDue() || cpAskDue())) return;
   if(!(st.tourSeen||{}).home || st.tourNext) return;
-  cpAskT=setTimeout(()=>{ cpAskT=null; if(st.tab==='home' && !st.ov && cpAskDue()) cpAskOpen(''); }, 2600);
+  cpAskT=setTimeout(()=>{ cpAskT=null; if(st.tab!=='home' || st.ov) return;
+    if(cpEasyDue()) cpEasyOpen(); else if(cpAskDue()) cpAskOpen(''); }, 2600);
 }
 /* ── what a session said ───────────────────────────────────────────
    A number logged in a workout that reaches a check point ticks it: they

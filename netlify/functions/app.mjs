@@ -12714,7 +12714,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
                   /* whether StoreKit sent the form checks product to the iPhone app (27 Nov 2026) */
                   'iapchecksok', 'iapchecksnone',
                   /* the fortnight's check point test started (28 Nov 2026) */
-                  'cptest', 'cpask', 'cpaskyes'];
+                  'cptest', 'cpask', 'cpaskyes', 'cpeasy', 'cpeasyall', 'cpeasyyes', 'cpeasyno'];
   if (path === '/event' && request.method === 'POST') {
     const n = String(body.n || '');
     if (!EVENTS.includes(n)) return json({ ok: true, ignored: true });
