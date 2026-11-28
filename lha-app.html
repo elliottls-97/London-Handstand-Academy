@@ -18403,6 +18403,11 @@ function fcProgress(){
   if(!st.token || coachedView()) return null;
   const sent=st.awaitingReview||0, back=st.lastReview||0, unread=back && back>(st.seenReview||0);
   if(sent) return {k:'with', sent};
+  /* seen if they have read the reply in the chat or written back since
+     (Elliott, 28 Nov 2026: Angelica answered it and the card stayed) */
+  const ms=st.msgs||[];
+  const answered = unread && (ms.some(m=>m && m.from==='me' && (m.at||0)>back) || ms.some(m=>m && m.from==='e' && m.seen && (m.at||0)>=back-36e5));
+  if(answered){ st.seenReview=back; try{ save(); saveState(); }catch(e){} return null; }
   /* a reply nobody marked as watched still goes after ten days */
   if(unread && Date.now()-back < 10*864e5) return {k:'back', back};
   return null;
