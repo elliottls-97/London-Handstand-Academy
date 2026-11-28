@@ -12334,6 +12334,13 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
           for (const k of K) { const v = Number(body.pressLvl.lv[k]); if (Number.isInteger(v) && v >= 0 && v <= 5) lv[k] = v; }
           cur.pressLvl = { lv, at: Number(body.pressLvl.at) || Date.now() };
         }
+        /* the press quiz's answers, so a second phone knows the quiz is done
+           and what it found (28 Nov 2026) */
+        if (body.pressQuiz && typeof body.pressQuiz === 'object' && body.pressQuiz.a && typeof body.pressQuiz.a === 'object') {
+          const K = ['stack', 'lean', 'push', 'flex', 'float', 'tuck', 'back', 'unroll'], a = {};
+          for (const k of K) { const v = Number(body.pressQuiz.a[k]); if (Number.isInteger(v) && v >= -1 && v <= 5) a[k] = v; }
+          cur.pressQuiz = { a, at: Number(body.pressQuiz.at) || Date.now() };
+        }
         /* the cues kept from the coach's video replies (17 Oct 2026), newest
            first: a line each, and the reply it came from */
         if (Array.isArray(body.cues)) cur.cues = body.cues.slice(0, 5)
@@ -12479,7 +12486,7 @@ ${owed ? `<p style="margin:14px 0 0">It is confirmed once it is paid.</p>${btn(`
       mu: (out.mu && typeof out.mu === 'object') ? out.mu : null, ladder: out.ladder || '',
       taste: Number.isInteger(out.taste) ? out.taste : null,
       ladderDone: out.ladderDone || {},
-      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, shoulderTest: out.shoulderTest || null, pressRung: out.pressRung || null, pressLvl: out.pressLvl || null, ob: out.ob || {},
+      fixDone: out.fixDone || {}, pressTest: out.pressTest || null, pushTest: out.pushTest || null, shoulderTest: out.shoulderTest || null, pressRung: out.pressRung || null, pressLvl: out.pressLvl || null, pressQuiz: out.pressQuiz || null, ob: out.ob || {},
       cues: Array.isArray(out.cues) ? out.cues : [],
       /* the coach's own call link for a new client, where one is set */
       ...(clients()[who] ? { welcomeCall: String(((await getSetting(ONBOARDING).catch(() => null)) || {}).call || ''),
