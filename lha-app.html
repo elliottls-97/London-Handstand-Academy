@@ -27158,6 +27158,25 @@ function warmupFor(budgetSecs, stage, written){
    at the level and length picked (Elliott, 14 Nov 2026: "drills included
    don't change at 30 mins or 60") */
 let dryBuild=false;
+/* a fifth more of every amount in a dose (Harder made from Standard's list):
+   reps to the nearest whole one, never the same number, and holds of fifteen
+   seconds or more to the nearest five. The number of sets stays. */
+function harderMore(n, secs){
+  const x=n*1.2;
+  if(secs && n>=15) return Math.max(n+5, Math.round(x/5)*5);
+  return Math.max(n+1, Math.round(x));
+}
+function harderDose(it){
+  const o=Object.assign({}, it), d=String(it.d||'');
+  const isS = t => /^\s*(s|sec|secs|seconds)\b/i.test(t);
+  /* the amount, never the leading set count: "3 × 8" becomes "3 × 10" */
+  let nd=d.replace(/(^\s*\d+\s*(?:×|x|sets?\b)\s*(?:·\s*)?)(.*)$/i, (m, head, rest)=>
+    head + rest.replace(/(\d+)(?=([^\d]*))/g, (n, num, after)=>String(harderMore(Number(num), isS(after)))));
+  if(nd===d) nd=d.replace(/(\d+)(?=([^\d]*))/g, (n, num, after)=>String(harderMore(Number(num), isS(after))));
+  o.d=nd;
+  if(Number(it.amt)>0) o.amt=harderMore(Number(it.amt), it.unit==='s');
+  return o;
+}
 function previewDrills(dayIdx){
   dryBuild=true;
   try{ const o=buildFreeSession(false,true,dayIdx); return Array.isArray(o) ? new Set(o.map(q=>q.it&&q.it.v)).size : 0; }
@@ -27190,7 +27209,13 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      people training into a full session of kick ups. */
   /* the coach's own list, worked out here rather than further down, because
      the warm-up is part of the workout they wrote and needs it too */
-  const written = wristDay ? null : bandFor(stage, stageLevel(stage));
+  /* Harder with no list of its own is Standard's list, done harder (Elliott,
+     28 Nov 2026: Wall Work's Harder was handing out tuck slides, box work and
+     Take-Off drills. Harder is the same drills, the harder ones getting more
+     of the session, and about a fifth more reps) */
+  const ownWritten = wristDay ? null : bandFor(stage, stageLevel(stage));
+  const harderOfStd = !wristDay && !ownWritten && stageLevel(stage)===3 && !!bandFor(stage, 2);
+  const written = harderOfStd ? bandFor(stage, 2) : ownWritten;
   /* their own warm-up, done before they pressed Go: none is built, and the time goes to the work */
   const warm = (wristDay || st.warmOwn) ? {items:[], secs:0} : warmupFor(budget, stage, written);
   /* a drill the warm-up already used should not come round again as skill
@@ -27438,7 +27463,8 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
   picked = picked.map(it=>{
     if(it.push) return it;
     const b=bandTimingFor(stage, stageLevel(stage), it.v);
-    return b ? Object.assign({}, it, b) : it;
+    if(b) return Object.assign({}, it, b);
+    return harderOfStd ? harderDose(it) : it;
   });
   /* ── how many sets ──────────────────────────────────────────────
      A quarter of an hour is one set of each, whatever any dose says: the
@@ -27470,10 +27496,14 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     const m=timed(it), stated=Number(m.sets);
     if(Number.isFinite(stated) && stated>=1) return Math.min(stated, 8);
     const n=setsFor(it);
-    const want=Math.min(n>1 ? n : (wristDay?1:3), 4);
+    let want=Math.min(n>1 ? n : (wristDay?1:3), 4);
+    /* Harder from Standard's list: the easiest drills in it do two sets and
+       everything above them one more, so the session leans on the hard end */
+    if(harderOfStd && !oneSetOnly) want = lvlOf(it.v)<=hardFloor ? Math.min(want, 2) : Math.min(want+1, 4);
     /* the tail of a short session, not a full one */
     return oneSetOnly ? Math.min(want, RULES.tailSets) : want;
   };
+  const hardFloor = Math.min.apply(null, picked.map(it=>lvlOf(it.v)||1).concat([9]));
   /* one set of each in turn, round and round, so the time that runs out
      takes the last set off the end rather than the last drill */
   let more=true;
@@ -27481,7 +27511,9 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
      a set off something else rather than the one thing put there for them;
      the ramp below still puts it at the end */
   picked.filter(it=>it.push).forEach(it=>{ let k=0; while(k<setsWanted(it) && add(it)) k++; });
-  const round=picked;
+  /* Harder from Standard's list: the hard end has its sets first, so a short
+     clock takes them off the easy drills; the order you do them in is still the list's */
+  const round = harderOfStd ? picked.slice().sort((a,b)=>(lvlOf(b.v)||0)-(lvlOf(a.v)||0)) : picked;
   while(more && secs<budget){
     more=false;
     for(const it of round){
@@ -27532,6 +27564,7 @@ function buildFreeSession(wristDay,listOnly,dayIdx,keep){
     skill.sort((a,b)=> ((a.it.push?1:0)-(b.it.push?1:0)) || ((a.it.vol?1:0)-(b.it.vol?1:0)) || ((b.it.back?1:0)-(a.it.back?1:0))
       || (written ? 0 : ordG(a.it.v)-ordG(b.it.v))
       || (written ? 0 : lvlOf(a.it.v)-lvlOf(b.it.v))
+      || (harderOfStd ? (orderOf.has(a.it.v)?orderOf.get(a.it.v):99)-(orderOf.has(b.it.v)?orderOf.get(b.it.v):99) : 0)
       || seen.indexOf(a.it.v)-seen.indexOf(b.it.v)
       || a.set-b.set);
     out.length=warmN; skill.forEach(q=>{ q.ii=out.length; out.push(q); });
